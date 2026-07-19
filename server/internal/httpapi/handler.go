@@ -51,7 +51,7 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store) (http.Handler, *r
 		web:        web,
 		sessions:   sessions,
 		oidc:       auth.NewOIDC(cfg, sessions),
-		rooms:      rooms.NewHandler(roomStore),
+		rooms:      rooms.NewHandler(roomStore, recording.NewMinIOStore(cfg)),
 		lobby:      lobby.NewHandler(roomStore, registry, minter),
 		moderation: moderationHandler,
 		recording:  recordingHandler,

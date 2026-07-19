@@ -70,9 +70,13 @@ func Open(path string) (*Store, error) {
 	}
 	db.SetMaxOpenConns(1)
 
+	// foreign_keys is off by default in SQLite; without it the ON DELETE
+	// CASCADE in the schema is inert. MaxOpenConns(1) guarantees the pragma
+	// applies to the only connection.
 	for _, statement := range []string{
 		"PRAGMA journal_mode=WAL",
 		"PRAGMA busy_timeout=5000",
+		"PRAGMA foreign_keys=ON",
 		schema,
 	} {
 		if _, err := db.Exec(statement); err != nil {
