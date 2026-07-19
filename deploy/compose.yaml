@@ -20,8 +20,11 @@ services:
     # Signal/API on loopback only; media ports stay on all interfaces
     # because browsers dial the advertised KLISI_NODE_IP (LAN) directly and
     # ICE/SRTP require the token handshake anyway.
+    # Loopback needs BOTH families: browsers resolve localhost to ::1 first,
+    # and a v4-only bind makes fresh WebSockets fail intermittently.
     ports:
       - "127.0.0.1:7880:7880"
+      - "[::1]:7880:7880"
       - "7881:7881"
       - "7882:7882/udp"
     extra_hosts:
@@ -45,7 +48,9 @@ services:
     # Loopback only: the root credentials are public in this repo.
     ports:
       - "127.0.0.1:9000:9000"
+      - "[::1]:9000:9000"
       - "127.0.0.1:9001:9001"
+      - "[::1]:9001:9001"
     volumes:
       - minio-data:/data
     healthcheck:
@@ -107,6 +112,7 @@ services:
       - dex-data:/var/dex
     ports:
       - "127.0.0.1:5556:5556"
+      - "[::1]:5556:5556"
     healthcheck:
       test: ["CMD-SHELL", "wget -q --spider http://localhost:5556/dex/.well-known/openid-configuration || exit 1"]
       interval: 5s

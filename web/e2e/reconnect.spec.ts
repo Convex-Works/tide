@@ -22,6 +22,13 @@ test('signal loss recovers without reload and the hairline maps all states', asy
   await page.fill('input[name="name"]', 'alice');
   await page.click('button[type="submit"]');
 
+  // The hairline's idle state is also "connected", and it renders on the
+  // prejoin screen — waiting on it alone races Room.connect(): a simulate
+  // fired mid-join aborts the join permanently. Gate on the control bar,
+  // which only exists once the stage is truly connected.
+  await expect(page.getByRole('button', { name: 'Mute microphone' })).toBeVisible({
+    timeout: 20_000
+  });
   const hairline = page.locator('[data-testid="hairline"]');
   await expect(hairline).toHaveAttribute('data-state', 'connected', { timeout: 15_000 });
 
