@@ -2,6 +2,7 @@ package recording
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -12,13 +13,24 @@ import (
 	"klisi/internal/store"
 )
 
+// maxWebhookBody bounds the request body read by the LiveKit receiver, which
+// reads the whole body BEFORE verifying the signature. Real events are small
+// JSON; anything larger is hostile.
+const maxWebhookBody = 1 << 20
+
 func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 	if h.receiver == nil {
 		writeError(w, http.StatusInternalServerError, "Webhook receiver is not configured.")
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxWebhookBody)
 	event, err := h.receiver.Receive(r)
 	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			writeError(w, http.StatusRequestEntityTooLarge, "Webhook body is too large.")
+			return
+		}
 		writeError(w, http.StatusUnauthorized, "Webhook signature is invalid.")
 		return
 	}

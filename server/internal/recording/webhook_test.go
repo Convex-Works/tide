@@ -1,7 +1,10 @@
 package recording
 
 import (
+	"bytes"
 	"context"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
@@ -129,5 +132,33 @@ func TestWebhookParticipantJoinedHook(t *testing.T) {
 	}
 	if gotIdentity != "" {
 		t.Fatal("hook must not fire without a participant payload")
+	}
+}
+
+// readingReceiver mimics the pinned LiveKit receiver, which reads the whole
+// body before verifying anything.
+type readingReceiver struct{}
+
+func (readingReceiver) Receive(r *http.Request) (*protocol.WebhookEvent, error) {
+	if _, err := io.ReadAll(r.Body); err != nil {
+		return nil, err
+	}
+	return &protocol.WebhookEvent{Event: "room_started"}, nil
+}
+
+func TestWebhookRejectsOversizedBody(t *testing.T) {
+	handler, _, _, _ := recordingTestHandler(t)
+	handler.receiver = readingReceiver{}
+
+	response := httptest.NewRecorder()
+	handler.Webhook(response, httptest.NewRequest("POST", "/webhook", bytes.NewReader(make([]byte, maxWebhookBody+1))))
+	if response.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("expected 413 for an oversized body, got %d", response.Code)
+	}
+
+	response = httptest.NewRecorder()
+	handler.Webhook(response, httptest.NewRequest("POST", "/webhook", bytes.NewReader([]byte(`{}`))))
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200 for a small body, got %d", response.Code)
 	}
 }

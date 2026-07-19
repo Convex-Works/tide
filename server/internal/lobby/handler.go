@@ -91,10 +91,7 @@ func (h *Handler) Wait(w http.ResponseWriter, r *http.Request) {
 		writeLobbyError(w, http.StatusInternalServerError, "Streaming is not supported.")
 		return
 	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache, no-store")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
+	beginStream(w)
 
 	if request.Status != StatusWaiting {
 		h.writeTerminal(w, flusher, request)
@@ -132,10 +129,7 @@ func (h *Handler) Host(w http.ResponseWriter, r *http.Request) {
 		writeLobbyError(w, http.StatusInternalServerError, "Streaming is not supported.")
 		return
 	}
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache, no-store")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
+	beginStream(w)
 	updates, unsubscribe := h.registry.Subscribe(room.Slug)
 	defer unsubscribe()
 	h.writePending(w, flusher, room.Slug)
@@ -269,6 +263,19 @@ func (h *Handler) writeResolveError(w http.ResponseWriter, err error) {
 		return
 	}
 	writeLobbyError(w, http.StatusConflict, "Lobby request has already been resolved.")
+}
+
+// beginStream sets SSE headers and clears the server's global read/write
+// deadlines for this connection — SSE streams outlive the 30-second timeouts
+// that protect every ordinary route.
+func beginStream(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache, no-store")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	control := http.NewResponseController(w)
+	_ = control.SetReadDeadline(time.Time{})
+	_ = control.SetWriteDeadline(time.Time{})
 }
 
 func guestIdentity() (string, error) {

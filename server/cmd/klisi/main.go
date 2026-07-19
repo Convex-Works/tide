@@ -31,10 +31,15 @@ func main() {
 		}
 	}()
 	apiHandler, recorder := httpapi.New(cfg, klisi.WebFS(), db)
+	// Read/Write timeouts bound slow-loris bodies and wedged writers on every
+	// route; the lobby SSE handlers clear their own deadlines via
+	// http.ResponseController when a stream starts.
 	server := &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           apiHandler,
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
 	}
 
 	// Heal recording rows whose LiveKit webhooks were lost (startup + 1 min).

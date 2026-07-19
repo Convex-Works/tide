@@ -62,8 +62,8 @@ func NewRegistry(ttl time.Duration) *Registry {
 	return &Registry{
 		requests: make(map[string]*entry),
 		watchers: make(map[string]map[chan struct{}]struct{}),
-		ttl: ttl,
-		now: time.Now,
+		ttl:      ttl,
+		now:      time.Now,
 	}
 }
 
