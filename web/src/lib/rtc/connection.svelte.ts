@@ -9,3 +9,9 @@ export const connectionChrome = new ConnectionChromeState();
 export function setConnectionChrome(state: HairlineState): void {
   connectionChrome.state = state;
 }
+
+// Dev-only test hook: lets e2e specs drive the chrome deterministically.
+if (import.meta.env.DEV && typeof window !== 'undefined') {
+  (window as Window & { __klisiChrome?: typeof setConnectionChrome }).__klisiChrome =
+    setConnectionChrome;
+}
