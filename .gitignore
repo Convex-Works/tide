@@ -1,6 +1,9 @@
-# app
+# app — SQLite lives under server/data; WAL/SHM sidecars don't match *.db
 /data/
+server/data/
 *.db
+*.db-wal
+*.db-shm
 
 # go
 /bin/
