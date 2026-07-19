@@ -14,7 +14,7 @@ dev:
 		wait
 
 gen:
-	go run github.com/gzuidhof/tygo@latest generate
+	go run github.com/gzuidhof/tygo@v0.2.21 generate
 
 server-check:
 	cd server && go vet ./...
