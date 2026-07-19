@@ -56,8 +56,10 @@ export interface ChatMessage {
   mine: boolean;
 }
 
+// The payload deliberately carries no sender name: attribution comes only
+// from the authenticated LiveKit participant, so a guest cannot claim to be
+// someone else (chat impersonation, review finding #7).
 interface ChatPayload {
-  name: string;
   text: string;
   ts: number;
 }
@@ -171,7 +173,6 @@ export class RoomState {
     const message = text.trim();
     if (!message) return;
     const payload: ChatPayload = {
-      name: this.room.localParticipant.name || this.room.localParticipant.identity,
       text: message,
       ts: Date.now()
     };
@@ -179,7 +180,12 @@ export class RoomState {
       new TextEncoder().encode(JSON.stringify(payload)),
       { reliable: true, topic: 'chat' }
     );
-    this.appendChat({ from: payload.name, text: payload.text, ts: payload.ts, mine: true });
+    this.appendChat({
+      from: this.room.localParticipant.name || this.room.localParticipant.identity,
+      text: payload.text,
+      ts: payload.ts,
+      mine: true
+    });
   }
 
   isHostParticipant(participant: ParticipantView): boolean {
@@ -303,7 +309,6 @@ export class RoomState {
     try {
       const decoded = JSON.parse(new TextDecoder().decode(payload)) as Partial<ChatPayload>;
       if (
-        typeof decoded.name !== 'string' ||
         typeof decoded.text !== 'string' ||
         typeof decoded.ts !== 'number' ||
         decoded.text.trim() === ''
@@ -311,7 +316,7 @@ export class RoomState {
         return;
       }
       this.appendChat({
-        from: decoded.name || participant?.name || participant?.identity || 'Guest',
+        from: participant?.name || participant?.identity || 'Guest',
         text: decoded.text,
         ts: decoded.ts,
         mine: participant?.identity === this.room.localParticipant.identity
