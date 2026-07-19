@@ -1,0 +1,20 @@
+# app
+/data/
+*.db
+
+# go
+/bin/
+server/klisi
+
+# web
+node_modules/
+web/build/
+web/.svelte-kit/
+
+# env
+.env
+.env.*
+!.env.example
+
+# misc
+.DS_Store
