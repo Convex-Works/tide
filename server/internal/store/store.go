@@ -335,3 +335,29 @@ func requireChanged(result sql.Result) error {
 	}
 	return nil
 }
+
+// RevokeSession invalidates a session ID until the session itself would have
+// expired; expired rows are pruned on the way in so the table stays bounded
+// by the number of logouts within one session lifetime.
+func (s *Store) RevokeSession(ctx context.Context, sid string, expiresAt int64) error {
+	if _, err := s.db.ExecContext(ctx,
+		`DELETE FROM revoked_sessions WHERE expires_at <= unixepoch()`); err != nil {
+		return err
+	}
+	_, err := s.db.ExecContext(ctx,
+		`INSERT OR REPLACE INTO revoked_sessions (sid, expires_at) VALUES (?, ?)`, sid, expiresAt)
+	return err
+}
+
+func (s *Store) IsSessionRevoked(ctx context.Context, sid string) (bool, error) {
+	var one int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT 1 FROM revoked_sessions WHERE sid = ? AND expires_at > unixepoch()`, sid).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}

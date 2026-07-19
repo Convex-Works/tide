@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -148,7 +149,14 @@ func (o *OIDC) Callback(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, safeNext(saved.Next), http.StatusFound)
 }
 
-func (o *OIDC) Logout(w http.ResponseWriter, _ *http.Request) {
+func (o *OIDC) Logout(w http.ResponseWriter, r *http.Request) {
+	// Revoke server-side first: clearing the cookie only helps this browser,
+	// while a copied cookie would otherwise stay valid until it expires.
+	if session, ok := SessionFromContext(r.Context()); ok {
+		if err := o.sessions.Revoke(r.Context(), session); err != nil {
+			log.Printf("auth: could not revoke session: %v", err)
+		}
+	}
 	o.sessions.Clear(w)
 	w.WriteHeader(http.StatusNoContent)
 }

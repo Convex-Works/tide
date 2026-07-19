@@ -80,7 +80,7 @@ func TestJoinPolicyMatrix(t *testing.T) {
 
 func makeSessionCookie(t *testing.T, cfg config.Config, session auth.Session) *http.Cookie {
 	t.Helper()
-	sessions := auth.NewSessions(cfg.SessionSecret, cfg.BaseURL)
+	sessions := auth.NewSessions(cfg.SessionSecret, cfg.BaseURL, nil)
 	recorder := httptest.NewRecorder()
 	if err := sessions.Set(recorder, session); err != nil {
 		t.Fatal(err)

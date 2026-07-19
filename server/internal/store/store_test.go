@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestRoomCRUD(t *testing.T) {
@@ -151,5 +152,32 @@ func TestRecordingStatusTransitionsAreMonotonic(t *testing.T) {
 	active, err := db.ListActiveRecordings(ctx)
 	if err != nil || len(active) != 1 || active[0].ID != "rec-2" {
 		t.Fatalf("active recordings = %#v, %v", active, err)
+	}
+}
+
+func TestSessionRevocationStore(t *testing.T) {
+	db, err := Open("file::memory:?cache=shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	ctx := context.Background()
+	future := time.Now().Add(time.Hour).Unix()
+
+	if revoked, err := db.IsSessionRevoked(ctx, "sid-1"); err != nil || revoked {
+		t.Fatalf("fresh sid revoked=%v err=%v", revoked, err)
+	}
+	if err := db.RevokeSession(ctx, "sid-1", future); err != nil {
+		t.Fatal(err)
+	}
+	if revoked, err := db.IsSessionRevoked(ctx, "sid-1"); err != nil || !revoked {
+		t.Fatalf("revoked sid revoked=%v err=%v", revoked, err)
+	}
+	// Rows past their expiry no longer count and are pruned on next revoke.
+	if err := db.RevokeSession(ctx, "sid-expired", time.Now().Add(-time.Hour).Unix()); err != nil {
+		t.Fatal(err)
+	}
+	if revoked, err := db.IsSessionRevoked(ctx, "sid-expired"); err != nil || revoked {
+		t.Fatalf("expired sid revoked=%v err=%v", revoked, err)
 	}
 }

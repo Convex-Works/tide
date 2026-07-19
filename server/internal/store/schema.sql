@@ -33,3 +33,10 @@ CREATE INDEX IF NOT EXISTS recordings_room_started_idx
 CREATE UNIQUE INDEX IF NOT EXISTS recordings_one_active_room_idx
     ON recordings (room_id)
     WHERE status IN ('starting', 'recording', 'finalizing');
+
+-- Revoked session IDs let logout invalidate the stateless session cookie.
+-- Rows expire with the session itself and are pruned opportunistically.
+CREATE TABLE IF NOT EXISTS revoked_sessions (
+    sid TEXT PRIMARY KEY,
+    expires_at INTEGER NOT NULL
+);

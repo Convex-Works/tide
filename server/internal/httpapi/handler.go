@@ -35,7 +35,7 @@ type Handler struct {
 // background work: main runs its reconciler loop (RunReconciler) so recording
 // state heals when LiveKit webhooks are lost.
 func New(cfg config.Config, web fs.FS, roomStore *store.Store) (http.Handler, *recording.Handler) {
-	sessions := auth.NewSessions(cfg.SessionSecret, cfg.BaseURL)
+	sessions := auth.NewSessions(cfg.SessionSecret, cfg.BaseURL, roomStore)
 	minter := klisilivekit.NewMinter(cfg)
 	registry := lobby.NewRegistry(lobby.DefaultRequestTTL)
 	ips := newClientIPResolver(cfg.TrustedProxies)
