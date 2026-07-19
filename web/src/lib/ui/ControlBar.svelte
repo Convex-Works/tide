@@ -1,6 +1,8 @@
 <script lang="ts">
   import {
+    CaretUp,
     ChatTeardropText,
+    Check,
     Microphone,
     MicrophoneSlash,
     PhoneDisconnect,
@@ -35,9 +37,26 @@
     ontogglechat?: () => void;
   } = $props();
 
+  type DeviceMenuKind = 'audioinput' | 'videoinput';
+
   let recordingConfirm = $state(false);
   let recordingBusy = $state(false);
   let recordingError = $state('');
+  let deviceMenu = $state<DeviceMenuKind | ''>('');
+
+  async function toggleDeviceMenu(kind: DeviceMenuKind): Promise<void> {
+    if (deviceMenu === kind) {
+      deviceMenu = '';
+      return;
+    }
+    await rtc.refreshDevices().catch(() => undefined);
+    deviceMenu = kind;
+  }
+
+  function pickDevice(kind: DeviceMenuKind, deviceId: string): void {
+    deviceMenu = '';
+    void run(() => rtc.switchDevice(kind, deviceId));
+  }
 
   async function leave(): Promise<void> {
     await rtc.leave().catch(() => undefined);
@@ -75,21 +94,77 @@
   }
 </script>
 
-<nav class="control-bar" aria-label="Meeting controls">
-  <button
-    type="button"
-    class:off={!rtc.micEnabled}
-    aria-label={rtc.micEnabled ? 'Mute microphone' : 'Unmute microphone'}
-    aria-pressed={rtc.micEnabled}
-    title={rtc.micEnabled ? 'Mute microphone' : 'Unmute microphone'}
-    onclick={() => void run(() => rtc.toggleMic())}
+{#snippet deviceMenuList(kind: DeviceMenuKind, fallbackLabel: string)}
+  <!-- The stopPropagation shield keeps the window click-away handler from
+       closing the menu; keyboard interaction lives on the options. -->
+  <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
+  <div
+    class="device-menu"
+    role="menu"
+    aria-label={`Choose ${fallbackLabel.toLowerCase()}`}
+    onclick={(event) => event.stopPropagation()}
   >
-    {#if rtc.micEnabled}
-      <Microphone size={16} weight="regular" aria-hidden="true" />
+    {#each rtc.devices[kind] as device, index (device.deviceId)}
+      <button
+        type="button"
+        class="device-option"
+        role="menuitemradio"
+        aria-checked={rtc.activeDeviceIds[kind] === device.deviceId}
+        onclick={() => pickDevice(kind, device.deviceId)}
+      >
+        <span class="device-name">{device.label || `${fallbackLabel} ${index + 1}`}</span>
+        {#if rtc.activeDeviceIds[kind] === device.deviceId}
+          <Check size={12} weight="bold" aria-hidden="true" />
+        {/if}
+      </button>
     {:else}
-      <MicrophoneSlash size={16} weight="regular" aria-hidden="true" />
+      <span class="device-empty">No devices found</span>
+    {/each}
+  </div>
+{/snippet}
+
+<svelte:window
+  onclick={() => (deviceMenu = '')}
+  onkeydown={(event) => {
+    if (event.key === 'Escape') deviceMenu = '';
+  }}
+/>
+
+<nav class="control-bar" aria-label="Meeting controls">
+  <div class="control-group">
+    <button
+      type="button"
+      class:off={!rtc.micEnabled}
+      aria-label={rtc.micEnabled ? 'Mute microphone' : 'Unmute microphone'}
+      aria-pressed={rtc.micEnabled}
+      title={rtc.micEnabled ? 'Mute microphone' : 'Unmute microphone'}
+      onclick={() => void run(() => rtc.toggleMic())}
+    >
+      {#if rtc.micEnabled}
+        <Microphone size={16} weight="regular" aria-hidden="true" />
+      {:else}
+        <MicrophoneSlash size={16} weight="regular" aria-hidden="true" />
+      {/if}
+    </button>
+    <button
+      type="button"
+      class="caret"
+      class:active={deviceMenu === 'audioinput'}
+      aria-label="Choose microphone"
+      aria-haspopup="menu"
+      aria-expanded={deviceMenu === 'audioinput'}
+      title="Choose microphone"
+      onclick={(event) => {
+        event.stopPropagation();
+        void toggleDeviceMenu('audioinput');
+      }}
+    >
+      <CaretUp size={10} weight="bold" aria-hidden="true" />
+    </button>
+    {#if deviceMenu === 'audioinput'}
+      {@render deviceMenuList('audioinput', 'Microphone')}
     {/if}
-  </button>
+  </div>
 
   {#if isOwner}
     <button
@@ -112,20 +187,40 @@
     </button>
   {/if}
 
-  <button
-    type="button"
-    class:off={!rtc.camEnabled}
-    aria-label={rtc.camEnabled ? 'Turn camera off' : 'Turn camera on'}
-    aria-pressed={rtc.camEnabled}
-    title={rtc.camEnabled ? 'Turn camera off' : 'Turn camera on'}
-    onclick={() => void run(() => rtc.toggleCam())}
-  >
-    {#if rtc.camEnabled}
-      <VideoCamera size={16} weight="regular" aria-hidden="true" />
-    {:else}
-      <VideoCameraSlash size={16} weight="regular" aria-hidden="true" />
+  <div class="control-group">
+    <button
+      type="button"
+      class:off={!rtc.camEnabled}
+      aria-label={rtc.camEnabled ? 'Turn camera off' : 'Turn camera on'}
+      aria-pressed={rtc.camEnabled}
+      title={rtc.camEnabled ? 'Turn camera off' : 'Turn camera on'}
+      onclick={() => void run(() => rtc.toggleCam())}
+    >
+      {#if rtc.camEnabled}
+        <VideoCamera size={16} weight="regular" aria-hidden="true" />
+      {:else}
+        <VideoCameraSlash size={16} weight="regular" aria-hidden="true" />
+      {/if}
+    </button>
+    <button
+      type="button"
+      class="caret"
+      class:active={deviceMenu === 'videoinput'}
+      aria-label="Choose camera"
+      aria-haspopup="menu"
+      aria-expanded={deviceMenu === 'videoinput'}
+      title="Choose camera"
+      onclick={(event) => {
+        event.stopPropagation();
+        void toggleDeviceMenu('videoinput');
+      }}
+    >
+      <CaretUp size={10} weight="bold" aria-hidden="true" />
+    </button>
+    {#if deviceMenu === 'videoinput'}
+      {@render deviceMenuList('videoinput', 'Camera')}
     {/if}
-  </button>
+  </div>
 
   <button
     type="button"
@@ -275,6 +370,62 @@
 
   button.panel-control {
     position: relative;
+  }
+
+  .control-group {
+    position: relative;
+    display: flex;
+    gap: 1px;
+    align-items: center;
+  }
+
+  button.caret {
+    width: 15px;
+    color: var(--text);
+    opacity: 0.75;
+  }
+
+  button.caret[aria-expanded='true'] {
+    opacity: 1;
+  }
+
+  .device-menu {
+    position: absolute;
+    bottom: calc(100% + 14px);
+    left: 50%;
+    display: grid;
+    gap: 1px;
+    min-width: 200px;
+    max-width: 280px;
+    padding: 3px;
+    background: var(--panel);
+    border: 1px solid var(--border-d);
+    border-radius: var(--radius-card);
+    transform: translateX(-50%);
+  }
+
+  .device-menu button.device-option {
+    display: flex;
+    width: 100%;
+    height: auto;
+    gap: 10px;
+    align-items: center;
+    justify-content: space-between;
+    padding: 5px 8px;
+    font-size: 12px;
+    text-align: left;
+  }
+
+  .device-name {
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+
+  .device-empty {
+    padding: 5px 8px;
+    font-size: 12px;
+    opacity: 0.6;
   }
 
   .badge {
