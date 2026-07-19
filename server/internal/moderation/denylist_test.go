@@ -100,3 +100,12 @@ func kickRequest(slug, identity, sessionSub string) *http.Request {
 	}
 	return request
 }
+
+func TestIsOwnerIdentity(t *testing.T) {
+	if !isOwnerIdentity("host:owner", "owner") || !isOwnerIdentity("host:owner:ab12", "owner") {
+		t.Fatal("owner identities (with and without nonce) must match")
+	}
+	if isOwnerIdentity("host:owner2", "owner") || isOwnerIdentity("guest:owner", "owner") {
+		t.Fatal("non-owner identities must not match")
+	}
+}

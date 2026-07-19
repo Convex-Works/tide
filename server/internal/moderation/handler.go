@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strings"
 
 	protocol "github.com/livekit/protocol/livekit"
 
@@ -48,9 +49,9 @@ func (h *Handler) Kick(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Ban before removing so a rejoin racing the kick is still caught. The
-	// owner's own identity is never banned — kicking yourself must not lock
-	// you out of your own room.
-	if h.denylist != nil && identity != "host:"+room.OwnerSub {
+	// owner's own identities are never banned — kicking your own other tab
+	// must not lock you out of your own room.
+	if h.denylist != nil && !isOwnerIdentity(identity, room.OwnerSub) {
 		h.denylist.Ban(room.Slug, identity)
 	}
 	if _, err := h.service.RemoveParticipant(r.Context(), &protocol.RoomParticipantIdentity{
@@ -104,6 +105,13 @@ func (h *Handler) Mute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// isOwnerIdentity matches the owner's LiveKit identities: "host:<sub>" plus
+// the per-connection "host:<sub>:<nonce>" form minted by the lobby.
+func isOwnerIdentity(identity, ownerSub string) bool {
+	prefix := "host:" + ownerSub
+	return identity == prefix || strings.HasPrefix(identity, prefix+":")
 }
 
 func (h *Handler) requireOwner(w http.ResponseWriter, r *http.Request) (store.Room, bool) {

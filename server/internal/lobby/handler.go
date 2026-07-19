@@ -60,7 +60,16 @@ func (h *Handler) Join(w http.ResponseWriter, r *http.Request) {
 		if hostName == "" {
 			hostName = name
 		}
-		h.writeAdmission(w, "host:"+session.Sub, hostName, room.Slug, true)
+		// LiveKit allows one participant per identity, so a stable host
+		// identity would make every new tab disconnect the previous one. The
+		// nonce keeps each connection distinct; moderation matches the
+		// "host:<sub>" prefix when protecting the owner.
+		nonce, err := randomHex(4)
+		if err != nil {
+			writeLobbyError(w, http.StatusInternalServerError, "Could not join the room. Try again.")
+			return
+		}
+		h.writeAdmission(w, "host:"+session.Sub+":"+nonce, hostName, room.Slug, true)
 		return
 	}
 	if !room.LobbyEnabled {

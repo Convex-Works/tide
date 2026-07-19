@@ -13,6 +13,7 @@
     roomLobby
   } from '$lib/api/client';
   import type { LobbyAdmittedSSE, LobbyRequestInfo, PublicRoomInfo } from '$lib/api/types.gen';
+  import { ConnectionState, DisconnectReason } from 'livekit-client';
   import PreJoin from '$lib/rtc/PreJoin.svelte';
   import RoomStage from '$lib/rtc/RoomStage.svelte';
   import { setConnectionChrome } from '$lib/rtc/connection.svelte';
@@ -29,6 +30,7 @@
     | 'expired'
     | 'connected'
     | 'removed'
+    | 'disconnected'
     | 'left';
 
   const rtc = new RoomState();
@@ -46,7 +48,20 @@
   let closeHostLobby: (() => void) | undefined;
 
   $effect(() => {
-    if (meetingState === 'connected' && rtc.wasRemoved) handleRemoved();
+    if (meetingState !== 'connected') return;
+    if (rtc.wasRemoved) {
+      handleRemoved();
+      return;
+    }
+    // Any other terminal disconnect (server shutdown, room closed, duplicate
+    // identity…) must land somewhere recoverable instead of a dead stage.
+    if (
+      rtc.connectionState === ConnectionState.Disconnected &&
+      rtc.disconnectReason !== DisconnectReason.CLIENT_INITIATED
+    ) {
+      leaveMeetingChrome();
+      meetingState = 'disconnected';
+    }
   });
 
   async function loadMeeting(): Promise<void> {
@@ -169,12 +184,16 @@
   }
 
   function handleRemoved(): void {
+    leaveMeetingChrome();
+    meetingState = 'removed';
+  }
+
+  function leaveMeetingChrome(): void {
     closeHostLobby?.();
     closeHostLobby = undefined;
     pending = [];
     peopleOpen = false;
     setConnectionChrome('connected');
-    meetingState = 'removed';
   }
 
   function rejoin(): void {
@@ -259,6 +278,15 @@
   <main class="meeting-state">
     <p class="state-message">You were removed from the meeting.</p>
     <button class="state-action" type="button" onclick={rejoin}>Request to rejoin</button>
+  </main>
+{:else if meetingState === 'disconnected'}
+  <main class="meeting-state">
+    <p class="state-message">
+      {rtc.disconnectReason === DisconnectReason.DUPLICATE_IDENTITY
+        ? 'This meeting was opened from another tab or device.'
+        : 'The connection to the meeting was lost.'}
+    </p>
+    <button class="state-action" type="button" onclick={rejoin}>Rejoin</button>
   </main>
 {/if}
 
