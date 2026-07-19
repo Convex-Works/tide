@@ -1,36 +1,46 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { VideoCamera } from 'phosphor-svelte';
   import { getDevToken } from '$lib/api/client';
+  import PreJoin from '$lib/rtc/PreJoin.svelte';
   import RoomStage from '$lib/rtc/RoomStage.svelte';
-  import { RoomState } from '$lib/rtc/room.svelte';
+  import { setConnectionChrome } from '$lib/rtc/connection.svelte';
+  import { RoomState, type PreJoinOptions } from '$lib/rtc/room.svelte';
+
+  type MeetingState = 'prejoin' | 'connecting' | 'stage';
 
   const rtc = new RoomState();
   let room = $state('steel-thread');
   let name = $state('');
-  let joined = $state(false);
-  let joining = $state(false);
+  let meetingState = $state<MeetingState>('prejoin');
   let error = $state('');
 
-  async function join(event: SubmitEvent) {
-    event.preventDefault();
+  async function join(options: PreJoinOptions): Promise<void> {
     error = '';
-    joining = true;
+    meetingState = 'connecting';
+
     try {
       room = room.trim();
-      name = name.trim();
+      name = options.name.trim();
       const response = await getDevToken(room, name);
-      await rtc.connect(response.ws_url, response.token);
-      joined = true;
+      await rtc.connect(response.ws_url, response.token, options);
+      meetingState = 'stage';
     } catch (cause) {
       error = cause instanceof Error ? cause.message : 'Could not join the room. Try again.';
-    } finally {
-      joining = false;
+      setConnectionChrome('connected');
+      meetingState = 'prejoin';
     }
   }
 
+  function returnToPrejoin(): void {
+    setConnectionChrome('connected');
+    meetingState = 'prejoin';
+  }
+
   onDestroy(() => {
-    void rtc.disconnect();
+    void rtc
+      .disconnect()
+      .catch(() => undefined)
+      .finally(() => setConnectionChrome('connected'));
   });
 </script>
 
@@ -39,124 +49,38 @@
   <meta name="description" content="Lean self-hosted video meetings" />
 </svelte:head>
 
-{#if joined}
-  <RoomStage state={rtc} roomName={room} />
-{:else}
-  <main class="join-shell">
-    <form class="join-card" onsubmit={join}>
-      <div class="brand">klisi</div>
-      <h1>Join a room</h1>
-
-      <label>
-        <span>Room</span>
-        <input class="mono" bind:value={room} name="room" autocomplete="off" required />
-      </label>
-
-      <label>
-        <span>Name</span>
-        <input bind:value={name} name="name" autocomplete="name" required />
-      </label>
-
-      {#if error}
-        <p class="error" role="alert">{error}</p>
-      {/if}
-
-      <button type="submit" disabled={joining}>
-        <VideoCamera size={16} weight="regular" aria-hidden="true" />
-        {joining ? 'Joining…' : 'Join room'}
-      </button>
-    </form>
+{#if meetingState === 'stage'}
+  <RoomStage state={rtc} roomName={room} onleave={returnToPrejoin} />
+{:else if meetingState === 'connecting'}
+  <main class="connecting" aria-live="polite">
+    <span class="mono">{room}</span>
+    <p>Joining…</p>
   </main>
+{:else}
+  <PreJoin bind:room bind:name {error} onjoin={join} />
 {/if}
 
 <style>
-  .join-shell {
+  .connecting {
     display: grid;
     min-height: 100dvh;
-    place-items: center;
-    padding: 24px 12px;
-    background: var(--paper);
-  }
-
-  .join-card {
-    width: min(100%, 320px);
-    padding: 12px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-card);
-  }
-
-  .brand {
-    margin-bottom: 16px;
-    color: var(--accent);
-    font-size: 12px;
-    font-weight: 550;
-    letter-spacing: 0.02em;
-  }
-
-  h1 {
-    margin: 0 0 16px;
-    font-size: 18px;
-    line-height: 24px;
-    font-weight: 550;
-  }
-
-  label {
-    display: grid;
-    gap: 4px;
-    margin-bottom: 8px;
-  }
-
-  label span {
+    align-content: center;
+    justify-items: center;
+    gap: 8px;
     color: var(--ink-2);
-    font-size: 12px;
-  }
-
-  input {
-    width: 100%;
-    height: var(--control-height);
-    padding: 3px 7px;
-    color: var(--ink);
     background: var(--paper);
+  }
+
+  .connecting span {
+    padding: 2px 7px;
+    color: var(--ink);
+    font-size: 11px;
     border: 1px solid var(--border);
-    border-radius: var(--radius-control);
-    transition: border-color var(--motion-fast), background var(--motion-fast);
+    border-radius: 999px;
   }
 
-  input:hover {
-    border-color: var(--ink-2);
-  }
-
-  button {
-    display: flex;
-    width: 100%;
-    height: var(--control-height);
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    margin-top: 12px;
-    padding: 3px 8px;
-    color: white;
-    font-weight: 550;
-    background: var(--accent);
-    border: 1px solid var(--accent);
-    border-radius: var(--radius-control);
-    transition: background var(--motion-fast), border-color var(--motion-fast);
-  }
-
-  button:hover:not(:disabled) {
-    background: var(--accent-hover);
-    border-color: var(--accent-hover);
-  }
-
-  button:disabled {
-    cursor: wait;
-    opacity: 0.65;
-  }
-
-  .error {
-    margin: 8px 0 0;
-    color: #a22c32;
+  .connecting p {
+    margin: 0;
     font-size: 12px;
   }
 </style>

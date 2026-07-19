@@ -1,8 +1,22 @@
 <script lang="ts">
   import type { Track } from 'livekit-client';
-  import type { RoomState } from './room.svelte';
+  import { MicrophoneSlash } from 'phosphor-svelte';
+  import ControlBar from '$lib/ui/ControlBar.svelte';
+  import type { ParticipantView, RoomState } from './room.svelte';
 
-  let { state, roomName }: { state: RoomState; roomName: string } = $props();
+  let {
+    state,
+    roomName,
+    onleave
+  }: { state: RoomState; roomName: string; onleave: () => void } = $props();
+
+  let focusParticipant = $derived(
+    state.participants.find((participant) => participant.screenShareTrack)
+  );
+  let gridColumns = $derived(
+    Math.min(3, Math.max(1, Math.ceil(Math.sqrt(state.participants.length))))
+  );
+  let gridRows = $derived(Math.max(1, Math.ceil(state.participants.length / gridColumns)));
 
   function attachTrack(node: HTMLMediaElement, track: Track) {
     let attached = track;
@@ -19,74 +33,124 @@
       }
     };
   }
+
+  function initialFor(participant: ParticipantView): string {
+    return participant.name.slice(0, 1).toUpperCase() || '?';
+  }
 </script>
+
+{#snippet participantTile(participant: ParticipantView)}
+  <article
+    class:speaking={participant.isSpeaking}
+    class="tile"
+    data-testid="participant-tile"
+    data-identity={participant.identity}
+  >
+    {#if participant.cameraTrack}
+      <!-- Live meeting video does not have a caption track. -->
+      <!-- svelte-ignore a11y_media_has_caption -->
+      <video
+        use:attachTrack={participant.cameraTrack}
+        autoplay
+        playsinline
+        muted={participant.isLocal}
+        class:mirrored={participant.isLocal}
+        aria-label={`${participant.name}'s video`}
+      ></video>
+    {:else}
+      <div class="placeholder" aria-hidden="true">{initialFor(participant)}</div>
+    {/if}
+
+    {#each participant.audioTracks as track}
+      <!-- Live meeting audio does not have a caption track. -->
+      <!-- svelte-ignore a11y_media_has_caption -->
+      <audio
+        use:attachTrack={track}
+        autoplay
+        muted={participant.isLocal}
+        aria-label={`${participant.name}'s audio`}
+      ></audio>
+    {/each}
+
+    <div class="name-label">
+      <span>{participant.name}</span>
+      {#if participant.isLocal}<span class="you mono">You</span>{/if}
+      {#if participant.micMuted}
+        <MicrophoneSlash size={13} weight="regular" aria-label="Microphone muted" />
+      {/if}
+    </div>
+  </article>
+{/snippet}
 
 <main class="stage">
   <header class="stage-header">
     <span class="slug mono">{roomName}</span>
-    <span class="connection">{state.connectionState}</span>
+    {#if state.connectionState !== 'connected'}
+      <span class="connection">{state.connectionState}</span>
+    {/if}
   </header>
 
-  <section class="grid" aria-label="Meeting participants">
-    {#each state.participants as participant (participant.identity)}
-      <article class="tile">
-        {#if participant.videoTracks.length === 0}
-          <div class="placeholder" aria-hidden="true">
-            {participant.name.slice(0, 1).toUpperCase()}
-          </div>
-        {/if}
-
-        {#each participant.videoTracks as track}
-          <!-- Live meeting video does not have a caption track. -->
-          <!-- svelte-ignore a11y_media_has_caption -->
-          <video
-            use:attachTrack={track}
-            autoplay
-            playsinline
-            muted={participant.isLocal}
-            class:mirrored={participant.isLocal}
-            aria-label={`${participant.name}'s video`}
-          ></video>
-        {/each}
-
-        {#each participant.audioTracks as track}
-          <!-- Live meeting audio does not have a caption track. -->
-          <!-- svelte-ignore a11y_media_has_caption -->
-          <audio
-            use:attachTrack={track}
-            autoplay
-            muted={participant.isLocal}
-            aria-label={`${participant.name}'s audio`}
-          ></audio>
-        {/each}
-
-        <div class="name">{participant.name}{participant.isLocal ? ' · You' : ''}</div>
+  {#if focusParticipant && focusParticipant.screenShareTrack}
+    <section class="focus-layout" aria-label="Meeting participants">
+      <article class="focus-pane" data-testid="focus-pane">
+        <!-- Live screen share does not have a caption track. -->
+        <!-- svelte-ignore a11y_media_has_caption -->
+        <video
+          use:attachTrack={focusParticipant.screenShareTrack}
+          autoplay
+          playsinline
+          muted={focusParticipant.isLocal}
+          aria-label={`${focusParticipant.name}'s screen share`}
+        ></video>
+        <div class="focus-label">
+          <span>{focusParticipant.name}</span>
+          <span class="mono">Screen</span>
+        </div>
       </article>
-    {/each}
-  </section>
+
+      <div class="camera-rail" aria-label="Participant cameras">
+        {#each state.participants as participant (participant.identity)}
+          {@render participantTile(participant)}
+        {/each}
+      </div>
+    </section>
+  {:else}
+    <section
+      class="grid"
+      aria-label="Meeting participants"
+      data-count={state.participants.length}
+      style={`--grid-columns: ${gridColumns}; --grid-rows: ${gridRows}`}
+    >
+      {#each state.participants as participant (participant.identity)}
+        {@render participantTile(participant)}
+      {/each}
+    </section>
+  {/if}
+
+  <ControlBar {state} {onleave} />
 </main>
 
 <style>
   .stage {
     min-height: 100dvh;
-    padding: 14px 12px 12px;
+    padding: 14px 12px 64px;
     color: var(--text);
     background: var(--stage);
   }
 
   .stage-header {
     display: flex;
+    height: 28px;
     align-items: center;
     justify-content: space-between;
-    height: 28px;
     margin-bottom: 8px;
   }
 
   .slug {
     padding: 2px 7px;
+    color: var(--text);
     font-size: 11px;
     line-height: 18px;
-    color: var(--text);
     border: 1px solid var(--border-d);
     border-radius: 999px;
   }
@@ -99,33 +163,44 @@
 
   .grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
+    height: calc(100dvh - 114px);
+    grid-template-columns: repeat(var(--grid-columns), minmax(0, 1fr));
+    grid-template-rows: repeat(var(--grid-rows), minmax(0, 1fr));
     gap: 8px;
+  }
+
+  .grid[data-count='1'] {
+    width: min(100%, 960px);
+    margin-inline: auto;
   }
 
   .tile {
     position: relative;
     display: grid;
-    min-height: 220px;
+    min-height: 0;
     overflow: hidden;
     background: var(--panel-2);
     border: 1px solid var(--border-d);
     border-radius: var(--radius-tile);
-    aspect-ratio: 16 / 9;
+    transition: border-color var(--motion-fast);
   }
 
-  video,
+  .tile.speaking {
+    border-color: var(--accent-d);
+  }
+
+  .tile video,
   .placeholder {
     grid-area: 1 / 1;
     width: 100%;
     height: 100%;
   }
 
-  video {
+  .tile video {
     object-fit: cover;
   }
 
-  video.mirrored {
+  .tile video.mirrored {
     transform: scaleX(-1);
   }
 
@@ -136,15 +211,104 @@
     font-size: 18px;
   }
 
-  .name {
+  .name-label,
+  .focus-label {
     position: absolute;
     bottom: 8px;
     left: 8px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
     padding: 2px 6px;
-    color: var(--text);
+    color: var(--text-2);
     font-size: 12px;
-    background: rgb(15 15 14 / 78%);
+    background: color-mix(in srgb, var(--stage) 78%, transparent);
     border: 1px solid var(--border-d);
     border-radius: var(--radius-control);
+    transition: color var(--motion-fast);
+  }
+
+  .speaking .name-label {
+    color: var(--text);
+  }
+
+  .you {
+    color: var(--text-2);
+    font-size: 10px;
+    text-transform: uppercase;
+  }
+
+  .focus-layout {
+    display: grid;
+    height: calc(100dvh - 114px);
+    grid-template-columns: minmax(0, 1fr) 160px;
+    gap: 8px;
+  }
+
+  .focus-pane {
+    position: relative;
+    display: grid;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    background: var(--stage);
+    border: 1px solid var(--border-d);
+    border-radius: var(--radius-tile);
+  }
+
+  .focus-pane video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+
+  .focus-label {
+    color: var(--text);
+  }
+
+  .focus-label .mono {
+    color: var(--text-2);
+    font-size: 10px;
+    text-transform: uppercase;
+  }
+
+  .camera-rail {
+    display: grid;
+    min-height: 0;
+    grid-auto-rows: max-content;
+    gap: 8px;
+    overflow-y: auto;
+  }
+
+  .camera-rail .tile {
+    min-height: 90px;
+    aspect-ratio: 16 / 9;
+  }
+
+  @media (max-width: 720px) {
+    .grid {
+      height: auto;
+      grid-template-columns: 1fr;
+      grid-template-rows: none;
+      grid-auto-rows: minmax(180px, auto);
+    }
+
+    .grid .tile {
+      aspect-ratio: 16 / 9;
+    }
+
+    .focus-layout {
+      height: auto;
+      grid-template-columns: 1fr;
+    }
+
+    .focus-pane {
+      min-height: 50dvh;
+    }
+
+    .camera-rail {
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      overflow: visible;
+    }
   }
 </style>
