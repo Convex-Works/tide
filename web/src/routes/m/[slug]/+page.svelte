@@ -31,21 +31,26 @@
     | 'waiting'
     | 'denied'
     | 'connected'
+    | 'removed'
     | 'left';
 
   const rtc = new RoomState();
-  const slug = $derived(page.params.slug);
+  const slug = $derived(page.params.slug ?? '');
   let meetingState = $state<MeetingState>('loading');
   let details = $state<PublicRoomInfo>();
   let name = $state('');
   let error = $state('');
   let isOwner = $state(false);
   let pending = $state<LobbyRequestInfo[]>([]);
-  let lobbyOpen = $state(false);
+  let peopleOpen = $state(false);
   let lobbyError = $state('');
   let mediaOptions: PreJoinOptions | undefined;
   let closeWait: (() => void) | undefined;
   let closeHostLobby: (() => void) | undefined;
+
+  $effect(() => {
+    if (meetingState === 'connected' && rtc.wasRemoved) handleRemoved();
+  });
 
   async function loadMeeting(): Promise<void> {
     meetingState = 'loading';
@@ -149,9 +154,18 @@
     closeHostLobby?.();
     closeHostLobby = undefined;
     pending = [];
-    lobbyOpen = false;
+    peopleOpen = false;
     setConnectionChrome('connected');
     meetingState = 'left';
+  }
+
+  function handleRemoved(): void {
+    closeHostLobby?.();
+    closeHostLobby = undefined;
+    pending = [];
+    peopleOpen = false;
+    setConnectionChrome('connected');
+    meetingState = 'removed';
   }
 
   function rejoin(): void {
@@ -180,12 +194,12 @@
 
 {#if meetingState === 'connected'}
   <RoomStage
-    state={rtc}
+    rtc={rtc}
     roomName={slug}
     onleave={leaveMeeting}
-    hostLobby={isOwner}
+    {isOwner}
     {pending}
-    bind:lobbyOpen
+    bind:peopleOpen
     {lobbyError}
     onadmit={admit}
     ondeny={deny}
@@ -236,6 +250,12 @@
     <div class="wordmark">klisi</div>
     <h1>You left the meeting.</h1>
     <button class="primary" type="button" onclick={rejoin}>Rejoin</button>
+  </main>
+{:else if meetingState === 'removed'}
+  <main class="meeting-state">
+    <div class="wordmark">klisi</div>
+    <h1>You were removed from the meeting.</h1>
+    <button class="primary" type="button" onclick={rejoin}>Request to rejoin</button>
   </main>
 {/if}
 

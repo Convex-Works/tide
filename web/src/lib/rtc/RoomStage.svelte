@@ -2,44 +2,75 @@
   import type { Track } from 'livekit-client';
   import { MicrophoneSlash } from 'phosphor-svelte';
   import type { LobbyRequestInfo } from '$lib/api/types.gen';
+  import ChatPanel from '$lib/ui/ChatPanel.svelte';
   import ControlBar from '$lib/ui/ControlBar.svelte';
+  import ParticipantPanel from '$lib/ui/ParticipantPanel.svelte';
   import type { ParticipantView, RoomState } from './room.svelte';
 
   let {
-    state,
+    rtc,
     roomName,
     onleave,
-    hostLobby = false,
+    isOwner = false,
     pending = [],
-    lobbyOpen = $bindable(false),
+    peopleOpen = $bindable(false),
     lobbyError = '',
     onadmit = () => undefined,
     ondeny = () => undefined
   }: {
-    state: RoomState;
+    rtc: RoomState;
     roomName: string;
     onleave: () => void;
-    hostLobby?: boolean;
+    isOwner?: boolean;
     pending?: LobbyRequestInfo[];
-    lobbyOpen?: boolean;
+    peopleOpen?: boolean;
     lobbyError?: string;
     onadmit?: (id: string) => void | Promise<void>;
     ondeny?: (id: string) => void | Promise<void>;
   } = $props();
 
   let focusParticipant = $derived(
-    state.participants.find((participant) => participant.screenShareTrack)
+    rtc.participants.find((participant) => participant.screenShareTrack)
   );
   let gridColumns = $derived(
-    Math.min(3, Math.max(1, Math.ceil(Math.sqrt(state.participants.length))))
+    Math.min(3, Math.max(1, Math.ceil(Math.sqrt(rtc.participants.length))))
   );
-  let gridRows = $derived(Math.max(1, Math.ceil(state.participants.length / gridColumns)));
+  let gridRows = $derived(Math.max(1, Math.ceil(rtc.participants.length / gridColumns)));
   let previousPendingCount = 0;
+  let chatOpen = $state(false);
+  let unreadChat = $state(0);
+  let seenChatRevision = 0;
 
   $effect(() => {
-    if (pending.length > 0 && previousPendingCount === 0) lobbyOpen = true;
+    if (pending.length > 0 && previousPendingCount === 0) {
+      peopleOpen = true;
+      chatOpen = false;
+    }
     previousPendingCount = pending.length;
   });
+
+  $effect(() => {
+    const revision = rtc.chatRevision;
+    if (revision > seenChatRevision && !chatOpen) {
+      const added = Math.min(revision - seenChatRevision, rtc.chat.length);
+      unreadChat += rtc.chat.slice(-added).filter((message) => !message.mine).length;
+    }
+    if (chatOpen) unreadChat = 0;
+    seenChatRevision = revision;
+  });
+
+  function togglePeople(): void {
+    peopleOpen = !peopleOpen;
+    if (peopleOpen) chatOpen = false;
+  }
+
+  function toggleChat(): void {
+    chatOpen = !chatOpen;
+    if (chatOpen) {
+      peopleOpen = false;
+      unreadChat = 0;
+    }
+  }
 
   function attachTrack(node: HTMLMediaElement, track: Track) {
     let attached = track;
@@ -108,36 +139,23 @@
 <main class="stage">
   <header class="stage-header">
     <span class="slug mono">{roomName}</span>
-    {#if state.connectionState !== 'connected'}
-      <span class="connection">{state.connectionState}</span>
+    {#if rtc.connectionState !== 'connected'}
+      <span class="connection">{rtc.connectionState}</span>
     {/if}
   </header>
 
-  {#if hostLobby && lobbyOpen}
-    <aside class="lobby-panel" aria-label="Lobby">
-      <div class="lobby-heading">
-        <h2>Lobby</h2>
-        <span class="mono">{pending.length}</span>
-      </div>
-      {#if pending.length === 0}
-        <p class="lobby-empty">No one is waiting.</p>
-      {:else}
-        <div class="lobby-list">
-          {#each pending as request (request.id)}
-            <div class="lobby-row">
-              <span class="guest-name">{request.name}</span>
-              <div class="lobby-actions">
-                <button class="admit" type="button" onclick={() => void onadmit(request.id)}>
-                  Admit
-                </button>
-                <button type="button" onclick={() => void ondeny(request.id)}>Deny</button>
-              </div>
-            </div>
-          {/each}
-        </div>
-      {/if}
-      {#if lobbyError}<p class="lobby-error" role="alert">{lobbyError}</p>{/if}
-    </aside>
+  {#if peopleOpen}
+    <ParticipantPanel
+      {rtc}
+      slug={roomName}
+      {isOwner}
+      {pending}
+      {lobbyError}
+      {onadmit}
+      {ondeny}
+    />
+  {:else if chatOpen}
+    <ChatPanel {rtc} />
   {/if}
 
   {#if focusParticipant && focusParticipant.screenShareTrack}
@@ -159,7 +177,7 @@
       </article>
 
       <div class="camera-rail" aria-label="Participant cameras">
-        {#each state.participants as participant (participant.identity)}
+        {#each rtc.participants as participant (participant.identity)}
           {@render participantTile(participant)}
         {/each}
       </div>
@@ -168,22 +186,23 @@
     <section
       class="grid"
       aria-label="Meeting participants"
-      data-count={state.participants.length}
+      data-count={rtc.participants.length}
       style={`--grid-columns: ${gridColumns}; --grid-rows: ${gridRows}`}
     >
-      {#each state.participants as participant (participant.identity)}
+      {#each rtc.participants as participant (participant.identity)}
         {@render participantTile(participant)}
       {/each}
     </section>
   {/if}
 
   <ControlBar
-    {state}
+    {rtc}
     {onleave}
-    showLobbyControl={hostLobby}
-    lobbyCount={pending.length}
-    {lobbyOpen}
-    ontogglelobby={() => (lobbyOpen = !lobbyOpen)}
+    {peopleOpen}
+    {chatOpen}
+    {unreadChat}
+    ontogglepeople={togglePeople}
+    ontogglechat={toggleChat}
   />
 </main>
 
@@ -216,108 +235,6 @@
     color: var(--text-2);
     font-size: 12px;
     text-transform: lowercase;
-  }
-
-  .lobby-panel {
-    position: fixed;
-    z-index: 15;
-    top: 50px;
-    right: 12px;
-    width: min(280px, calc(100vw - 24px));
-    padding: 12px;
-    color: var(--text);
-    background: var(--panel);
-    border: 1px solid var(--border-d);
-    border-radius: var(--radius-card);
-  }
-
-  .lobby-heading,
-  .lobby-row,
-  .lobby-actions {
-    display: flex;
-    align-items: center;
-  }
-
-  .lobby-heading,
-  .lobby-row {
-    justify-content: space-between;
-    gap: 8px;
-  }
-
-  .lobby-heading {
-    margin-bottom: 8px;
-  }
-
-  .lobby-heading h2,
-  .lobby-empty,
-  .lobby-error {
-    margin: 0;
-  }
-
-  .lobby-heading h2 {
-    font-size: 13px;
-    font-weight: 550;
-  }
-
-  .lobby-heading span {
-    color: var(--text-2);
-    font-size: 11px;
-  }
-
-  .lobby-list {
-    display: grid;
-    gap: 4px;
-  }
-
-  .lobby-row {
-    min-height: 36px;
-    padding: 4px;
-    background: var(--panel-2);
-    border: 1px solid var(--border-d);
-    border-radius: var(--radius-control);
-  }
-
-  .guest-name {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .lobby-actions {
-    flex: none;
-    gap: 4px;
-  }
-
-  .lobby-actions button {
-    height: 24px;
-    padding: 1px 7px;
-    color: var(--text-2);
-    background: transparent;
-    border: 1px solid var(--border-d);
-    border-radius: var(--radius-control);
-  }
-
-  .lobby-actions button:hover {
-    color: var(--text);
-    background: var(--panel);
-  }
-
-  .lobby-actions button.admit {
-    color: white;
-    background: var(--accent-d);
-    border-color: var(--accent-d);
-  }
-
-  .lobby-empty,
-  .lobby-error {
-    color: var(--text-2);
-    font-size: 12px;
-  }
-
-  .lobby-error {
-    margin-top: 8px;
-    color: var(--rec);
   }
 
   .grid {

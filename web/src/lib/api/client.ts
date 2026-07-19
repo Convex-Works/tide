@@ -1,10 +1,12 @@
 import {
   AuthLogoutPath,
   DevTokenPath,
+  KickPath,
   LobbyApprovePath,
   LobbyDenyPath,
   LobbyWaitPath,
   MePath,
+  MutePath,
   RoomJoinPath,
   RoomLobbyPath,
   RoomPath,
@@ -45,6 +47,10 @@ export class AuthRequiredError extends ApiError {
 
 function pathWith(path: string, parameter: string, value: string): string {
   return path.replace(`{${parameter}}`, encodeURIComponent(value));
+}
+
+function participantActionPath(path: string, slug: string, identity: string): string {
+  return pathWith(pathWith(path, 'slug', slug), 'identity', identity);
 }
 
 async function responseError(response: Response): Promise<Error> {
@@ -99,6 +105,20 @@ export function updateRoom(slug: string, patch: UpdateRoomRequest): Promise<Room
 export function deleteRoom(slug: string): Promise<void> {
   return requestEmpty(pathWith(RoomPath, 'slug', slug), {
     method: 'DELETE',
+    headers: csrfHeaders
+  });
+}
+
+export function kick(slug: string, identity: string): Promise<void> {
+  return requestEmpty(participantActionPath(KickPath, slug, identity), {
+    method: 'POST',
+    headers: csrfHeaders
+  });
+}
+
+export function muteParticipant(slug: string, identity: string): Promise<void> {
+  return requestEmpty(participantActionPath(MutePath, slug, identity), {
+    method: 'POST',
     headers: csrfHeaders
   });
 }

@@ -10,6 +10,8 @@ const (
 	RoomPath           = "/api/rooms/{slug}"
 	RoomJoinPath       = "/api/rooms/{slug}/join"
 	RoomLobbyPath      = "/api/rooms/{slug}/lobby"
+	KickPath           = "/api/rooms/{slug}/participants/{identity}/kick"
+	MutePath           = "/api/rooms/{slug}/participants/{identity}/mute"
 	LobbyWaitPath      = "/api/lobby/{id}/wait"
 	LobbyApprovePath   = "/api/lobby/{id}/approve"
 	LobbyDenyPath      = "/api/lobby/{id}/deny"

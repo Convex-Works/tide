@@ -1,5 +1,6 @@
 <script lang="ts">
   import {
+    ChatTeardropText,
     Microphone,
     MicrophoneSlash,
     PhoneDisconnect,
@@ -11,23 +12,25 @@
   import type { RoomState } from '$lib/rtc/room.svelte';
 
   let {
-    state,
+    rtc,
     onleave,
-    showLobbyControl = false,
-    lobbyCount = 0,
-    lobbyOpen = false,
-    ontogglelobby = () => undefined
+    peopleOpen = false,
+    chatOpen = false,
+    unreadChat = 0,
+    ontogglepeople = () => undefined,
+    ontogglechat = () => undefined
   }: {
-    state: RoomState;
+    rtc: RoomState;
     onleave: () => void;
-    showLobbyControl?: boolean;
-    lobbyCount?: number;
-    lobbyOpen?: boolean;
-    ontogglelobby?: () => void;
+    peopleOpen?: boolean;
+    chatOpen?: boolean;
+    unreadChat?: number;
+    ontogglepeople?: () => void;
+    ontogglechat?: () => void;
   } = $props();
 
   async function leave(): Promise<void> {
-    await state.leave().catch(() => undefined);
+    await rtc.leave().catch(() => undefined);
     onleave();
   }
 
@@ -35,7 +38,7 @@
     try {
       await action();
     } catch {
-      // Browser media pickers may be cancelled without changing meeting state.
+      // Browser media pickers may be cancelled without changing meeting rtc.
     }
   }
 </script>
@@ -43,13 +46,13 @@
 <nav class="control-bar" aria-label="Meeting controls">
   <button
     type="button"
-    class:off={!state.micEnabled}
-    aria-label={state.micEnabled ? 'Mute microphone' : 'Unmute microphone'}
-    aria-pressed={state.micEnabled}
-    title={state.micEnabled ? 'Mute microphone' : 'Unmute microphone'}
-    onclick={() => void run(() => state.toggleMic())}
+    class:off={!rtc.micEnabled}
+    aria-label={rtc.micEnabled ? 'Mute microphone' : 'Unmute microphone'}
+    aria-pressed={rtc.micEnabled}
+    title={rtc.micEnabled ? 'Mute microphone' : 'Unmute microphone'}
+    onclick={() => void run(() => rtc.toggleMic())}
   >
-    {#if state.micEnabled}
+    {#if rtc.micEnabled}
       <Microphone size={16} weight="regular" aria-hidden="true" />
     {:else}
       <MicrophoneSlash size={16} weight="regular" aria-hidden="true" />
@@ -58,13 +61,13 @@
 
   <button
     type="button"
-    class:off={!state.camEnabled}
-    aria-label={state.camEnabled ? 'Turn camera off' : 'Turn camera on'}
-    aria-pressed={state.camEnabled}
-    title={state.camEnabled ? 'Turn camera off' : 'Turn camera on'}
-    onclick={() => void run(() => state.toggleCam())}
+    class:off={!rtc.camEnabled}
+    aria-label={rtc.camEnabled ? 'Turn camera off' : 'Turn camera on'}
+    aria-pressed={rtc.camEnabled}
+    title={rtc.camEnabled ? 'Turn camera off' : 'Turn camera on'}
+    onclick={() => void run(() => rtc.toggleCam())}
   >
-    {#if state.camEnabled}
+    {#if rtc.camEnabled}
       <VideoCamera size={16} weight="regular" aria-hidden="true" />
     {:else}
       <VideoCameraSlash size={16} weight="regular" aria-hidden="true" />
@@ -73,29 +76,40 @@
 
   <button
     type="button"
-    class:active={state.screenShareEnabled}
-    aria-label={state.screenShareEnabled ? 'Stop sharing' : 'Share screen'}
-    aria-pressed={state.screenShareEnabled}
-    title={state.screenShareEnabled ? 'Stop sharing' : 'Share screen'}
-    onclick={() => void run(() => state.toggleScreenShare())}
+    class:active={rtc.screenShareEnabled}
+    aria-label={rtc.screenShareEnabled ? 'Stop sharing' : 'Share screen'}
+    aria-pressed={rtc.screenShareEnabled}
+    title={rtc.screenShareEnabled ? 'Stop sharing' : 'Share screen'}
+    onclick={() => void run(() => rtc.toggleScreenShare())}
   >
     <Screencast size={16} weight="regular" aria-hidden="true" />
   </button>
 
-  {#if showLobbyControl}
-    <button
-      type="button"
-      class="lobby"
-      class:active={lobbyOpen}
-      aria-label={lobbyOpen ? 'Close lobby' : 'Open lobby'}
-      aria-pressed={lobbyOpen}
-      title={lobbyOpen ? 'Close lobby' : 'Open lobby'}
-      onclick={ontogglelobby}
-    >
-      <UsersThree size={16} weight="regular" aria-hidden="true" />
-      {#if lobbyCount > 0}<span class="badge mono">{lobbyCount}</span>{/if}
-    </button>
-  {/if}
+  <button
+    type="button"
+    class="panel-control"
+    class:active={peopleOpen}
+    aria-label={peopleOpen ? 'Close people' : 'Open people'}
+    aria-pressed={peopleOpen}
+    title={peopleOpen ? 'Close people' : 'Open people'}
+    onclick={ontogglepeople}
+  >
+    <UsersThree size={16} weight="regular" aria-hidden="true" />
+    <span class="badge mono">{rtc.participants.length}</span>
+  </button>
+
+  <button
+    type="button"
+    class="panel-control"
+    class:active={chatOpen}
+    aria-label={chatOpen ? 'Close chat' : 'Open chat'}
+    aria-pressed={chatOpen}
+    title={chatOpen ? 'Close chat' : 'Open chat'}
+    onclick={ontogglechat}
+  >
+    <ChatTeardropText size={16} weight="regular" aria-hidden="true" />
+    {#if unreadChat > 0}<span class="badge unread mono">{unreadChat}</span>{/if}
+  </button>
 
   <span class="separator" aria-hidden="true"></span>
 
@@ -170,7 +184,7 @@
     border-color: color-mix(in srgb, var(--rec) 32%, transparent);
   }
 
-  button.lobby {
+  button.panel-control {
     position: relative;
   }
 
@@ -188,6 +202,10 @@
     background: var(--accent-d);
     border: 1px solid var(--panel);
     border-radius: 999px;
+  }
+
+  .badge.unread {
+    background: var(--rec);
   }
 
   .separator {

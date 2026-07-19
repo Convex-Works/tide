@@ -1,4 +1,12 @@
-import { ConnectionState, Room, RoomEvent, Track, type Participant } from 'livekit-client';
+import {
+  ConnectionState,
+  DisconnectReason,
+  Room,
+  RoomEvent,
+  Track,
+  type Participant,
+  type RemoteParticipant
+} from 'livekit-client';
 import { setConnectionChrome } from './connection.svelte';
 
 export type DeviceKind = 'audioinput' | 'videoinput' | 'audiooutput';
@@ -32,12 +40,29 @@ export interface ParticipantView {
   identity: string;
   name: string;
   isLocal: boolean;
+  role?: 'host';
   cameraTrack?: Track;
   screenShareTrack?: Track;
   audioTracks: Track[];
   micMuted: boolean;
+  camMuted: boolean;
   isSpeaking: boolean;
 }
+
+export interface ChatMessage {
+  from: string;
+  text: string;
+  ts: number;
+  mine: boolean;
+}
+
+interface ChatPayload {
+  name: string;
+  text: string;
+  ts: number;
+}
+
+const maximumChatMessages = 200;
 
 export class RoomState {
   readonly room = new Room({ adaptiveStream: true, dynacast: true });
@@ -48,6 +73,10 @@ export class RoomState {
   camEnabled = $state(false);
   screenShareEnabled = $state(false);
   activeSpeakerIdentities = $state<string[]>([]);
+  chat = $state<ChatMessage[]>([]);
+  chatRevision = $state(0);
+  disconnectReason = $state<DisconnectReason>();
+  wasRemoved = $state(false);
   devices = $state<DeviceLists>({ audioinput: [], videoinput: [], audiooutput: [] });
   activeDeviceIds = $state<ActiveDeviceIds>({
     audioinput: '',
@@ -61,7 +90,7 @@ export class RoomState {
         this.connectionState = state;
         this.syncConnectionChrome(state);
       })
-      .on(RoomEvent.Disconnected, () => this.handleDisconnected())
+      .on(RoomEvent.Disconnected, (reason?: DisconnectReason) => this.handleDisconnected(reason))
       .on(RoomEvent.ParticipantConnected, () => this.syncParticipants())
       .on(RoomEvent.ParticipantDisconnected, () => this.syncParticipants())
       .on(RoomEvent.TrackPublished, () => this.syncParticipants())
@@ -72,6 +101,14 @@ export class RoomState {
       .on(RoomEvent.TrackUnmuted, () => this.syncAllMediaState())
       .on(RoomEvent.LocalTrackPublished, () => this.syncAllMediaState())
       .on(RoomEvent.LocalTrackUnpublished, () => this.syncAllMediaState())
+      .on(RoomEvent.ParticipantMetadataChanged, () => this.syncParticipants())
+      .on(RoomEvent.ParticipantNameChanged, () => this.syncParticipants())
+      .on(
+        RoomEvent.DataReceived,
+        (payload: Uint8Array, participant?: RemoteParticipant, _kind?: unknown, topic?: string) => {
+          if (topic === 'chat') this.receiveChat(payload, participant);
+        }
+      )
       .on(RoomEvent.ActiveSpeakersChanged, (speakers: Participant[]) => {
         this.activeSpeakerIdentities = speakers.map((speaker) => speaker.identity);
         this.syncParticipants();
@@ -86,6 +123,10 @@ export class RoomState {
   }
 
   async connect(wsURL: string, token: string, media: JoinMediaOptions): Promise<void> {
+    this.chat = [];
+    this.chatRevision = 0;
+    this.disconnectReason = undefined;
+    this.wasRemoved = false;
     try {
       await this.room.connect(wsURL, token);
 
@@ -123,6 +164,25 @@ export class RoomState {
     this.syncAllMediaState();
   }
 
+  async sendChat(text: string): Promise<void> {
+    const message = text.trim();
+    if (!message) return;
+    const payload: ChatPayload = {
+      name: this.room.localParticipant.name || this.room.localParticipant.identity,
+      text: message,
+      ts: Date.now()
+    };
+    await this.room.localParticipant.publishData(
+      new TextEncoder().encode(JSON.stringify(payload)),
+      { reliable: true, topic: 'chat' }
+    );
+    this.appendChat({ from: payload.name, text: payload.text, ts: payload.ts, mine: true });
+  }
+
+  isHostParticipant(participant: ParticipantView): boolean {
+    return participant.role === 'host';
+  }
+
   async switchDevice(kind: DeviceKind, deviceId: string): Promise<void> {
     const switched = await this.room.switchActiveDevice(kind, deviceId);
     if (!switched) {
@@ -147,7 +207,7 @@ export class RoomState {
 
   async leave(): Promise<void> {
     await this.room.disconnect();
-    this.handleDisconnected();
+    this.handleDisconnected(DisconnectReason.CLIENT_INITIATED);
   }
 
   async disconnect(): Promise<void> {
@@ -176,6 +236,7 @@ export class RoomState {
         identity: participant.identity,
         name: participant.name || participant.identity,
         isLocal: participant === this.room.localParticipant,
+        role: this.participantRole(participant),
         cameraTrack: camera?.track,
         screenShareTrack: screenShare?.track,
         audioTracks: publications.flatMap((publication) => {
@@ -185,6 +246,7 @@ export class RoomState {
             : [];
         }),
         micMuted: !microphone || microphone.isMuted,
+        camMuted: !camera || camera.isMuted,
         isSpeaking: this.activeSpeakerIdentities.includes(participant.identity)
       };
     });
@@ -197,7 +259,9 @@ export class RoomState {
     this.syncParticipants();
   }
 
-  private handleDisconnected(): void {
+  private handleDisconnected(reason?: DisconnectReason): void {
+    this.disconnectReason = reason;
+    this.wasRemoved = reason === DisconnectReason.PARTICIPANT_REMOVED;
     this.connectionState = ConnectionState.Disconnected;
     this.participants = [];
     this.activeSpeakerIdentities = [];
@@ -205,6 +269,43 @@ export class RoomState {
     this.camEnabled = false;
     this.screenShareEnabled = false;
     setConnectionChrome('offline');
+  }
+
+  private participantRole(participant: Participant): 'host' | undefined {
+    if (!participant.metadata) return undefined;
+    try {
+      const metadata = JSON.parse(participant.metadata) as { role?: unknown };
+      return metadata.role === 'host' ? 'host' : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private receiveChat(payload: Uint8Array, participant?: RemoteParticipant): void {
+    try {
+      const decoded = JSON.parse(new TextDecoder().decode(payload)) as Partial<ChatPayload>;
+      if (
+        typeof decoded.name !== 'string' ||
+        typeof decoded.text !== 'string' ||
+        typeof decoded.ts !== 'number' ||
+        decoded.text.trim() === ''
+      ) {
+        return;
+      }
+      this.appendChat({
+        from: decoded.name || participant?.name || participant?.identity || 'Guest',
+        text: decoded.text,
+        ts: decoded.ts,
+        mine: participant?.identity === this.room.localParticipant.identity
+      });
+    } catch {
+      // Ignore data messages that are not valid klisi chat payloads.
+    }
+  }
+
+  private appendChat(message: ChatMessage): void {
+    this.chat = [...this.chat, message].slice(-maximumChatMessages);
+    this.chatRevision += 1;
   }
 
   private syncConnectionChrome(state: ConnectionState): void {

@@ -14,17 +14,19 @@ import (
 	"klisi/internal/config"
 	"klisi/internal/lobby"
 	klisilivekit "klisi/internal/livekit"
+	"klisi/internal/moderation"
 	"klisi/internal/rooms"
 	"klisi/internal/store"
 )
 
 type Handler struct {
-	web      fs.FS
-	sessions *auth.Sessions
-	oidc     *auth.OIDC
-	rooms    *rooms.Handler
-	lobby    *lobby.Handler
-	minter   *klisilivekit.Minter
+	web        fs.FS
+	sessions   *auth.Sessions
+	oidc       *auth.OIDC
+	rooms      *rooms.Handler
+	lobby      *lobby.Handler
+	moderation *moderation.Handler
+	minter     *klisilivekit.Minter
 }
 
 func New(cfg config.Config, web fs.FS, roomStore *store.Store) http.Handler {
@@ -32,9 +34,13 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store) http.Handler {
 	minter := klisilivekit.NewMinter(cfg)
 	registry := lobby.NewRegistry(lobby.DefaultRequestTTL)
 	handler := &Handler{
-		web: web, sessions: sessions,
-		oidc: auth.NewOIDC(cfg, sessions), rooms: rooms.NewHandler(roomStore),
-		lobby: lobby.NewHandler(roomStore, registry, minter), minter: minter,
+		web:        web,
+		sessions:   sessions,
+		oidc:       auth.NewOIDC(cfg, sessions),
+		rooms:      rooms.NewHandler(roomStore),
+		lobby:      lobby.NewHandler(roomStore, registry, minter),
+		moderation: moderation.NewHandler(roomStore, moderation.NewRoomService(cfg)),
+		minter:     minter,
 	}
 
 	mux := http.NewServeMux()
@@ -49,6 +55,8 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store) http.Handler {
 	mux.HandleFunc("GET "+api.RoomPath, handler.rooms.Public)
 	mux.Handle("PATCH "+api.RoomPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.rooms.Update))))
 	mux.Handle("DELETE "+api.RoomPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.rooms.Delete))))
+	mux.Handle("POST "+api.KickPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.moderation.Kick))))
+	mux.Handle("POST "+api.MutePath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.moderation.Mute))))
 
 	mux.Handle("POST "+api.RoomJoinPath, handler.csrf(http.HandlerFunc(handler.lobby.Join)))
 	mux.Handle("GET "+api.RoomLobbyPath, handler.requireAuth(http.HandlerFunc(handler.lobby.Host)))
@@ -68,6 +76,8 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store) http.Handler {
 	registerMethodFallback(mux, api.RoomsPath, http.MethodGet+", "+http.MethodPost)
 	registerMethodFallback(mux, api.RoomPath, http.MethodGet+", "+http.MethodPatch+", "+http.MethodDelete)
 	registerMethodFallback(mux, api.RoomJoinPath, http.MethodPost)
+	registerMethodFallback(mux, api.KickPath, http.MethodPost)
+	registerMethodFallback(mux, api.MutePath, http.MethodPost)
 	registerMethodFallback(mux, api.RoomLobbyPath, http.MethodGet)
 	registerMethodFallback(mux, api.LobbyWaitPath, http.MethodGet)
 	registerMethodFallback(mux, api.LobbyApprovePath, http.MethodPost)

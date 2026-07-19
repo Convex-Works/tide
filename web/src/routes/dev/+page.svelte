@@ -52,7 +52,7 @@
 {#if !import.meta.env.DEV}
   <main class="unavailable">Not available.</main>
 {:else if meetingState === 'stage'}
-  <RoomStage state={rtc} roomName={room} onleave={returnToPrejoin} />
+  <RoomStage rtc={rtc} roomName={room} onleave={returnToPrejoin} />
 {:else if meetingState === 'connecting'}
   <main class="connecting" aria-live="polite">
     <span class="mono">{room}</span>
