@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"klisi/internal/api"
+	"klisi/internal/httpx"
 )
 
 type tokenBucket struct {
@@ -92,9 +92,7 @@ func withRateLimit(limiter *ipRateLimiter, ips *clientIPResolver, next http.Hand
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !limiter.allow(ips.resolve(r)) {
 			w.Header().Set("Cache-Control", "no-store")
-			writeJSON(w, http.StatusTooManyRequests, api.ErrorResponse{
-				Error: "Too many requests. Try again later.",
-			})
+			httpx.WriteError(w, http.StatusTooManyRequests, "Too many requests. Try again later.")
 			return
 		}
 		next.ServeHTTP(w, r)

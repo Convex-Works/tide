@@ -2,17 +2,13 @@ package moderation
 
 import (
 	"context"
-	"database/sql"
-	"encoding/json"
-	"errors"
 	"log"
 	"net/http"
 	"strings"
 
 	protocol "github.com/livekit/protocol/livekit"
 
-	"klisi/internal/api"
-	"klisi/internal/auth"
+	"klisi/internal/httpx"
 	"klisi/internal/store"
 )
 
@@ -57,7 +53,7 @@ func (h *Handler) Kick(w http.ResponseWriter, r *http.Request) {
 	if _, err := h.service.RemoveParticipant(r.Context(), &protocol.RoomParticipantIdentity{
 		Room: room.Slug, Identity: identity,
 	}); err != nil {
-		writeError(w, http.StatusBadGateway, "LiveKit could not remove the participant. Try again.")
+		httpx.WriteError(w, http.StatusBadGateway, "LiveKit could not remove the participant. Try again.")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -95,13 +91,13 @@ func (h *Handler) Mute(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if microphoneSID == "" {
-		writeError(w, http.StatusNotFound, "Participant microphone not found.")
+		httpx.WriteError(w, http.StatusNotFound, "Participant microphone not found.")
 		return
 	}
 	if _, err := h.service.MutePublishedTrack(r.Context(), &protocol.MuteRoomTrackRequest{
 		Room: room.Slug, Identity: identity, TrackSid: microphoneSID, Muted: true,
 	}); err != nil {
-		writeError(w, http.StatusBadGateway, "LiveKit could not mute the participant. Try again.")
+		httpx.WriteError(w, http.StatusBadGateway, "LiveKit could not mute the participant. Try again.")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -115,22 +111,10 @@ func isOwnerIdentity(identity, ownerSub string) bool {
 }
 
 func (h *Handler) requireOwner(w http.ResponseWriter, r *http.Request) (store.Room, bool) {
-	session, ok := auth.SessionFromContext(r.Context())
+	room, _, ok := httpx.RequireRoomOwner(
+		w, r, h.store, r.PathValue("slug"), "Only the room owner can moderate participants.",
+	)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "Authentication required.")
-		return store.Room{}, false
-	}
-	room, err := h.store.RoomBySlug(r.Context(), r.PathValue("slug"))
-	if errors.Is(err, sql.ErrNoRows) {
-		writeError(w, http.StatusNotFound, "Room not found.")
-		return store.Room{}, false
-	}
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Could not load the room. Try again.")
-		return store.Room{}, false
-	}
-	if room.OwnerSub != session.Sub {
-		writeError(w, http.StatusForbidden, "Only the room owner can moderate participants.")
 		return store.Room{}, false
 	}
 	return room, true
@@ -144,7 +128,7 @@ func (h *Handler) findParticipant(
 ) (*protocol.ParticipantInfo, bool) {
 	response, err := h.service.ListParticipants(r.Context(), &protocol.ListParticipantsRequest{Room: roomName})
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "LiveKit could not list participants. Try again.")
+		httpx.WriteError(w, http.StatusBadGateway, "LiveKit could not list participants. Try again.")
 		return nil, false
 	}
 	for _, participant := range response.Participants {
@@ -152,12 +136,6 @@ func (h *Handler) findParticipant(
 			return participant, true
 		}
 	}
-	writeError(w, http.StatusNotFound, "Participant not found.")
+	httpx.WriteError(w, http.StatusNotFound, "Participant not found.")
 	return nil, false
-}
-
-func writeError(w http.ResponseWriter, status int, message string) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(api.ErrorResponse{Error: message})
 }

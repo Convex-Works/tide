@@ -13,6 +13,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"klisi/internal/auth/sessionctx"
 )
 
 const (
@@ -29,14 +31,7 @@ var (
 	ErrRevokedSession = errors.New("session has been revoked")
 )
 
-type Session struct {
-	Sub   string `json:"sub"`
-	Email string `json:"email"`
-	Name  string `json:"name"`
-	Exp   int64  `json:"exp"`
-	// SID identifies this cookie for server-side revocation on logout.
-	SID string `json:"sid,omitempty"`
-}
+type Session = sessionctx.Session
 
 // RevocationStore persists revoked session IDs so logout actually
 // invalidates the stateless cookie everywhere, not just in one browser.

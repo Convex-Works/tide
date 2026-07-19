@@ -1,14 +1,15 @@
 package auth
 
-import "context"
+import (
+	"context"
 
-type sessionContextKey struct{}
+	"klisi/internal/auth/sessionctx"
+)
 
 func WithSession(ctx context.Context, session Session) context.Context {
-	return context.WithValue(ctx, sessionContextKey{}, session)
+	return sessionctx.WithSession(ctx, session)
 }
 
 func SessionFromContext(ctx context.Context) (Session, bool) {
-	session, ok := ctx.Value(sessionContextKey{}).(Session)
-	return session, ok
+	return sessionctx.FromContext(ctx)
 }

@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
-	"encoding/json"
 	"log"
 	"net/http"
 	"net/url"
@@ -18,6 +17,7 @@ import (
 
 	"klisi/internal/api"
 	"klisi/internal/config"
+	"klisi/internal/httpx"
 )
 
 const (
@@ -56,12 +56,12 @@ func NewOIDC(cfg config.Config, sessions *Sessions) *OIDC {
 func (o *OIDC) Login(w http.ResponseWriter, r *http.Request) {
 	provider, err := o.getProvider(r.Context())
 	if err != nil {
-		writeAuthError(w, http.StatusBadGateway, "Could not contact the identity provider. Try again.")
+		httpx.WriteError(w, http.StatusBadGateway, "Could not contact the identity provider. Try again.")
 		return
 	}
 	state, err := randomToken(32)
 	if err != nil {
-		writeAuthError(w, http.StatusInternalServerError, "Could not start sign in. Try again.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not start sign in. Try again.")
 		return
 	}
 	verifier := oauth2.GenerateVerifier()
@@ -70,7 +70,7 @@ func (o *OIDC) Login(w http.ResponseWriter, r *http.Request) {
 		State: state, Verifier: verifier, Next: safeNext(r.URL.Query().Get("next")), Exp: expires.Unix(),
 	})
 	if err != nil {
-		writeAuthError(w, http.StatusInternalServerError, "Could not start sign in. Try again.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not start sign in. Try again.")
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
@@ -90,44 +90,44 @@ func (o *OIDC) Callback(w http.ResponseWriter, r *http.Request) {
 	o.clearState(w)
 	stateCookie, err := r.Cookie(oidcStateCookieName)
 	if err != nil {
-		writeAuthError(w, http.StatusBadRequest, "Sign-in state is missing or expired. Start again.")
+		httpx.WriteError(w, http.StatusBadRequest, "Sign-in state is missing or expired. Start again.")
 		return
 	}
 	var saved oidcState
 	if err := o.sessions.verify(stateCookie.Value, &saved); err != nil || saved.Exp <= o.sessions.now().Unix() {
-		writeAuthError(w, http.StatusBadRequest, "Sign-in state is missing or expired. Start again.")
+		httpx.WriteError(w, http.StatusBadRequest, "Sign-in state is missing or expired. Start again.")
 		return
 	}
 	gotState := r.URL.Query().Get("state")
 	if len(gotState) != len(saved.State) || subtle.ConstantTimeCompare([]byte(gotState), []byte(saved.State)) != 1 {
-		writeAuthError(w, http.StatusBadRequest, "Sign-in state did not match. Start again.")
+		httpx.WriteError(w, http.StatusBadRequest, "Sign-in state did not match. Start again.")
 		return
 	}
 	if providerError := r.URL.Query().Get("error"); providerError != "" {
-		writeAuthError(w, http.StatusUnauthorized, "Sign in was not completed.")
+		httpx.WriteError(w, http.StatusUnauthorized, "Sign in was not completed.")
 		return
 	}
 
 	provider, err := o.getProvider(r.Context())
 	if err != nil {
-		writeAuthError(w, http.StatusBadGateway, "Could not contact the identity provider. Try again.")
+		httpx.WriteError(w, http.StatusBadGateway, "Could not contact the identity provider. Try again.")
 		return
 	}
 	token, err := o.oauthConfig(provider).Exchange(
 		r.Context(), r.URL.Query().Get("code"), oauth2.VerifierOption(saved.Verifier),
 	)
 	if err != nil {
-		writeAuthError(w, http.StatusUnauthorized, "The identity provider rejected the sign in.")
+		httpx.WriteError(w, http.StatusUnauthorized, "The identity provider rejected the sign in.")
 		return
 	}
 	rawIDToken, ok := token.Extra("id_token").(string)
 	if !ok || rawIDToken == "" {
-		writeAuthError(w, http.StatusUnauthorized, "The identity provider did not return an identity token.")
+		httpx.WriteError(w, http.StatusUnauthorized, "The identity provider did not return an identity token.")
 		return
 	}
 	idToken, err := provider.Verifier(&oidc.Config{ClientID: o.clientID}).Verify(r.Context(), rawIDToken)
 	if err != nil {
-		writeAuthError(w, http.StatusUnauthorized, "The identity token could not be verified.")
+		httpx.WriteError(w, http.StatusUnauthorized, "The identity token could not be verified.")
 		return
 	}
 	var claims struct {
@@ -136,14 +136,14 @@ func (o *OIDC) Callback(w http.ResponseWriter, r *http.Request) {
 		Name  string `json:"name"`
 	}
 	if err := idToken.Claims(&claims); err != nil || strings.TrimSpace(claims.Sub) == "" {
-		writeAuthError(w, http.StatusUnauthorized, "The identity token is missing required claims.")
+		httpx.WriteError(w, http.StatusUnauthorized, "The identity token is missing required claims.")
 		return
 	}
 	if strings.TrimSpace(claims.Name) == "" {
 		claims.Name = claims.Email
 	}
 	if err := o.sessions.Set(w, Session{Sub: claims.Sub, Email: claims.Email, Name: claims.Name}); err != nil {
-		writeAuthError(w, http.StatusInternalServerError, "Could not create a session. Try again.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not create a session. Try again.")
 		return
 	}
 	http.Redirect(w, r, safeNext(saved.Next), http.StatusFound)
@@ -164,10 +164,10 @@ func (o *OIDC) Logout(w http.ResponseWriter, r *http.Request) {
 func (o *OIDC) Me(w http.ResponseWriter, r *http.Request) {
 	session, ok := SessionFromContext(r.Context())
 	if !ok {
-		writeAuthError(w, http.StatusUnauthorized, "Authentication required.")
+		httpx.WriteError(w, http.StatusUnauthorized, "Authentication required.")
 		return
 	}
-	writeAuthJSON(w, http.StatusOK, api.Me{Sub: session.Sub, Email: session.Email, Name: session.Name})
+	httpx.WriteJSON(w, http.StatusOK, api.Me{Sub: session.Sub, Email: session.Email, Name: session.Name})
 }
 
 func (o *OIDC) getProvider(ctx context.Context) (*oidc.Provider, error) {
@@ -217,14 +217,4 @@ func randomToken(size int) (string, error) {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(value), nil
-}
-
-func writeAuthError(w http.ResponseWriter, status int, message string) {
-	writeAuthJSON(w, status, api.ErrorResponse{Error: message})
-}
-
-func writeAuthJSON(w http.ResponseWriter, status int, value any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(value)
 }

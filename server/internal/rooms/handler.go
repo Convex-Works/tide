@@ -3,18 +3,15 @@ package rooms
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"strings"
 
 	"klisi/internal/api"
 	"klisi/internal/auth"
+	"klisi/internal/httpx"
 	"klisi/internal/store"
 )
-
-const maxJSONRequestBody = 1 << 20
 
 // objectStore is the part of the recording object store room deletion needs:
 // stored files must be removed before their database rows disappear.
@@ -35,56 +32,56 @@ func NewHandler(roomStore *store.Store, objects objectStore) *Handler {
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	session, ok := auth.SessionFromContext(r.Context())
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "Authentication required.")
+		httpx.WriteError(w, http.StatusUnauthorized, "Authentication required.")
 		return
 	}
 	var request api.CreateRoomRequest
-	if err := decodeRequest(w, r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "Request body must be valid JSON.")
+	if err := httpx.DecodeJSON(w, r, &request); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "Request body must be valid JSON.")
 		return
 	}
 	name := strings.TrimSpace(request.Name)
 	if name == "" || len(name) > 100 {
-		writeError(w, http.StatusBadRequest, "Room name must be between 1 and 100 characters.")
+		httpx.WriteError(w, http.StatusBadRequest, "Room name must be between 1 and 100 characters.")
 		return
 	}
 	room, err := h.service.Create(r.Context(), name, session.Sub)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Could not create the room. Try again.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not create the room. Try again.")
 		return
 	}
-	writeJSON(w, http.StatusCreated, roomInfo(room))
+	httpx.WriteJSON(w, http.StatusCreated, roomInfo(room))
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	session, ok := auth.SessionFromContext(r.Context())
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "Authentication required.")
+		httpx.WriteError(w, http.StatusUnauthorized, "Authentication required.")
 		return
 	}
 	owned, err := h.store.RoomsByOwner(r.Context(), session.Sub)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Could not load rooms. Try again.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not load rooms. Try again.")
 		return
 	}
 	response := make([]api.RoomInfo, 0, len(owned))
 	for _, room := range owned {
 		response = append(response, roomInfo(room))
 	}
-	writeJSON(w, http.StatusOK, response)
+	httpx.WriteJSON(w, http.StatusOK, response)
 }
 
 func (h *Handler) Public(w http.ResponseWriter, r *http.Request) {
 	room, err := h.store.RoomBySlug(r.Context(), r.PathValue("slug"))
 	if errors.Is(err, sql.ErrNoRows) {
-		writeError(w, http.StatusNotFound, "Room not found.")
+		httpx.WriteError(w, http.StatusNotFound, "Room not found.")
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Could not load the room. Try again.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not load the room. Try again.")
 		return
 	}
-	writeJSON(w, http.StatusOK, api.PublicRoomInfo{
+	httpx.WriteJSON(w, http.StatusOK, api.PublicRoomInfo{
 		Slug: room.Slug, Name: room.Name, LobbyEnabled: room.LobbyEnabled,
 	})
 }
@@ -92,35 +89,35 @@ func (h *Handler) Public(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	session, ok := auth.SessionFromContext(r.Context())
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "Authentication required.")
+		httpx.WriteError(w, http.StatusUnauthorized, "Authentication required.")
 		return
 	}
 	room, err := h.store.RoomBySlug(r.Context(), r.PathValue("slug"))
 	if errors.Is(err, sql.ErrNoRows) {
-		writeError(w, http.StatusNotFound, "Room not found.")
+		httpx.WriteError(w, http.StatusNotFound, "Room not found.")
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Could not load the room. Try again.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not load the room. Try again.")
 		return
 	}
 	if room.OwnerSub != session.Sub {
-		writeError(w, http.StatusForbidden, "Only the room owner can change this room.")
+		httpx.WriteError(w, http.StatusForbidden, "Only the room owner can change this room.")
 		return
 	}
 	var request api.UpdateRoomRequest
-	if err := decodeRequest(w, r, &request); err != nil {
-		writeError(w, http.StatusBadRequest, "Request body must be valid JSON.")
+	if err := httpx.DecodeJSON(w, r, &request); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "Request body must be valid JSON.")
 		return
 	}
 	if request.Name == nil && request.LobbyEnabled == nil {
-		writeError(w, http.StatusBadRequest, "Provide a room name or lobby setting to update.")
+		httpx.WriteError(w, http.StatusBadRequest, "Provide a room name or lobby setting to update.")
 		return
 	}
 	if request.Name != nil {
 		name := strings.TrimSpace(*request.Name)
 		if name == "" || len(name) > 100 {
-			writeError(w, http.StatusBadRequest, "Room name must be between 1 and 100 characters.")
+			httpx.WriteError(w, http.StatusBadRequest, "Room name must be between 1 and 100 characters.")
 			return
 		}
 		room.Name = name
@@ -129,46 +126,46 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		room.LobbyEnabled = *request.LobbyEnabled
 	}
 	if err := h.store.UpdateRoom(r.Context(), room); err != nil {
-		writeError(w, http.StatusInternalServerError, "Could not update the room. Try again.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not update the room. Try again.")
 		return
 	}
-	writeJSON(w, http.StatusOK, roomInfo(room))
+	httpx.WriteJSON(w, http.StatusOK, roomInfo(room))
 }
 
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	session, ok := auth.SessionFromContext(r.Context())
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "Authentication required.")
+		httpx.WriteError(w, http.StatusUnauthorized, "Authentication required.")
 		return
 	}
 	room, err := h.store.RoomBySlug(r.Context(), r.PathValue("slug"))
 	if errors.Is(err, sql.ErrNoRows) {
-		writeError(w, http.StatusNotFound, "Room not found.")
+		httpx.WriteError(w, http.StatusNotFound, "Room not found.")
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Could not load the room. Try again.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not load the room. Try again.")
 		return
 	}
 	if room.OwnerSub != session.Sub {
-		writeError(w, http.StatusForbidden, "Only the room owner can delete this room.")
+		httpx.WriteError(w, http.StatusForbidden, "Only the room owner can delete this room.")
 		return
 	}
 	// An in-progress recording would keep writing to a room that no longer
 	// exists; the reconciler guarantees stuck rows eventually go terminal,
 	// so refusing here can never brick deletion permanently.
 	if _, err := h.store.ActiveRecordingByRoomID(r.Context(), room.ID); err == nil {
-		writeError(w, http.StatusConflict, "Stop the recording before deleting the room.")
+		httpx.WriteError(w, http.StatusConflict, "Stop the recording before deleting the room.")
 		return
 	} else if !errors.Is(err, sql.ErrNoRows) {
-		writeError(w, http.StatusInternalServerError, "Could not check the recording state. Try again.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not check the recording state. Try again.")
 		return
 	}
 	// Remove stored files before the rows: once the room is gone the files
 	// would be unreachable through the app forever.
 	recordings, err := h.store.RecordingsByRoomSlug(r.Context(), room.Slug)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Could not load the room's recordings. Try again.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not load the room's recordings. Try again.")
 		return
 	}
 	for _, recording := range recordings {
@@ -176,13 +173,13 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if err := h.objects.Remove(r.Context(), *recording.S3Key); err != nil {
-			writeError(w, http.StatusBadGateway, "Could not delete the room's recording files. Try again.")
+			httpx.WriteError(w, http.StatusBadGateway, "Could not delete the room's recording files. Try again.")
 			return
 		}
 	}
 	// Recording rows go with the room via ON DELETE CASCADE (foreign_keys=ON).
 	if err := h.store.DeleteRoom(r.Context(), room.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "Could not delete the room. Try again.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not delete the room. Try again.")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -193,27 +190,4 @@ func roomInfo(room store.Room) api.RoomInfo {
 		ID: room.ID, Slug: room.Slug, Name: room.Name,
 		LobbyEnabled: room.LobbyEnabled, CreatedAt: room.CreatedAt,
 	}
-}
-
-func decodeRequest(w http.ResponseWriter, r *http.Request, target any) error {
-	r.Body = http.MaxBytesReader(w, r.Body, maxJSONRequestBody)
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
-		return err
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return errors.New("request body must contain one JSON value")
-	}
-	return nil
-}
-
-func writeError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, api.ErrorResponse{Error: message})
-}
-
-func writeJSON(w http.ResponseWriter, status int, value any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(value)
 }

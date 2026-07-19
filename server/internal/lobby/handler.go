@@ -14,6 +14,7 @@ import (
 
 	"klisi/internal/api"
 	"klisi/internal/auth"
+	"klisi/internal/httpx"
 	klisilivekit "klisi/internal/livekit"
 	"klisi/internal/store"
 )
@@ -21,8 +22,7 @@ import (
 const (
 	// TokenTTL bounds every admission token. Moderation's kick denylist must
 	// keep entries at least this long so a ban outlives any cached token.
-	TokenTTL           = 10 * time.Minute
-	maxJSONRequestBody = 1 << 20
+	TokenTTL = 10 * time.Minute
 )
 
 const (
@@ -83,21 +83,21 @@ func (c *streamCaps) release(key string) {
 func (h *Handler) Join(w http.ResponseWriter, r *http.Request) {
 	room, err := h.store.RoomBySlug(r.Context(), r.PathValue("slug"))
 	if errors.Is(err, sql.ErrNoRows) {
-		writeLobbyError(w, http.StatusNotFound, "Room not found.")
+		httpx.WriteError(w, http.StatusNotFound, "Room not found.")
 		return
 	}
 	if err != nil {
-		writeLobbyError(w, http.StatusInternalServerError, "Could not load the room. Try again.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not load the room. Try again.")
 		return
 	}
 	var request api.JoinRequest
-	if err := decodeLobbyRequest(w, r, &request); err != nil {
-		writeLobbyError(w, http.StatusBadRequest, "Request body must be valid JSON.")
+	if err := httpx.DecodeJSON(w, r, &request); err != nil {
+		httpx.WriteError(w, http.StatusBadRequest, "Request body must be valid JSON.")
 		return
 	}
 	name := strings.TrimSpace(request.Name)
 	if name == "" || len(name) > 100 {
-		writeLobbyError(w, http.StatusBadRequest, "Display name must be between 1 and 100 characters.")
+		httpx.WriteError(w, http.StatusBadRequest, "Display name must be between 1 and 100 characters.")
 		return
 	}
 
@@ -112,7 +112,7 @@ func (h *Handler) Join(w http.ResponseWriter, r *http.Request) {
 		// "host:<sub>" prefix when protecting the owner.
 		nonce, err := randomHex(4)
 		if err != nil {
-			writeLobbyError(w, http.StatusInternalServerError, "Could not join the room. Try again.")
+			httpx.WriteError(w, http.StatusInternalServerError, "Could not join the room. Try again.")
 			return
 		}
 		h.writeAdmission(w, "host:"+session.Sub+":"+nonce, hostName, room.Slug, true)
@@ -121,7 +121,7 @@ func (h *Handler) Join(w http.ResponseWriter, r *http.Request) {
 	if !room.LobbyEnabled {
 		identity, err := guestIdentity()
 		if err != nil {
-			writeLobbyError(w, http.StatusInternalServerError, "Could not join the room. Try again.")
+			httpx.WriteError(w, http.StatusInternalServerError, "Could not join the room. Try again.")
 			return
 		}
 		h.writeAdmission(w, identity, name, room.Slug, false)
@@ -129,25 +129,25 @@ func (h *Handler) Join(w http.ResponseWriter, r *http.Request) {
 	}
 	pending, err := h.registry.Add(room.Slug, name)
 	if err != nil {
-		writeLobbyError(w, http.StatusInternalServerError, "Could not enter the lobby. Try again.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not enter the lobby. Try again.")
 		return
 	}
-	writeLobbyJSON(w, http.StatusOK, api.JoinResponse{Status: string(StatusWaiting), RequestID: pending.ID})
+	httpx.WriteJSON(w, http.StatusOK, api.JoinResponse{Status: string(StatusWaiting), RequestID: pending.ID})
 }
 
 func (h *Handler) Wait(w http.ResponseWriter, r *http.Request) {
 	request, ok := h.registry.Get(r.PathValue("id"))
 	if !ok {
-		writeLobbyError(w, http.StatusNotFound, "Lobby request not found.")
+		httpx.WriteError(w, http.StatusNotFound, "Lobby request not found.")
 		return
 	}
 	if _, ok := w.(http.Flusher); !ok {
-		writeLobbyError(w, http.StatusInternalServerError, "Streaming is not supported.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Streaming is not supported.")
 		return
 	}
 	streamKey := "wait\x00" + request.ID
 	if !h.streams.acquire(streamKey) {
-		writeLobbyError(w, http.StatusTooManyRequests, "Too many open streams for this request.")
+		httpx.WriteError(w, http.StatusTooManyRequests, "Too many open streams for this request.")
 		return
 	}
 	defer h.streams.release(streamKey)
@@ -187,13 +187,13 @@ func (h *Handler) Host(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, ok := w.(http.Flusher); !ok {
-		writeLobbyError(w, http.StatusInternalServerError, "Streaming is not supported.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Streaming is not supported.")
 		return
 	}
 	session, _ := auth.SessionFromContext(r.Context())
 	streamKey := "host\x00" + room.Slug + "\x00" + session.Sub
 	if !h.streams.acquire(streamKey) {
-		writeLobbyError(w, http.StatusTooManyRequests, "Too many open lobby streams.")
+		httpx.WriteError(w, http.StatusTooManyRequests, "Too many open lobby streams.")
 		return
 	}
 	defer h.streams.release(streamKey)
@@ -228,12 +228,12 @@ func (h *Handler) Approve(w http.ResponseWriter, r *http.Request) {
 	}
 	identity, err := guestIdentity()
 	if err != nil {
-		writeLobbyError(w, http.StatusInternalServerError, "Could not admit the guest. Try again.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not admit the guest. Try again.")
 		return
 	}
 	token, err := h.minter.MintToken(identity, request.Name, request.RoomSlug, false, TokenTTL)
 	if err != nil {
-		writeLobbyError(w, http.StatusInternalServerError, "Could not admit the guest. Try again.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not admit the guest. Try again.")
 		return
 	}
 	if err := h.registry.Approve(request.ID, token, h.minter.PublicURL()); err != nil {
@@ -258,7 +258,7 @@ func (h *Handler) Deny(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) authorizeRequest(w http.ResponseWriter, r *http.Request) (Request, bool) {
 	request, ok := h.registry.Get(r.PathValue("id"))
 	if !ok {
-		writeLobbyError(w, http.StatusNotFound, "Lobby request not found.")
+		httpx.WriteError(w, http.StatusNotFound, "Lobby request not found.")
 		return Request{}, false
 	}
 	if _, ok := h.requireOwner(w, r, request.RoomSlug); !ok {
@@ -268,22 +268,10 @@ func (h *Handler) authorizeRequest(w http.ResponseWriter, r *http.Request) (Requ
 }
 
 func (h *Handler) requireOwner(w http.ResponseWriter, r *http.Request, slug string) (store.Room, bool) {
-	session, ok := auth.SessionFromContext(r.Context())
+	room, _, ok := httpx.RequireRoomOwner(
+		w, r, h.store, slug, "Only the room owner can manage this lobby.",
+	)
 	if !ok {
-		writeLobbyError(w, http.StatusUnauthorized, "Authentication required.")
-		return store.Room{}, false
-	}
-	room, err := h.store.RoomBySlug(r.Context(), slug)
-	if errors.Is(err, sql.ErrNoRows) {
-		writeLobbyError(w, http.StatusNotFound, "Room not found.")
-		return store.Room{}, false
-	}
-	if err != nil {
-		writeLobbyError(w, http.StatusInternalServerError, "Could not load the room. Try again.")
-		return store.Room{}, false
-	}
-	if room.OwnerSub != session.Sub {
-		writeLobbyError(w, http.StatusForbidden, "Only the room owner can manage this lobby.")
 		return store.Room{}, false
 	}
 	return room, true
@@ -292,10 +280,10 @@ func (h *Handler) requireOwner(w http.ResponseWriter, r *http.Request, slug stri
 func (h *Handler) writeAdmission(w http.ResponseWriter, identity, name, room string, host bool) {
 	token, err := h.minter.MintToken(identity, name, room, host, TokenTTL)
 	if err != nil {
-		writeLobbyError(w, http.StatusInternalServerError, "Could not join the room. Try again.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not join the room. Try again.")
 		return
 	}
-	writeLobbyJSON(w, http.StatusOK, api.JoinResponse{
+	httpx.WriteJSON(w, http.StatusOK, api.JoinResponse{
 		Status: string(StatusAdmitted), Token: token, WSURL: h.minter.PublicURL(),
 	})
 }
@@ -330,10 +318,10 @@ func (h *Handler) writePending(stream *sseStream, slug string) error {
 
 func (h *Handler) writeResolveError(w http.ResponseWriter, err error) {
 	if errors.Is(err, ErrRequestNotFound) {
-		writeLobbyError(w, http.StatusNotFound, "Lobby request not found.")
+		httpx.WriteError(w, http.StatusNotFound, "Lobby request not found.")
 		return
 	}
-	writeLobbyError(w, http.StatusConflict, "Lobby request has already been resolved.")
+	httpx.WriteError(w, http.StatusConflict, "Lobby request has already been resolved.")
 }
 
 // sseStream wraps a response for event streaming: every write carries its
@@ -388,27 +376,4 @@ func guestIdentity() (string, error) {
 		return "", err
 	}
 	return "guest:" + id, nil
-}
-
-func decodeLobbyRequest(w http.ResponseWriter, r *http.Request, target any) error {
-	r.Body = http.MaxBytesReader(w, r.Body, maxJSONRequestBody)
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
-		return err
-	}
-	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return errors.New("request body must contain one JSON value")
-	}
-	return nil
-}
-
-func writeLobbyError(w http.ResponseWriter, status int, message string) {
-	writeLobbyJSON(w, status, api.ErrorResponse{Error: message})
-}
-
-func writeLobbyJSON(w http.ResponseWriter, status int, value any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(value)
 }

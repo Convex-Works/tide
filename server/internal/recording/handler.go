@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -15,6 +14,7 @@ import (
 
 	"klisi/internal/api"
 	"klisi/internal/auth"
+	"klisi/internal/httpx"
 	"klisi/internal/store"
 )
 
@@ -88,10 +88,10 @@ func (h *Handler) Start(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := h.store.ActiveRecordingByRoomID(r.Context(), room.ID); err == nil {
-		writeError(w, http.StatusConflict, activeRecordingMessage)
+		httpx.WriteError(w, http.StatusConflict, activeRecordingMessage)
 		return
 	} else if !errors.Is(err, sql.ErrNoRows) {
-		writeError(w, http.StatusInternalServerError, "Could not check the recording state. Try again.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not check the recording state. Try again.")
 		return
 	}
 
@@ -108,13 +108,13 @@ func (h *Handler) Start(w http.ResponseWriter, r *http.Request) {
 		}},
 	})
 	if err != nil || info == nil || info.EgressId == "" {
-		writeError(w, http.StatusBadGateway, "LiveKit could not start recording. Try again.")
+		httpx.WriteError(w, http.StatusBadGateway, "LiveKit could not start recording. Try again.")
 		return
 	}
 	id, err := h.newID()
 	if err != nil {
 		_, _ = h.egress.StopEgress(r.Context(), &protocol.StopEgressRequest{EgressId: info.EgressId})
-		writeError(w, http.StatusInternalServerError, "Could not create the recording. Try again.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not create the recording. Try again.")
 		return
 	}
 	recording := store.Recording{
@@ -124,19 +124,19 @@ func (h *Handler) Start(w http.ResponseWriter, r *http.Request) {
 	if err := h.store.InsertRecording(r.Context(), recording); err != nil {
 		_, _ = h.egress.StopEgress(r.Context(), &protocol.StopEgressRequest{EgressId: info.EgressId})
 		if store.IsActiveRecordingConflict(err) {
-			writeError(w, http.StatusConflict, activeRecordingMessage)
+			httpx.WriteError(w, http.StatusConflict, activeRecordingMessage)
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "Could not save the recording. Try again.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not save the recording. Try again.")
 		return
 	}
 	if err := h.setRecordingMetadata(r.Context(), room.Slug, true); err != nil {
 		_, _ = h.egress.StopEgress(r.Context(), &protocol.StopEgressRequest{EgressId: info.EgressId})
 		_ = h.store.UpdateRecordingByEgress(r.Context(), info.EgressId, store.RecordingUpdate{Status: "failed"})
-		writeError(w, http.StatusBadGateway, "The recording started, but its room state could not be updated. Try again.")
+		httpx.WriteError(w, http.StatusBadGateway, "The recording started, but its room state could not be updated. Try again.")
 		return
 	}
-	writeJSON(w, http.StatusCreated, recordingInfo(recording))
+	httpx.WriteJSON(w, http.StatusCreated, recordingInfo(recording))
 }
 
 func (h *Handler) Stop(w http.ResponseWriter, r *http.Request) {
@@ -146,11 +146,11 @@ func (h *Handler) Stop(w http.ResponseWriter, r *http.Request) {
 	}
 	recording, err := h.store.ActiveRecordingByRoomID(r.Context(), room.ID)
 	if errors.Is(err, sql.ErrNoRows) {
-		writeError(w, http.StatusConflict, "This room does not have an active recording.")
+		httpx.WriteError(w, http.StatusConflict, "This room does not have an active recording.")
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Could not load the recording. Try again.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not load the recording. Try again.")
 		return
 	}
 	// Persist the stopping state BEFORE the RPC: the monotonic status guard
@@ -159,7 +159,7 @@ func (h *Handler) Stop(w http.ResponseWriter, r *http.Request) {
 	// in "finalizing" falls through and re-issues the stop — that retries a
 	// stop whose RPC previously failed.
 	if err := h.store.UpdateRecordingByEgress(r.Context(), recording.EgressID, store.RecordingUpdate{Status: "finalizing"}); err != nil {
-		writeError(w, http.StatusInternalServerError, "Could not save the recording state. Try again.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not save the recording state. Try again.")
 		return
 	}
 	if _, err := h.egress.StopEgress(r.Context(), &protocol.StopEgressRequest{EgressId: recording.EgressID}); err != nil {
@@ -168,18 +168,18 @@ func (h *Handler) Stop(w http.ResponseWriter, r *http.Request) {
 		if current, lookupErr := h.store.RecordingByEgressID(r.Context(), recording.EgressID); lookupErr == nil &&
 			(current.Status == "completed" || current.Status == "failed") {
 			_ = h.setRecordingMetadata(r.Context(), room.Slug, false)
-			writeJSON(w, http.StatusOK, recordingInfo(current))
+			httpx.WriteJSON(w, http.StatusOK, recordingInfo(current))
 			return
 		}
-		writeError(w, http.StatusBadGateway, "LiveKit could not stop recording. Try again.")
+		httpx.WriteError(w, http.StatusBadGateway, "LiveKit could not stop recording. Try again.")
 		return
 	}
 	recording.Status = "finalizing"
 	if err := h.setRecordingMetadata(r.Context(), room.Slug, false); err != nil {
-		writeError(w, http.StatusBadGateway, "Recording stopped, but its room state could not be updated.")
+		httpx.WriteError(w, http.StatusBadGateway, "Recording stopped, but its room state could not be updated.")
 		return
 	}
-	writeJSON(w, http.StatusOK, recordingInfo(recording))
+	httpx.WriteJSON(w, http.StatusOK, recordingInfo(recording))
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
@@ -189,14 +189,14 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	}
 	recordings, err := h.store.RecordingsByRoomSlug(r.Context(), room.Slug)
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Could not load recordings. Try again.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not load recordings. Try again.")
 		return
 	}
 	response := make([]api.RecordingInfo, 0, len(recordings))
 	for _, recording := range recordings {
 		response = append(response, recordingInfo(recording))
 	}
-	writeJSON(w, http.StatusOK, response)
+	httpx.WriteJSON(w, http.StatusOK, response)
 }
 
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
@@ -205,17 +205,17 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if recording.Status == "starting" || recording.Status == "recording" || recording.Status == "finalizing" {
-		writeError(w, http.StatusConflict, "Stop the recording before deleting it.")
+		httpx.WriteError(w, http.StatusConflict, "Stop the recording before deleting it.")
 		return
 	}
 	if recording.S3Key != nil && *recording.S3Key != "" {
 		if err := h.objects.Remove(r.Context(), *recording.S3Key); err != nil {
-			writeError(w, http.StatusBadGateway, "Could not delete the recording file. Try again.")
+			httpx.WriteError(w, http.StatusBadGateway, "Could not delete the recording file. Try again.")
 			return
 		}
 	}
 	if err := h.store.DeleteRecording(r.Context(), recording.ID); err != nil {
-		writeError(w, http.StatusInternalServerError, "Could not delete the recording. Try again.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not delete the recording. Try again.")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -227,65 +227,39 @@ func (h *Handler) Download(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if recording.Status != "completed" || recording.S3Key == nil || *recording.S3Key == "" {
-		writeError(w, http.StatusConflict, "The recording is not ready to download.")
+		httpx.WriteError(w, http.StatusConflict, "The recording is not ready to download.")
 		return
 	}
 	location, err := h.objects.PresignedGet(r.Context(), *recording.S3Key, 5*time.Minute)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "Could not prepare the download. Try again.")
+		httpx.WriteError(w, http.StatusBadGateway, "Could not prepare the download. Try again.")
 		return
 	}
 	http.Redirect(w, r, location, http.StatusFound)
 }
 
 func (h *Handler) requireOwnerBySlug(w http.ResponseWriter, r *http.Request, forbidden string) (store.Room, auth.Session, bool) {
-	session, ok := auth.SessionFromContext(r.Context())
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "Authentication required.")
-		return store.Room{}, auth.Session{}, false
-	}
-	room, err := h.store.RoomBySlug(r.Context(), r.PathValue("slug"))
-	if errors.Is(err, sql.ErrNoRows) {
-		writeError(w, http.StatusNotFound, "Room not found.")
-		return store.Room{}, auth.Session{}, false
-	}
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Could not load the room. Try again.")
-		return store.Room{}, auth.Session{}, false
-	}
-	if room.OwnerSub != session.Sub {
-		writeError(w, http.StatusForbidden, forbidden)
-		return store.Room{}, auth.Session{}, false
-	}
-	return room, session, true
+	return httpx.RequireRoomOwner(w, r, h.store, r.PathValue("slug"), forbidden)
 }
 
 func (h *Handler) requireOwnerByRecording(w http.ResponseWriter, r *http.Request) (store.Recording, bool) {
-	session, ok := auth.SessionFromContext(r.Context())
+	_, ok := auth.SessionFromContext(r.Context())
 	if !ok {
-		writeError(w, http.StatusUnauthorized, "Authentication required.")
+		httpx.WriteError(w, http.StatusUnauthorized, "Authentication required.")
 		return store.Recording{}, false
 	}
 	recording, err := h.store.RecordingByID(r.Context(), r.PathValue("id"))
 	if errors.Is(err, sql.ErrNoRows) {
-		writeError(w, http.StatusNotFound, "Recording not found.")
+		httpx.WriteError(w, http.StatusNotFound, "Recording not found.")
 		return store.Recording{}, false
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Could not load the recording. Try again.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not load the recording. Try again.")
 		return store.Recording{}, false
 	}
-	room, err := h.store.RoomBySlug(r.Context(), recording.RoomSlug)
-	if errors.Is(err, sql.ErrNoRows) {
-		writeError(w, http.StatusNotFound, "Room not found.")
-		return store.Recording{}, false
-	}
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Could not load the room. Try again.")
-		return store.Recording{}, false
-	}
-	if room.OwnerSub != session.Sub {
-		writeError(w, http.StatusForbidden, "Only the room owner can manage recordings.")
+	if _, _, ok := httpx.RequireRoomOwner(
+		w, r, h.store, recording.RoomSlug, "Only the room owner can manage recordings.",
+	); !ok {
 		return store.Recording{}, false
 	}
 	return recording, true
@@ -317,16 +291,6 @@ func randomID() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(value), nil
-}
-
-func writeError(w http.ResponseWriter, status int, message string) {
-	writeJSON(w, status, api.ErrorResponse{Error: message})
-}
-
-func writeJSON(w http.ResponseWriter, status int, value any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(value)
 }
 
 // s3EncodedOutput wraps the configured S3 destination for an egress request;

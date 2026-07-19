@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"bytes"
-	"encoding/json"
 	"io/fs"
 	"net/http"
 	"path"
@@ -12,6 +11,7 @@ import (
 	"klisi/internal/api"
 	"klisi/internal/auth"
 	"klisi/internal/config"
+	"klisi/internal/httpx"
 	klisilivekit "klisi/internal/livekit"
 	"klisi/internal/lobby"
 	"klisi/internal/moderation"
@@ -128,7 +128,7 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store) (http.Handler, *r
 func registerMethodFallback(mux *http.ServeMux, pattern, allow string) {
 	mux.HandleFunc(pattern, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Allow", allow)
-		writeJSON(w, http.StatusMethodNotAllowed, api.ErrorResponse{Error: "Method not allowed."})
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "Method not allowed.")
 	})
 }
 
@@ -143,15 +143,15 @@ func (h *Handler) devToken(w http.ResponseWriter, r *http.Request) {
 	room := strings.TrimSpace(r.URL.Query().Get("room"))
 	name := strings.TrimSpace(r.URL.Query().Get("name"))
 	if room == "" || name == "" {
-		writeJSON(w, http.StatusBadRequest, api.ErrorResponse{Error: "Room and name are required."})
+		httpx.WriteError(w, http.StatusBadRequest, "Room and name are required.")
 		return
 	}
 	token, err := h.minter.MintToken("dev:"+name, name, room, false, 10*time.Minute)
 	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, api.ErrorResponse{Error: "Could not create a meeting token. Try again."})
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not create a meeting token. Try again.")
 		return
 	}
-	writeJSON(w, http.StatusOK, api.TokenResponse{Token: token, WSURL: h.minter.PublicURL()})
+	httpx.WriteJSON(w, http.StatusOK, api.TokenResponse{Token: token, WSURL: h.minter.PublicURL()})
 }
 
 func (h *Handler) withSession(next http.Handler) http.Handler {
@@ -166,7 +166,7 @@ func (h *Handler) withSession(next http.Handler) http.Handler {
 func (h *Handler) requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := auth.SessionFromContext(r.Context()); !ok {
-			writeJSON(w, http.StatusUnauthorized, api.ErrorResponse{Error: "Authentication required."})
+			httpx.WriteError(w, http.StatusUnauthorized, "Authentication required.")
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -178,7 +178,7 @@ func (h *Handler) requireAuth(next http.Handler) http.Handler {
 func (h *Handler) csrf(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Klisi-Csrf") != "1" {
-			writeJSON(w, http.StatusForbidden, api.ErrorResponse{Error: "Missing CSRF header."})
+			httpx.WriteError(w, http.StatusForbidden, "Missing CSRF header.")
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -188,7 +188,7 @@ func (h *Handler) csrf(next http.Handler) http.Handler {
 func (h *Handler) spa(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/") || h.web == nil {
 		if r.URL.Path == "/api" || strings.HasPrefix(r.URL.Path, "/api/") {
-			writeJSON(w, http.StatusNotFound, api.ErrorResponse{Error: "API route not found."})
+			httpx.WriteError(w, http.StatusNotFound, "API route not found.")
 			return
 		}
 		http.NotFound(w, r)
@@ -216,10 +216,4 @@ func (h *Handler) serveFile(w http.ResponseWriter, r *http.Request, name string)
 		return
 	}
 	http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(contents))
-}
-
-func writeJSON(w http.ResponseWriter, status int, value any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(value)
 }

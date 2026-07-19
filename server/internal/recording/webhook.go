@@ -10,6 +10,7 @@ import (
 
 	protocol "github.com/livekit/protocol/livekit"
 
+	"klisi/internal/httpx"
 	"klisi/internal/store"
 )
 
@@ -20,7 +21,7 @@ const maxWebhookBody = 1 << 20
 
 func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 	if h.receiver == nil {
-		writeError(w, http.StatusInternalServerError, "Webhook receiver is not configured.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Webhook receiver is not configured.")
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxWebhookBody)
@@ -28,14 +29,14 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
-			writeError(w, http.StatusRequestEntityTooLarge, "Webhook body is too large.")
+			httpx.WriteError(w, http.StatusRequestEntityTooLarge, "Webhook body is too large.")
 			return
 		}
-		writeError(w, http.StatusUnauthorized, "Webhook signature is invalid.")
+		httpx.WriteError(w, http.StatusUnauthorized, "Webhook signature is invalid.")
 		return
 	}
 	if err := h.HandleWebhookEvent(r, event); err != nil {
-		writeError(w, http.StatusInternalServerError, "Could not update recording state.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not update recording state.")
 		return
 	}
 	w.WriteHeader(http.StatusOK)
