@@ -103,11 +103,13 @@
     {#if participant.cameraTrack}
       <!-- Live meeting video does not have a caption track. -->
       <!-- svelte-ignore a11y_media_has_caption -->
+      <!-- Always muted: audio plays through the per-track <audio> elements,
+           and an unmuted <video> can be blocked from autoplaying. -->
       <video
         use:attachTrack={participant.cameraTrack}
         autoplay
         playsinline
-        muted={participant.isLocal}
+        muted
         class:mirrored={participant.isLocal}
         aria-label={`${participant.name}'s video`}
       ></video>
@@ -162,7 +164,7 @@
           use:attachTrack={focusParticipant.screenShareTrack}
           autoplay
           playsinline
-          muted={focusParticipant.isLocal}
+          muted
           aria-label={`${focusParticipant.name}'s screen share`}
         ></video>
         <div class="focus-label">

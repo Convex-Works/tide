@@ -67,7 +67,12 @@ interface ChatPayload {
 const maximumChatMessages = 200;
 
 export class RoomState {
-  readonly room = new Room({ adaptiveStream: true, dynacast: true });
+  // adaptiveStream is intentionally OFF: it pauses remote video layers based
+  // on the observed element size, and tiles measured mid-layout (0×0) could
+  // stay paused — the "gray tile on join" bug. klisi meetings are small by
+  // design, so we always subscribe to the full stream; dynacast still saves
+  // publisher-side layers.
+  readonly room = new Room({ adaptiveStream: false, dynacast: true });
 
   connectionState = $state<ConnectionState>(ConnectionState.Disconnected);
   participants = $state<ParticipantView[]>([]);
