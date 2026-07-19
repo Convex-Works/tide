@@ -12,7 +12,7 @@ test('microphone control updates UI and the local publication', async () => {
 	try {
 		const context = await browser.newContext({ permissions: ['camera', 'microphone'] });
 		const page = await context.newPage();
-		await page.goto('/');
+		await page.goto('/dev');
 		await page.fill('input[name="room"]', `controls-e2e-${Date.now()}`);
 		await page.fill('input[name="name"]', 'alice');
 		await page.click('button[type="submit"]');

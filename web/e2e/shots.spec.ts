@@ -15,7 +15,7 @@ test('capture pre-join and stage', async () => {
 		viewport: { width: 1280, height: 800 }
 	});
 	const page = await ctx.newPage();
-	await page.goto('/');
+	await page.goto('/dev');
 	await page.waitForTimeout(1500);
 	await page.screenshot({ path: 'shots/prejoin.png' });
 
@@ -29,7 +29,7 @@ test('capture pre-join and stage', async () => {
 		viewport: { width: 1280, height: 800 }
 	});
 	const page2 = await ctx2.newPage();
-	await page2.goto('/');
+	await page2.goto('/dev');
 	await page2.fill('input[name="room"]', room);
 	await page2.fill('input[name="name"]', 'bob');
 	await page2.click('button[type="submit"]');

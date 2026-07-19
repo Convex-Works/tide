@@ -4,12 +4,27 @@
     MicrophoneSlash,
     PhoneDisconnect,
     Screencast,
+    UsersThree,
     VideoCamera,
     VideoCameraSlash
   } from 'phosphor-svelte';
   import type { RoomState } from '$lib/rtc/room.svelte';
 
-  let { state, onleave }: { state: RoomState; onleave: () => void } = $props();
+  let {
+    state,
+    onleave,
+    showLobbyControl = false,
+    lobbyCount = 0,
+    lobbyOpen = false,
+    ontogglelobby = () => undefined
+  }: {
+    state: RoomState;
+    onleave: () => void;
+    showLobbyControl?: boolean;
+    lobbyCount?: number;
+    lobbyOpen?: boolean;
+    ontogglelobby?: () => void;
+  } = $props();
 
   async function leave(): Promise<void> {
     await state.leave().catch(() => undefined);
@@ -66,6 +81,21 @@
   >
     <Screencast size={16} weight="regular" aria-hidden="true" />
   </button>
+
+  {#if showLobbyControl}
+    <button
+      type="button"
+      class="lobby"
+      class:active={lobbyOpen}
+      aria-label={lobbyOpen ? 'Close lobby' : 'Open lobby'}
+      aria-pressed={lobbyOpen}
+      title={lobbyOpen ? 'Close lobby' : 'Open lobby'}
+      onclick={ontogglelobby}
+    >
+      <UsersThree size={16} weight="regular" aria-hidden="true" />
+      {#if lobbyCount > 0}<span class="badge mono">{lobbyCount}</span>{/if}
+    </button>
+  {/if}
 
   <span class="separator" aria-hidden="true"></span>
 
@@ -138,6 +168,26 @@
   button.leave:hover {
     background: color-mix(in srgb, var(--rec) 12%, transparent);
     border-color: color-mix(in srgb, var(--rec) 32%, transparent);
+  }
+
+  button.lobby {
+    position: relative;
+  }
+
+  .badge {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    min-width: 15px;
+    height: 15px;
+    padding: 0 3px;
+    color: white;
+    font-size: 9px;
+    line-height: 13px;
+    text-align: center;
+    background: var(--accent-d);
+    border: 1px solid var(--panel);
+    border-radius: 999px;
   }
 
   .separator {

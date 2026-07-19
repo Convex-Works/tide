@@ -4,7 +4,7 @@ dev:
 	docker compose -f deploy/compose.yaml up -d
 	@set -e; \
 		if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
-		(cd server && go run ./cmd/klisi) & go_pid=$$!; \
+		(cd server && KLISI_BASE_URL=http://localhost:5173 go run ./cmd/klisi) & go_pid=$$!; \
 		(cd web && npm run dev) & web_pid=$$!; \
 		trap 'kill $$go_pid $$web_pid 2>/dev/null || true' INT TERM EXIT; \
 		wait

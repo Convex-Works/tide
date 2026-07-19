@@ -19,11 +19,15 @@
     room = $bindable(),
     name = $bindable(),
     error = '',
+    showRoom = true,
+    heading = 'Join a room',
     onjoin
   }: {
     room: string;
     name: string;
     error?: string;
+    showRoom?: boolean;
+    heading?: string;
     onjoin: (options: PreJoinOptions) => void | Promise<void>;
   } = $props();
 
@@ -267,12 +271,16 @@
 
     <div class="details">
       <div class="brand">klisi</div>
-      <h1>Join a room</h1>
+      <h1 class:room-heading={!showRoom}>{heading}</h1>
 
-      <label>
-        <span>Room</span>
-        <input class="mono" bind:value={room} name="room" autocomplete="off" required />
-      </label>
+      {#if showRoom}
+        <label>
+          <span>Room</span>
+          <input class="mono" bind:value={room} name="room" autocomplete="off" required />
+        </label>
+      {:else}
+        <div class="room-chip mono">{room}</div>
+      {/if}
 
       <label>
         <span>Name</span>
@@ -410,6 +418,23 @@
     font-size: 18px;
     line-height: 24px;
     font-weight: 550;
+  }
+
+  h1.room-heading {
+    margin-bottom: 8px;
+    font-size: 24px;
+    line-height: 30px;
+  }
+
+  .room-chip {
+    display: inline-block;
+    margin-bottom: 16px;
+    padding: 2px 7px;
+    color: var(--ink-2);
+    font-size: 11px;
+    line-height: 18px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
   }
 
   label {

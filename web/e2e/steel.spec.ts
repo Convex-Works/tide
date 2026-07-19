@@ -15,7 +15,7 @@ test('two participants exchange video through the SFU', async () => {
 	const join = async (name: string): Promise<Page> => {
 		const context = await browser.newContext({ permissions: ['camera', 'microphone'] });
 		const page = await context.newPage();
-		await page.goto('/');
+		await page.goto('/dev');
 		await page.fill('input[name="room"]', room);
 		await page.fill('input[name="name"]', name);
 		await page.click('button[type="submit"]');

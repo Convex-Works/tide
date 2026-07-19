@@ -15,7 +15,7 @@ test('connection loss shows reconnecting hairline and recovers', async () => {
 	});
 	const context = await browser.newContext({ permissions: ['camera', 'microphone'] });
 	const page = await context.newPage();
-	await page.goto('/');
+	await page.goto('/dev');
 	await page.fill('input[name="room"]', `reconnect-${Date.now()}`);
 	await page.fill('input[name="name"]', 'alice');
 	await page.click('button[type="submit"]');

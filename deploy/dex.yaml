@@ -19,6 +19,9 @@ staticClients:
     secret: klisi-dev-oidc-secret
     redirectURIs:
       - http://localhost:8080/api/auth/callback
+      # Dev: the Vite origin proxies /api to the Go server, so the OIDC flow
+      # must round-trip through it or the browser strands on the API origin.
+      - http://localhost:5173/api/auth/callback
 
 staticPasswords:
   - email: host@klisi.dev
