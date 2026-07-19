@@ -12,8 +12,8 @@ import (
 	"klisi/internal/api"
 	"klisi/internal/auth"
 	"klisi/internal/config"
-	"klisi/internal/lobby"
 	klisilivekit "klisi/internal/livekit"
+	"klisi/internal/lobby"
 	"klisi/internal/moderation"
 	"klisi/internal/recording"
 	"klisi/internal/rooms"
@@ -31,7 +31,10 @@ type Handler struct {
 	minter     *klisilivekit.Minter
 }
 
-func New(cfg config.Config, web fs.FS, roomStore *store.Store) http.Handler {
+// New builds the HTTP handler. The returned recording handler is the seam for
+// background work: main runs its reconciler loop (RunReconciler) so recording
+// state heals when LiveKit webhooks are lost.
+func New(cfg config.Config, web fs.FS, roomStore *store.Store) (http.Handler, *recording.Handler) {
 	sessions := auth.NewSessions(cfg.SessionSecret, cfg.BaseURL)
 	minter := klisilivekit.NewMinter(cfg)
 	registry := lobby.NewRegistry(lobby.DefaultRequestTTL)
@@ -118,7 +121,7 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store) http.Handler {
 		registerMethodFallback(mux, api.DevTokenPath, http.MethodGet)
 	}
 	mux.HandleFunc("/", handler.spa)
-	return securityHeaders(handler.withSession(mux))
+	return securityHeaders(handler.withSession(mux)), recordingHandler
 }
 
 func registerMethodFallback(mux *http.ServeMux, pattern, allow string) {

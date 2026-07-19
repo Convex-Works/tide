@@ -15,11 +15,11 @@ func TestModerationRouteRequiresCSRFAndAuthentication(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	handler := New(config.Config{
-		BaseURL:         "http://localhost:8080",
-		SessionSecret:   "test-session-secret",
-		LiveKitURL:      "ws://livekit.example",
-		LiveKitAPIKey:   "devkey",
+	handler, _ := New(config.Config{
+		BaseURL:          "http://localhost:8080",
+		SessionSecret:    "test-session-secret",
+		LiveKitURL:       "ws://livekit.example",
+		LiveKitAPIKey:    "devkey",
 		LiveKitAPISecret: "test-livekit-secret-with-enough-bytes",
 	}, nil, db)
 

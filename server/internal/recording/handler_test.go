@@ -14,8 +14,25 @@ import (
 )
 
 type fakeEgressClient struct {
-	starts []*protocol.RoomCompositeEgressRequest
-	stops  []*protocol.StopEgressRequest
+	starts   []*protocol.RoomCompositeEgressRequest
+	stops    []*protocol.StopEgressRequest
+	stopErr  error
+	onStop   func()
+	listErr  error
+	egresses []*protocol.EgressInfo
+}
+
+func (f *fakeEgressClient) ListEgress(_ context.Context, request *protocol.ListEgressRequest) (*protocol.ListEgressResponse, error) {
+	if f.listErr != nil {
+		return nil, f.listErr
+	}
+	items := make([]*protocol.EgressInfo, 0)
+	for _, info := range f.egresses {
+		if request.EgressId == "" || info.EgressId == request.EgressId {
+			items = append(items, info)
+		}
+	}
+	return &protocol.ListEgressResponse{Items: items}, nil
 }
 
 func (f *fakeEgressClient) StartRoomCompositeEgress(_ context.Context, request *protocol.RoomCompositeEgressRequest) (*protocol.EgressInfo, error) {
@@ -25,6 +42,12 @@ func (f *fakeEgressClient) StartRoomCompositeEgress(_ context.Context, request *
 
 func (f *fakeEgressClient) StopEgress(_ context.Context, request *protocol.StopEgressRequest) (*protocol.EgressInfo, error) {
 	f.stops = append(f.stops, request)
+	if f.onStop != nil {
+		f.onStop()
+	}
+	if f.stopErr != nil {
+		return nil, f.stopErr
+	}
 	return &protocol.EgressInfo{EgressId: request.EgressId}, nil
 }
 
@@ -79,7 +102,7 @@ func TestStartStopAuthorizationAndDoubleStart(t *testing.T) {
 	t.Run("start requires authentication and ownership", func(t *testing.T) {
 		for _, test := range []struct {
 			name string
-			sub string
+			sub  string
 			want int
 		}{{"signed out", "", http.StatusUnauthorized}, {"non-owner", "other", http.StatusForbidden}} {
 			t.Run(test.name, func(t *testing.T) {

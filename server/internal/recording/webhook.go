@@ -1,6 +1,7 @@
 package recording
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 	"strings"
@@ -49,11 +50,11 @@ func (h *Handler) HandleWebhookEvent(r *http.Request, event *protocol.WebhookEve
 	case "egress_started":
 		// egress_started means the job was accepted, not that capture began —
 		// the info status is still EGRESS_STARTING until the template signals.
-		return h.updateWebhookStatus(r, info, statusFromEgress(info.Status))
+		return h.updateWebhookStatus(r.Context(), info, statusFromEgress(info.Status))
 	case "egress_updated":
-		return h.updateWebhookStatus(r, info, statusFromEgress(info.Status))
+		return h.updateWebhookStatus(r.Context(), info, statusFromEgress(info.Status))
 	case "egress_ended":
-		err := h.finishRecording(r, info)
+		err := h.finishRecording(r.Context(), info)
 		roomSlug := info.RoomName
 		if recording, lookupErr := h.store.RecordingByEgressID(r.Context(), info.EgressId); lookupErr == nil {
 			roomSlug = recording.RoomSlug
@@ -68,15 +69,14 @@ func (h *Handler) HandleWebhookEvent(r *http.Request, event *protocol.WebhookEve
 	}
 }
 
-func (h *Handler) updateWebhookStatus(r *http.Request, info *protocol.EgressInfo, status string) error {
+func (h *Handler) updateWebhookStatus(ctx context.Context, info *protocol.EgressInfo, status string) error {
 	if status == "" {
 		return nil
 	}
-	err := h.store.UpdateRecordingByEgress(r.Context(), info.EgressId, store.RecordingUpdate{Status: status})
-	return err
+	return h.store.UpdateRecordingByEgress(ctx, info.EgressId, store.RecordingUpdate{Status: status})
 }
 
-func (h *Handler) finishRecording(r *http.Request, info *protocol.EgressInfo) error {
+func (h *Handler) finishRecording(ctx context.Context, info *protocol.EgressInfo) error {
 	status := "completed"
 	if info.Status != protocol.EgressStatus_EGRESS_COMPLETE || info.Error != "" {
 		status = "failed"
@@ -102,8 +102,7 @@ func (h *Handler) finishRecording(r *http.Request, info *protocol.EgressInfo) er
 			update.S3Key = &key
 		}
 	}
-	err := h.store.UpdateRecordingByEgress(r.Context(), info.EgressId, update)
-	return err
+	return h.store.UpdateRecordingByEgress(ctx, info.EgressId, update)
 }
 
 func recordingFileResult(info *protocol.EgressInfo) *protocol.FileInfo {

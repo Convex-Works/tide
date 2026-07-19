@@ -128,7 +128,7 @@ func (s *MinIOStore) client(rawEndpoint string) (*minio.Client, error) {
 		endpoint = strings.TrimPrefix(strings.TrimPrefix(rawEndpoint, "http://"), "https://")
 	}
 	return minio.New(endpoint, &minio.Options{
-		Creds: credentials.NewStaticV4(s.accessKey, s.secretKey, ""),
+		Creds:  credentials.NewStaticV4(s.accessKey, s.secretKey, ""),
 		Secure: secure, Region: s.region, BucketLookup: minio.BucketLookupPath,
 	})
 }

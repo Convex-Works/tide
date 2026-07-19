@@ -35,7 +35,7 @@ func TestJoinPolicyMatrix(t *testing.T) {
 		LiveKitAPIKey: "devkey", LiveKitAPISecret: "test-livekit-secret-with-enough-bytes",
 		LiveKitPublicURL: "ws://public.example", DevMode: true,
 	}
-	handler := New(cfg, nil, db)
+	handler, _ := New(cfg, nil, db)
 	ownerCookie := makeSessionCookie(t, cfg, auth.Session{Sub: "owner", Email: "owner@example.com", Name: "Owner"})
 
 	tests := []struct {

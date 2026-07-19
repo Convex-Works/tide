@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"log"
 	"net/http"
@@ -29,11 +30,17 @@ func main() {
 			log.Printf("close database: %v", err)
 		}
 	}()
+	apiHandler, recorder := httpapi.New(cfg, klisi.WebFS(), db)
 	server := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpapi.New(cfg, klisi.WebFS(), db),
+		Handler:           apiHandler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
+
+	// Heal recording rows whose LiveKit webhooks were lost (startup + 1 min).
+	reconcilerCtx, stopReconciler := context.WithCancel(context.Background())
+	defer stopReconciler()
+	go recorder.RunReconciler(reconcilerCtx, time.Minute)
 
 	log.Printf("klisi listening on %s", cfg.Addr)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

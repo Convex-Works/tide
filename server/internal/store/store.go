@@ -157,6 +157,19 @@ func (s *Store) InsertRecording(ctx context.Context, recording Recording) error 
 	return err
 }
 
+// recordingStatusRank orders statuses so transitions are monotonic:
+// starting → recording → finalizing → completed/failed. An UPDATE carrying a
+// lower-ranked status than the row already has is a stale or racing event
+// (e.g. Stop writing "finalizing" after egress_ended completed the row) and
+// is silently skipped; terminal states can never be overwritten.
+const recordingStatusRank = `CASE %s
+	WHEN 'starting' THEN 0
+	WHEN 'recording' THEN 1
+	WHEN 'finalizing' THEN 2
+	WHEN 'completed' THEN 3
+	WHEN 'failed' THEN 3
+	ELSE -1 END`
+
 func (s *Store) UpdateRecordingByEgress(ctx context.Context, egressID string, update RecordingUpdate) error {
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE recordings SET
@@ -165,14 +178,55 @@ func (s *Store) UpdateRecordingByEgress(ctx context.Context, egressID string, up
 			duration_s = COALESCE(?, duration_s),
 			s3_key = COALESCE(?, s3_key),
 			size_bytes = COALESCE(?, size_bytes)
-		WHERE egress_id = ?`,
+		WHERE egress_id = ?
+		  AND status NOT IN ('completed', 'failed')
+		  AND `+fmt.Sprintf(recordingStatusRank, "status")+
+		` <= `+fmt.Sprintf(recordingStatusRank, "?"),
 		update.Status, update.EndedAt, update.DurationS, update.S3Key, update.SizeBytes,
-		egressID,
+		egressID, update.Status,
 	)
 	if err != nil {
 		return err
 	}
-	return requireChanged(result)
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if changed > 0 {
+		return nil
+	}
+	// Distinguish "no such recording" (an error worth surfacing) from a
+	// monotonic-guard skip (a benign stale event).
+	var status string
+	err = s.db.QueryRowContext(ctx, `SELECT status FROM recordings WHERE egress_id = ?`, egressID).Scan(&status)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// ListActiveRecordings returns every recording in a non-terminal status, for
+// reconciliation against LiveKit's actual egress state.
+func (s *Store) ListActiveRecordings(ctx context.Context) ([]Recording, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, room_id, room_slug, egress_id, status, started_by, started_at,
+		       ended_at, duration_s, s3_key, size_bytes
+		FROM recordings WHERE status IN ('starting', 'recording', 'finalizing')
+		ORDER BY started_at ASC, id ASC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	recordings := make([]Recording, 0)
+	for rows.Next() {
+		recording, err := scanRecording(rows)
+		if err != nil {
+			return nil, err
+		}
+		recordings = append(recordings, recording)
+	}
+	return recordings, rows.Err()
 }
 
 func (s *Store) RecordingsByRoomSlug(ctx context.Context, slug string) ([]Recording, error) {

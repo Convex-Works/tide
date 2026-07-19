@@ -29,11 +29,13 @@ type recordingStore interface {
 	RecordingByID(context.Context, string) (store.Recording, error)
 	RecordingByEgressID(context.Context, string) (store.Recording, error)
 	DeleteRecording(context.Context, string) error
+	ListActiveRecordings(context.Context) ([]store.Recording, error)
 }
 
 type EgressClient interface {
 	StartRoomCompositeEgress(context.Context, *protocol.RoomCompositeEgressRequest) (*protocol.EgressInfo, error)
 	StopEgress(context.Context, *protocol.StopEgressRequest) (*protocol.EgressInfo, error)
+	ListEgress(context.Context, *protocol.ListEgressRequest) (*protocol.ListEgressResponse, error)
 }
 
 type RoomServiceClient interface {
@@ -151,16 +153,25 @@ func (h *Handler) Stop(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "Could not load the recording. Try again.")
 		return
 	}
-	if recording.Status == "finalizing" {
-		writeError(w, http.StatusConflict, "The recording is already stopping.")
+	// Persist the stopping state BEFORE the RPC: the monotonic status guard
+	// in the store means a racing egress_ended can complete the row during
+	// StopEgress without this handler regressing it afterwards. A row already
+	// in "finalizing" falls through and re-issues the stop — that retries a
+	// stop whose RPC previously failed.
+	if err := h.store.UpdateRecordingByEgress(r.Context(), recording.EgressID, store.RecordingUpdate{Status: "finalizing"}); err != nil {
+		writeError(w, http.StatusInternalServerError, "Could not save the recording state. Try again.")
 		return
 	}
 	if _, err := h.egress.StopEgress(r.Context(), &protocol.StopEgressRequest{EgressId: recording.EgressID}); err != nil {
+		// The egress may have ended on its own while the stop was in flight;
+		// a terminal row means the stop already succeeded.
+		if current, lookupErr := h.store.RecordingByEgressID(r.Context(), recording.EgressID); lookupErr == nil &&
+			(current.Status == "completed" || current.Status == "failed") {
+			_ = h.setRecordingMetadata(r.Context(), room.Slug, false)
+			writeJSON(w, http.StatusOK, recordingInfo(current))
+			return
+		}
 		writeError(w, http.StatusBadGateway, "LiveKit could not stop recording. Try again.")
-		return
-	}
-	if err := h.store.UpdateRecordingByEgress(r.Context(), recording.EgressID, store.RecordingUpdate{Status: "finalizing"}); err != nil {
-		writeError(w, http.StatusInternalServerError, "Recording stopped, but its state could not be saved.")
 		return
 	}
 	recording.Status = "finalizing"
