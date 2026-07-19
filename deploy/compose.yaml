@@ -15,7 +15,7 @@ services:
 
   livekit:
     image: livekit/livekit-server:v1.13.4
-    command: --config /etc/livekit.yaml
+    command: --config /etc/livekit.yaml --node-ip ${KLISI_NODE_IP:-127.0.0.1}
     volumes:
       - ./livekit.yaml:/etc/livekit.yaml:ro
     ports:
@@ -76,6 +76,9 @@ services:
     security_opt:
       - seccomp:unconfined
     shm_size: 1gb
+    # Staging area for file egress before the S3 upload; egress runs non-root.
+    tmpfs:
+      - /recordings:mode=1777
     depends_on:
       livekit:
         condition: service_healthy
@@ -88,7 +91,10 @@ services:
       interval: 10s
       timeout: 5s
       retries: 20
-    networks: [klisi]
+    # Egress shares LiveKit's network namespace: the SFU advertises
+    # node_ip 127.0.0.1 for host browsers in dev, and this makes the same
+    # candidate address correct for egress's in-container Chrome too.
+    network_mode: "service:livekit"
 
   dex:
     image: ghcr.io/dexidp/dex:v2.43.1

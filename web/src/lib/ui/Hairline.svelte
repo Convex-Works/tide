@@ -1,10 +1,10 @@
 <script lang="ts">
   import type { HairlineState } from '$lib/rtc/connection.svelte';
 
-  let { state }: { state: HairlineState } = $props();
+  let { mode }: { mode: HairlineState } = $props();
 </script>
 
-<div class="hairline {state}" data-testid="hairline" data-state={state} aria-hidden="true"></div>
+<div class="hairline {mode}" data-testid="hairline" data-state={mode} aria-hidden="true"></div>
 
 <style>
   .hairline {
@@ -22,5 +22,26 @@
 
   .offline {
     background: var(--ink-2);
+  }
+
+  .recording {
+    background: var(--rec);
+    animation: recording-pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes recording-pulse {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.45;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .recording {
+      animation: none;
+    }
   }
 </style>

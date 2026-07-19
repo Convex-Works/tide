@@ -18,6 +18,11 @@ export const LobbyWaitPath = "/api/lobby/{id}/wait";
 export const LobbyApprovePath = "/api/lobby/{id}/approve";
 export const LobbyDenyPath = "/api/lobby/{id}/deny";
 export const LiveKitWebhookPath = "/api/webhooks/livekit";
+export const RecordingStartPath = "/api/rooms/{slug}/recording/start";
+export const RecordingStopPath = "/api/rooms/{slug}/recording/stop";
+export const RoomRecordingsPath = "/api/rooms/{slug}/recordings";
+export const RecordingPath = "/api/recordings/{id}";
+export const RecordingDownloadPath = "/api/recordings/{id}/download";
 export interface TokenResponse {
   token: string;
   ws_url: string;
@@ -74,4 +79,16 @@ export interface LobbyDeniedSSE {
 }
 export interface LobbyPendingSSE {
   requests: LobbyRequestInfo[];
+}
+export interface RecordingInfo {
+  id: string;
+  room_slug: string;
+  egress_id: string;
+  status: string;
+  started_by: string;
+  started_at: number /* int64 */;
+  ended_at?: number /* int64 */;
+  duration_s?: number /* int64 */;
+  s3_key?: string;
+  size_bytes?: number /* int64 */;
 }

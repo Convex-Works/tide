@@ -138,7 +138,10 @@
 
 <main class="stage">
   <header class="stage-header">
-    <span class="slug mono">{roomName}</span>
+    <div class="room-status">
+      <span class="slug mono">{roomName}</span>
+      {#if rtc.isRecording}<span class="rec-chip mono" data-testid="recording-chip">REC</span>{/if}
+    </div>
     {#if rtc.connectionState !== 'connected'}
       <span class="connection">{rtc.connectionState}</span>
     {/if}
@@ -201,6 +204,8 @@
     {peopleOpen}
     {chatOpen}
     {unreadChat}
+    {isOwner}
+    roomSlug={roomName}
     ontogglepeople={togglePeople}
     ontogglechat={toggleChat}
   />
@@ -228,6 +233,22 @@
     font-size: 11px;
     line-height: 18px;
     border: 1px solid var(--border-d);
+    border-radius: 999px;
+  }
+
+  .room-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .rec-chip {
+    padding: 1px 5px;
+    color: white;
+    font-size: 10px;
+    line-height: 16px;
+    letter-spacing: 0.06em;
+    background: var(--rec);
     border-radius: 999px;
   }
 

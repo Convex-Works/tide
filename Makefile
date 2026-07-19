@@ -1,6 +1,10 @@
 .PHONY: dev gen check build clean
 
 dev:
+	# LiveKit must advertise an address reachable by host browsers AND the
+	# egress container; use the LAN IP (falls back to loopback, host-only).
+	@ip=$$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo 127.0.0.1); \
+		echo "KLISI_NODE_IP=$$ip" > deploy/.env
 	docker compose -f deploy/compose.yaml up -d
 	@set -e; \
 		if [ -f .env ]; then set -a; . ./.env; set +a; fi; \

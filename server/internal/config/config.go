@@ -18,16 +18,21 @@ type Config struct {
 	OIDCClientID     string
 	OIDCClientSecret string
 	S3Endpoint       string
+	S3PublicEndpoint string
+	S3EgressEndpoint string
 	S3Bucket         string
 	S3AccessKey      string
 	S3SecretKey      string
+	S3Region         string
+	EgressTemplateURL string
 	DevMode          bool
 }
 
 func Load() Config {
+	baseURL := env("KLISI_BASE_URL", "http://localhost:8080")
 	return Config{
 		Addr:             env("KLISI_ADDR", ":8080"),
-		BaseURL:          env("KLISI_BASE_URL", "http://localhost:8080"),
+		BaseURL:          baseURL,
 		SessionSecret:    env("KLISI_SESSION_SECRET", "klisi-dev-session-secret-please-change"),
 		DBPath:           env("KLISI_DB_PATH", "./data/klisi.db"),
 		LiveKitURL:       env("KLISI_LIVEKIT_URL", "ws://localhost:7880"),
@@ -38,9 +43,13 @@ func Load() Config {
 		OIDCClientID:     env("KLISI_OIDC_CLIENT_ID", "klisi"),
 		OIDCClientSecret: env("KLISI_OIDC_CLIENT_SECRET", "klisi-dev-oidc-secret"),
 		S3Endpoint:       env("KLISI_S3_ENDPOINT", "http://localhost:9000"),
+		S3PublicEndpoint: env("KLISI_S3_PUBLIC_ENDPOINT", "http://localhost:9000"),
+		S3EgressEndpoint: env("KLISI_S3_EGRESS_ENDPOINT", "http://minio:9000"),
 		S3Bucket:         env("KLISI_S3_BUCKET", "klisi-recordings"),
 		S3AccessKey:      env("KLISI_S3_ACCESS_KEY", "klisi"),
 		S3SecretKey:      env("KLISI_S3_SECRET_KEY", "klisi-dev-minio"),
+		S3Region:         env("KLISI_S3_REGION", "us-east-1"),
+		EgressTemplateURL: env("KLISI_EGRESS_TEMPLATE_URL", baseURL+"/egress-template"),
 		DevMode:          envBool("KLISI_DEV_MODE", true),
 	}
 }

@@ -1,4 +1,4 @@
-export type HairlineState = 'connected' | 'reconnecting' | 'offline';
+export type HairlineState = 'connected' | 'reconnecting' | 'offline' | 'recording';
 
 class ConnectionChromeState {
   state = $state<HairlineState>('connected');

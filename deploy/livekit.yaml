@@ -1,12 +1,12 @@
 port: 7880
 
+# The advertised address (--node-ip) is set in compose.yaml: it must be
+# reachable by host browsers AND egress's in-container Chrome, so dev uses the
+# host LAN IP (see deploy/.env), falling back to 127.0.0.1 (host-only).
 rtc:
   tcp_port: 7881
   udp_port: 7882
   use_external_ip: false
-  # Dev: LiveKit runs in Docker; advertise the host loopback so browser ICE
-  # candidates hit the published 7881/7882 ports instead of the container IP.
-  node_ip: 127.0.0.1
 
 redis:
   address: redis:6379

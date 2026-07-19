@@ -16,6 +16,11 @@ const (
 	LobbyApprovePath   = "/api/lobby/{id}/approve"
 	LobbyDenyPath      = "/api/lobby/{id}/deny"
 	LiveKitWebhookPath = "/api/webhooks/livekit"
+	RecordingStartPath = "/api/rooms/{slug}/recording/start"
+	RecordingStopPath  = "/api/rooms/{slug}/recording/stop"
+	RoomRecordingsPath = "/api/rooms/{slug}/recordings"
+	RecordingPath      = "/api/recordings/{id}"
+	RecordingDownloadPath = "/api/recordings/{id}/download"
 )
 
 type TokenResponse struct {
@@ -86,4 +91,17 @@ type LobbyDeniedSSE struct{}
 
 type LobbyPendingSSE struct {
 	Requests []LobbyRequestInfo `json:"requests"`
+}
+
+type RecordingInfo struct {
+	ID        string  `json:"id"`
+	RoomSlug  string  `json:"room_slug"`
+	EgressID  string  `json:"egress_id"`
+	Status    string  `json:"status"`
+	StartedBy string  `json:"started_by"`
+	StartedAt int64   `json:"started_at"`
+	EndedAt   *int64  `json:"ended_at"`
+	DurationS *int64  `json:"duration_s"`
+	S3Key     *string `json:"s3_key"`
+	SizeBytes *int64  `json:"size_bytes"`
 }

@@ -25,6 +25,28 @@ type Room struct {
 	CreatedAt    int64
 }
 
+type Recording struct {
+	ID         string
+	RoomID     string
+	RoomSlug   string
+	EgressID   string
+	Status     string
+	StartedBy  string
+	StartedAt  int64
+	EndedAt    *int64
+	DurationS  *int64
+	S3Key      *string
+	SizeBytes  *int64
+}
+
+type RecordingUpdate struct {
+	Status    string
+	EndedAt   *int64
+	DurationS *int64
+	S3Key     *string
+	SizeBytes *int64
+}
+
 type Store struct {
 	db *sql.DB
 }
@@ -122,8 +144,127 @@ func (s *Store) DeleteRoom(ctx context.Context, id string) error {
 	return requireChanged(result)
 }
 
+func (s *Store) InsertRecording(ctx context.Context, recording Recording) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO recordings (
+			id, room_id, room_slug, egress_id, status, started_by, started_at,
+			ended_at, duration_s, s3_key, size_bytes
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		recording.ID, recording.RoomID, recording.RoomSlug, recording.EgressID,
+		recording.Status, recording.StartedBy, recording.StartedAt,
+		recording.EndedAt, recording.DurationS, recording.S3Key, recording.SizeBytes,
+	)
+	return err
+}
+
+func (s *Store) UpdateRecordingByEgress(ctx context.Context, egressID string, update RecordingUpdate) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE recordings SET
+			status = ?,
+			ended_at = COALESCE(?, ended_at),
+			duration_s = COALESCE(?, duration_s),
+			s3_key = COALESCE(?, s3_key),
+			size_bytes = COALESCE(?, size_bytes)
+		WHERE egress_id = ?`,
+		update.Status, update.EndedAt, update.DurationS, update.S3Key, update.SizeBytes,
+		egressID,
+	)
+	if err != nil {
+		return err
+	}
+	return requireChanged(result)
+}
+
+func (s *Store) RecordingsByRoomSlug(ctx context.Context, slug string) ([]Recording, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, room_id, room_slug, egress_id, status, started_by, started_at,
+		       ended_at, duration_s, s3_key, size_bytes
+		FROM recordings WHERE room_slug = ?
+		ORDER BY started_at DESC, id DESC`, slug)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	recordings := make([]Recording, 0)
+	for rows.Next() {
+		recording, err := scanRecording(rows)
+		if err != nil {
+			return nil, err
+		}
+		recordings = append(recordings, recording)
+	}
+	return recordings, rows.Err()
+}
+
+func (s *Store) RecordingByID(ctx context.Context, id string) (Recording, error) {
+	return scanRecording(s.db.QueryRowContext(ctx, `
+		SELECT id, room_id, room_slug, egress_id, status, started_by, started_at,
+		       ended_at, duration_s, s3_key, size_bytes
+		FROM recordings WHERE id = ?`, id))
+}
+
+func (s *Store) RecordingByEgressID(ctx context.Context, egressID string) (Recording, error) {
+	return scanRecording(s.db.QueryRowContext(ctx, `
+		SELECT id, room_id, room_slug, egress_id, status, started_by, started_at,
+		       ended_at, duration_s, s3_key, size_bytes
+		FROM recordings WHERE egress_id = ?`, egressID))
+}
+
+func (s *Store) ActiveRecordingByRoomID(ctx context.Context, roomID string) (Recording, error) {
+	return scanRecording(s.db.QueryRowContext(ctx, `
+		SELECT id, room_id, room_slug, egress_id, status, started_by, started_at,
+		       ended_at, duration_s, s3_key, size_bytes
+		FROM recordings
+		WHERE room_id = ? AND status IN ('starting', 'recording', 'finalizing')
+		ORDER BY started_at DESC LIMIT 1`, roomID))
+}
+
+func (s *Store) DeleteRecording(ctx context.Context, id string) error {
+	result, err := s.db.ExecContext(ctx, "DELETE FROM recordings WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	return requireChanged(result)
+}
+
+type recordingScanner interface {
+	Scan(...any) error
+}
+
+func scanRecording(scanner recordingScanner) (Recording, error) {
+	var recording Recording
+	var endedAt, durationS, sizeBytes sql.NullInt64
+	var s3Key sql.NullString
+	err := scanner.Scan(
+		&recording.ID, &recording.RoomID, &recording.RoomSlug, &recording.EgressID,
+		&recording.Status, &recording.StartedBy, &recording.StartedAt,
+		&endedAt, &durationS, &s3Key, &sizeBytes,
+	)
+	if err != nil {
+		return Recording{}, err
+	}
+	if endedAt.Valid {
+		recording.EndedAt = &endedAt.Int64
+	}
+	if durationS.Valid {
+		recording.DurationS = &durationS.Int64
+	}
+	if s3Key.Valid {
+		recording.S3Key = &s3Key.String
+	}
+	if sizeBytes.Valid {
+		recording.SizeBytes = &sizeBytes.Int64
+	}
+	return recording, nil
+}
+
 func IsSlugConflict(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed: rooms.slug")
+}
+
+func IsActiveRecordingConflict(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed: recordings.room_id")
 }
 
 func requireChanged(result sql.Result) error {

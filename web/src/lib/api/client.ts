@@ -7,9 +7,14 @@ import {
   LobbyWaitPath,
   MePath,
   MutePath,
+  RecordingDownloadPath,
+  RecordingPath,
+  RecordingStartPath,
+  RecordingStopPath,
   RoomJoinPath,
   RoomLobbyPath,
   RoomPath,
+  RoomRecordingsPath,
   RoomsPath,
   type CreateRoomRequest,
   type ErrorResponse,
@@ -21,6 +26,7 @@ import {
   type LobbyWaitingSSE,
   type Me,
   type PublicRoomInfo,
+  type RecordingInfo,
   type RoomInfo,
   type TokenResponse,
   type UpdateRoomRequest
@@ -121,6 +127,35 @@ export function muteParticipant(slug: string, identity: string): Promise<void> {
     method: 'POST',
     headers: csrfHeaders
   });
+}
+
+export function startRecording(slug: string): Promise<RecordingInfo> {
+  return requestJSON<RecordingInfo>(pathWith(RecordingStartPath, 'slug', slug), {
+    method: 'POST',
+    headers: csrfHeaders
+  });
+}
+
+export function stopRecording(slug: string): Promise<RecordingInfo> {
+  return requestJSON<RecordingInfo>(pathWith(RecordingStopPath, 'slug', slug), {
+    method: 'POST',
+    headers: csrfHeaders
+  });
+}
+
+export function listRecordings(slug: string): Promise<RecordingInfo[]> {
+  return requestJSON<RecordingInfo[]>(pathWith(RoomRecordingsPath, 'slug', slug));
+}
+
+export function deleteRecording(id: string): Promise<void> {
+  return requestEmpty(pathWith(RecordingPath, 'id', id), {
+    method: 'DELETE',
+    headers: csrfHeaders
+  });
+}
+
+export function recordingDownloadURL(id: string): string {
+  return pathWith(RecordingDownloadPath, 'id', id);
 }
 
 export function joinRoom(slug: string, name: string): Promise<JoinResponse> {

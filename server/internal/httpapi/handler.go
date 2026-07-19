@@ -15,6 +15,7 @@ import (
 	"klisi/internal/lobby"
 	klisilivekit "klisi/internal/livekit"
 	"klisi/internal/moderation"
+	"klisi/internal/recording"
 	"klisi/internal/rooms"
 	"klisi/internal/store"
 )
@@ -26,6 +27,7 @@ type Handler struct {
 	rooms      *rooms.Handler
 	lobby      *lobby.Handler
 	moderation *moderation.Handler
+	recording  *recording.Handler
 	minter     *klisilivekit.Minter
 }
 
@@ -40,6 +42,7 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store) http.Handler {
 		rooms:      rooms.NewHandler(roomStore),
 		lobby:      lobby.NewHandler(roomStore, registry, minter),
 		moderation: moderation.NewHandler(roomStore, moderation.NewRoomService(cfg)),
+		recording:  recording.New(cfg, roomStore),
 		minter:     minter,
 	}
 
@@ -57,6 +60,11 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store) http.Handler {
 	mux.Handle("DELETE "+api.RoomPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.rooms.Delete))))
 	mux.Handle("POST "+api.KickPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.moderation.Kick))))
 	mux.Handle("POST "+api.MutePath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.moderation.Mute))))
+	mux.Handle("POST "+api.RecordingStartPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.recording.Start))))
+	mux.Handle("POST "+api.RecordingStopPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.recording.Stop))))
+	mux.Handle("GET "+api.RoomRecordingsPath, handler.requireAuth(http.HandlerFunc(handler.recording.List)))
+	mux.Handle("DELETE "+api.RecordingPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.recording.Delete))))
+	mux.Handle("GET "+api.RecordingDownloadPath, handler.requireAuth(http.HandlerFunc(handler.recording.Download)))
 
 	mux.Handle("POST "+api.RoomJoinPath, handler.csrf(http.HandlerFunc(handler.lobby.Join)))
 	mux.Handle("GET "+api.RoomLobbyPath, handler.requireAuth(http.HandlerFunc(handler.lobby.Host)))
@@ -64,7 +72,7 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store) http.Handler {
 	mux.Handle("POST "+api.LobbyApprovePath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.lobby.Approve))))
 	mux.Handle("POST "+api.LobbyDenyPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.lobby.Deny))))
 
-	mux.HandleFunc("POST "+api.LiveKitWebhookPath, handler.liveKitWebhook)
+	mux.HandleFunc("POST "+api.LiveKitWebhookPath, handler.recording.Webhook)
 	if cfg.DevMode {
 		mux.HandleFunc("GET "+api.DevTokenPath, handler.devToken)
 	}
@@ -78,6 +86,11 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store) http.Handler {
 	registerMethodFallback(mux, api.RoomJoinPath, http.MethodPost)
 	registerMethodFallback(mux, api.KickPath, http.MethodPost)
 	registerMethodFallback(mux, api.MutePath, http.MethodPost)
+	registerMethodFallback(mux, api.RecordingStartPath, http.MethodPost)
+	registerMethodFallback(mux, api.RecordingStopPath, http.MethodPost)
+	registerMethodFallback(mux, api.RoomRecordingsPath, http.MethodGet)
+	registerMethodFallback(mux, api.RecordingPath, http.MethodDelete)
+	registerMethodFallback(mux, api.RecordingDownloadPath, http.MethodGet)
 	registerMethodFallback(mux, api.RoomLobbyPath, http.MethodGet)
 	registerMethodFallback(mux, api.LobbyWaitPath, http.MethodGet)
 	registerMethodFallback(mux, api.LobbyApprovePath, http.MethodPost)
@@ -117,12 +130,6 @@ func (h *Handler) devToken(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, api.TokenResponse{Token: token, WSURL: h.minter.PublicURL()})
-}
-
-func (h *Handler) liveKitWebhook(w http.ResponseWriter, _ *http.Request) {
-	// LiveKit is a server-to-server caller and cannot supply the browser CSRF
-	// header. Phase 4 replaces this stub with LiveKit signature verification.
-	w.WriteHeader(http.StatusOK)
 }
 
 func (h *Handler) withSession(next http.Handler) http.Handler {

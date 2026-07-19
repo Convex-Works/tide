@@ -1,16 +1,24 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import { Copy, Trash } from 'phosphor-svelte';
+  import { CaretDown, Copy, DownloadSimple, Trash } from 'phosphor-svelte';
   import {
     AuthRequiredError,
     createRoom,
+    deleteRecording,
     deleteRoom,
+    listRecordings,
     listRooms,
     logout,
     me,
+    recordingDownloadURL,
     updateRoom
   } from '$lib/api/client';
-  import { AuthLoginPath, type Me, type RoomInfo } from '$lib/api/types.gen';
+  import {
+    AuthLoginPath,
+    type Me,
+    type RecordingInfo,
+    type RoomInfo
+  } from '$lib/api/types.gen';
 
   type DashboardState = 'loading' | 'signed-out' | 'ready' | 'error';
 
@@ -23,7 +31,12 @@
   let changingSlug = $state('');
   let deleteConfirmSlug = $state('');
   let copiedSlug = $state('');
+  let expandedRecordingsSlug = $state('');
+  let loadingRecordingsSlug = $state('');
+  let recordingsByRoom = $state<Record<string, RecordingInfo[]>>({});
+  let deleteConfirmRecordingID = $state('');
   let copyTimer: ReturnType<typeof setTimeout> | undefined;
+  let recordingPoll: ReturnType<typeof setTimeout> | undefined;
 
   async function loadDashboard(): Promise<void> {
     dashboardState = 'loading';
@@ -117,9 +130,88 @@
     }
   }
 
+  async function toggleRecordings(slug: string): Promise<void> {
+    if (expandedRecordingsSlug === slug) {
+      expandedRecordingsSlug = '';
+      if (recordingPoll) clearTimeout(recordingPoll);
+      recordingPoll = undefined;
+      return;
+    }
+    expandedRecordingsSlug = slug;
+    deleteConfirmRecordingID = '';
+    await loadRoomRecordings(slug);
+  }
+
+  async function loadRoomRecordings(slug: string): Promise<void> {
+    if (expandedRecordingsSlug !== slug) return;
+    loadingRecordingsSlug = slug;
+    try {
+      const recordings = await listRecordings(slug);
+      recordingsByRoom = { ...recordingsByRoom, [slug]: recordings };
+      if (
+        recordings.some((recording) =>
+          ['starting', 'recording', 'finalizing'].includes(recording.status)
+        )
+      ) {
+        if (recordingPoll) clearTimeout(recordingPoll);
+        recordingPoll = setTimeout(() => void loadRoomRecordings(slug), 3_000);
+      }
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : 'Could not load recordings. Try again.';
+    } finally {
+      loadingRecordingsSlug = '';
+    }
+  }
+
+  async function removeRecording(slug: string, id: string): Promise<void> {
+    if (deleteConfirmRecordingID !== id) {
+      deleteConfirmRecordingID = id;
+      return;
+    }
+    changingSlug = slug;
+    error = '';
+    try {
+      await deleteRecording(id);
+      recordingsByRoom = {
+        ...recordingsByRoom,
+        [slug]: (recordingsByRoom[slug] ?? []).filter((recording) => recording.id !== id)
+      };
+      deleteConfirmRecordingID = '';
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : 'Could not delete the recording. Try again.';
+    } finally {
+      changingSlug = '';
+    }
+  }
+
+  function relativeDate(timestamp: number): string {
+    const seconds = Math.round(timestamp - Date.now() / 1000);
+    const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
+    if (Math.abs(seconds) < 60) return formatter.format(seconds, 'second');
+    const minutes = Math.round(seconds / 60);
+    if (Math.abs(minutes) < 60) return formatter.format(minutes, 'minute');
+    const hours = Math.round(minutes / 60);
+    if (Math.abs(hours) < 24) return formatter.format(hours, 'hour');
+    return formatter.format(Math.round(hours / 24), 'day');
+  }
+
+  function durationLabel(seconds?: number | null): string {
+    if (seconds == null) return '—';
+    const minutes = Math.floor(seconds / 60);
+    const remainder = seconds % 60;
+    return `${minutes}:${remainder.toString().padStart(2, '0')}`;
+  }
+
+  function sizeLabel(bytes?: number | null): string {
+    if (bytes == null) return '—';
+    if (bytes < 1_000_000) return `${Math.max(1, Math.round(bytes / 1_000))} KB`;
+    return `${(bytes / 1_000_000).toFixed(1)} MB`;
+  }
+
   onMount(() => void loadDashboard());
   onDestroy(() => {
     if (copyTimer) clearTimeout(copyTimer);
+    if (recordingPoll) clearTimeout(recordingPoll);
   });
 </script>
 
@@ -181,12 +273,24 @@
         {:else}
           <div class="room-list">
             {#each rooms as room (room.id)}
+              <div class="room-entry">
               <article class="room-row">
                 <a class="room-link" href={`/m/${room.slug}`}>
                   <strong>{room.name}</strong>
                   <span class="slug mono">{room.slug}</span>
                 </a>
                 <div class="row-actions">
+                  <button
+                    class="icon-button recordings-toggle"
+                    class:expanded={expandedRecordingsSlug === room.slug}
+                    type="button"
+                    aria-expanded={expandedRecordingsSlug === room.slug}
+                    aria-label={`${expandedRecordingsSlug === room.slug ? 'Hide' : 'Show'} recordings for ${room.name}`}
+                    title="Recordings"
+                    onclick={() => void toggleRecordings(room.slug)}
+                  >
+                    <CaretDown size={16} weight="regular" aria-hidden="true" />
+                  </button>
                   <button
                     class="icon-button copy"
                     type="button"
@@ -223,6 +327,52 @@
                   </button>
                 </div>
               </article>
+              {#if expandedRecordingsSlug === room.slug}
+                <section class="recordings" aria-label={`Recordings for ${room.name}`}>
+                  {#if loadingRecordingsSlug === room.slug && !recordingsByRoom[room.slug]}
+                    <p class="recordings-state">Loading recordings…</p>
+                  {:else if (recordingsByRoom[room.slug] ?? []).length === 0}
+                    <p class="recordings-state">No recordings yet.</p>
+                  {:else}
+                    {#each recordingsByRoom[room.slug] ?? [] as recording (recording.id)}
+                      <div class="recording-row" data-recording-id={recording.id}>
+                        <span class:failed={recording.status === 'failed'} class="recording-status mono">
+                          {recording.status}
+                        </span>
+                        <time datetime={new Date(recording.started_at * 1000).toISOString()}>
+                          {relativeDate(recording.started_at)}
+                        </time>
+                        <span class="mono">{durationLabel(recording.duration_s)}</span>
+                        <span class="mono">{sizeLabel(recording.size_bytes)}</span>
+                        <div class="recording-actions">
+                          {#if recording.status === 'completed'}
+                            <a
+                              class="download-button"
+                              href={recordingDownloadURL(recording.id)}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
+                              <DownloadSimple size={14} weight="regular" aria-hidden="true" />
+                              Download
+                            </a>
+                          {/if}
+                          <button
+                            class:confirm-delete={deleteConfirmRecordingID === recording.id}
+                            class="recording-delete"
+                            type="button"
+                            disabled={changingSlug === room.slug || ['starting', 'recording', 'finalizing'].includes(recording.status)}
+                            aria-label={deleteConfirmRecordingID === recording.id ? 'Delete recording?' : 'Delete recording'}
+                            onclick={() => void removeRecording(room.slug, recording.id)}
+                          >
+                            {deleteConfirmRecordingID === recording.id ? 'Delete?' : 'Delete'}
+                          </button>
+                        </div>
+                      </div>
+                    {/each}
+                  {/if}
+                </section>
+              {/if}
+              </div>
             {/each}
           </div>
         {/if}
@@ -374,6 +524,25 @@
     border-bottom: 1px solid var(--border);
   }
 
+  .room-entry {
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .room-entry:last-child {
+    border-bottom: 0;
+    border-radius: 0 0 var(--radius-card) var(--radius-card);
+  }
+
+  .room-entry:only-child {
+    border-radius: var(--radius-card);
+  }
+
+  .room-entry .room-row {
+    border-bottom: 0;
+    border-radius: 0;
+  }
+
   .room-row:first-child {
     border-radius: var(--radius-card) var(--radius-card) 0 0;
   }
@@ -432,6 +601,97 @@
     min-width: 30px;
     padding: 0 6px;
     place-items: center;
+  }
+
+  .recordings-toggle svg {
+    transition: transform var(--motion-fast);
+  }
+
+  .recordings-toggle.expanded svg {
+    transform: rotate(180deg);
+  }
+
+  .recordings {
+    padding: 0 10px 8px;
+  }
+
+  .recordings-state {
+    margin: 0;
+    padding: 10px;
+    color: var(--ink-2);
+    font-size: 12px;
+    background: var(--paper);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+  }
+
+  .recording-row {
+    display: grid;
+    min-height: 38px;
+    grid-template-columns: 82px minmax(100px, 1fr) 58px 72px auto;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 7px;
+    color: var(--ink-2);
+    font-size: 11px;
+    background: var(--paper);
+    border: 1px solid var(--border);
+    border-bottom: 0;
+  }
+
+  .recording-row:first-child {
+    border-radius: var(--radius-control) var(--radius-control) 0 0;
+  }
+
+  .recording-row:last-child {
+    border-bottom: 1px solid var(--border);
+    border-radius: 0 0 var(--radius-control) var(--radius-control);
+  }
+
+  .recording-row:only-child {
+    border-radius: var(--radius-control);
+  }
+
+  .recording-status {
+    color: var(--ok);
+    font-size: 10px;
+    text-transform: uppercase;
+  }
+
+  .recording-status.failed {
+    color: var(--rec);
+  }
+
+  .recording-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 4px;
+  }
+
+  .download-button,
+  .recording-delete {
+    display: inline-flex;
+    height: 24px;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 6px;
+    color: var(--ink);
+    font-size: 11px;
+    line-height: 20px;
+    text-decoration: none;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+  }
+
+  .recording-delete {
+    color: var(--rec);
+  }
+
+  .recording-delete.confirm-delete {
+    color: white;
+    background: var(--rec);
+    border-color: var(--rec);
   }
 
   .copy {
@@ -536,6 +796,15 @@
 
     .row-actions {
       justify-content: flex-end;
+    }
+
+    .recording-row {
+      grid-template-columns: 1fr 1fr;
+    }
+
+    .recording-actions {
+      grid-column: 1 / -1;
+      justify-content: flex-start;
     }
   }
 </style>

@@ -4,12 +4,14 @@
     Microphone,
     MicrophoneSlash,
     PhoneDisconnect,
+    Record,
     Screencast,
     UsersThree,
     VideoCamera,
     VideoCameraSlash
   } from 'phosphor-svelte';
   import type { RoomState } from '$lib/rtc/room.svelte';
+  import { startRecording, stopRecording } from '$lib/api/client';
 
   let {
     rtc,
@@ -17,6 +19,8 @@
     peopleOpen = false,
     chatOpen = false,
     unreadChat = 0,
+    isOwner = false,
+    roomSlug = '',
     ontogglepeople = () => undefined,
     ontogglechat = () => undefined
   }: {
@@ -25,9 +29,15 @@
     peopleOpen?: boolean;
     chatOpen?: boolean;
     unreadChat?: number;
+    isOwner?: boolean;
+    roomSlug?: string;
     ontogglepeople?: () => void;
     ontogglechat?: () => void;
   } = $props();
+
+  let recordingConfirm = $state(false);
+  let recordingBusy = $state(false);
+  let recordingError = $state('');
 
   async function leave(): Promise<void> {
     await rtc.leave().catch(() => undefined);
@@ -39,6 +49,28 @@
       await action();
     } catch {
       // Browser media pickers may be cancelled without changing meeting rtc.
+    }
+  }
+
+  async function toggleRecording(): Promise<void> {
+    if (recordingBusy || !roomSlug) return;
+    if (!rtc.isRecording && !recordingConfirm) {
+      recordingConfirm = true;
+      return;
+    }
+    recordingBusy = true;
+    recordingConfirm = false;
+    recordingError = '';
+    try {
+      if (rtc.isRecording) {
+        await stopRecording(roomSlug);
+      } else {
+        await startRecording(roomSlug);
+      }
+    } catch (cause) {
+      recordingError = cause instanceof Error ? cause.message : 'Could not change recording.';
+    } finally {
+      recordingBusy = false;
     }
   }
 </script>
@@ -58,6 +90,23 @@
       <MicrophoneSlash size={16} weight="regular" aria-hidden="true" />
     {/if}
   </button>
+
+  {#if isOwner}
+    <button
+      type="button"
+      class="record-control"
+      class:recording={rtc.isRecording}
+      class:confirm={recordingConfirm}
+      disabled={recordingBusy}
+      aria-label={rtc.isRecording ? 'Stop recording' : recordingConfirm ? 'Record?' : 'Start recording'}
+      aria-pressed={rtc.isRecording}
+      title={rtc.isRecording ? 'Stop recording' : 'Start recording'}
+      onclick={() => void toggleRecording()}
+    >
+      <Record size={16} weight={rtc.isRecording ? 'fill' : 'regular'} aria-hidden="true" />
+      {#if recordingConfirm}<span>Record?</span>{/if}
+    </button>
+  {/if}
 
   <button
     type="button"
@@ -112,6 +161,8 @@
   </button>
 
   <span class="separator" aria-hidden="true"></span>
+
+  {#if recordingError}<span class="recording-error" role="alert">{recordingError}</span>{/if}
 
   <button
     type="button"
@@ -173,6 +224,40 @@
   button.active {
     color: var(--accent-d);
     background: color-mix(in srgb, var(--accent-d) 12%, transparent);
+  }
+
+  button.record-control.recording {
+    color: white;
+    background: var(--rec);
+    border-color: var(--rec);
+  }
+
+  button.record-control.confirm {
+    display: flex;
+    width: auto;
+    gap: 4px;
+    padding: 0 7px;
+    color: var(--rec);
+    border-color: color-mix(in srgb, var(--rec) 42%, transparent);
+  }
+
+  button:disabled {
+    cursor: wait;
+    opacity: 0.6;
+  }
+
+  .recording-error {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 6px);
+    width: max-content;
+    max-width: 280px;
+    padding: 4px 7px;
+    color: var(--text);
+    font-size: 11px;
+    background: var(--panel);
+    border: 1px solid var(--rec);
+    border-radius: var(--radius-control);
   }
 
   button.leave {

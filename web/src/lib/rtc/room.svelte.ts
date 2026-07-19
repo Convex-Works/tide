@@ -72,6 +72,7 @@ export class RoomState {
   micEnabled = $state(false);
   camEnabled = $state(false);
   screenShareEnabled = $state(false);
+  isRecording = $state(false);
   activeSpeakerIdentities = $state<string[]>([]);
   chat = $state<ChatMessage[]>([]);
   chatRevision = $state(0);
@@ -103,6 +104,7 @@ export class RoomState {
       .on(RoomEvent.LocalTrackUnpublished, () => this.syncAllMediaState())
       .on(RoomEvent.ParticipantMetadataChanged, () => this.syncParticipants())
       .on(RoomEvent.ParticipantNameChanged, () => this.syncParticipants())
+      .on(RoomEvent.RoomMetadataChanged, () => this.syncRoomMetadata())
       .on(
         RoomEvent.DataReceived,
         (payload: Uint8Array, participant?: RemoteParticipant, _kind?: unknown, topic?: string) => {
@@ -129,6 +131,7 @@ export class RoomState {
     this.wasRemoved = false;
     try {
       await this.room.connect(wsURL, token);
+      this.syncRoomMetadata();
 
       if (media.audioDeviceId) {
         await this.switchDevice('audioinput', media.audioDeviceId);
@@ -268,6 +271,7 @@ export class RoomState {
     this.micEnabled = false;
     this.camEnabled = false;
     this.screenShareEnabled = false;
+    this.isRecording = false;
     setConnectionChrome('offline');
   }
 
@@ -279,6 +283,20 @@ export class RoomState {
     } catch {
       return undefined;
     }
+  }
+
+  private syncRoomMetadata(): void {
+    let recording = false;
+    if (this.room.metadata) {
+      try {
+        const metadata = JSON.parse(this.room.metadata) as { recording?: unknown };
+        recording = metadata.recording === true;
+      } catch {
+        recording = false;
+      }
+    }
+    this.isRecording = recording;
+    this.syncConnectionChrome(this.connectionState);
   }
 
   private receiveChat(payload: Uint8Array, participant?: RemoteParticipant): void {
@@ -316,6 +334,8 @@ export class RoomState {
       setConnectionChrome('reconnecting');
     } else if (state === ConnectionState.Disconnected) {
       setConnectionChrome('offline');
+    } else if (this.isRecording) {
+      setConnectionChrome('recording');
     } else {
       setConnectionChrome('connected');
     }
