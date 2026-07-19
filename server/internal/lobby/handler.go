@@ -18,7 +18,9 @@ import (
 )
 
 const (
-	tokenTTL           = 10 * time.Minute
+	// TokenTTL bounds every admission token. Moderation's kick denylist must
+	// keep entries at least this long so a ban outlives any cached token.
+	TokenTTL           = 10 * time.Minute
 	maxJSONRequestBody = 1 << 20
 )
 
@@ -162,7 +164,7 @@ func (h *Handler) Approve(w http.ResponseWriter, r *http.Request) {
 		writeLobbyError(w, http.StatusInternalServerError, "Could not admit the guest. Try again.")
 		return
 	}
-	token, err := h.minter.MintToken(identity, request.Name, request.RoomSlug, false, tokenTTL)
+	token, err := h.minter.MintToken(identity, request.Name, request.RoomSlug, false, TokenTTL)
 	if err != nil {
 		writeLobbyError(w, http.StatusInternalServerError, "Could not admit the guest. Try again.")
 		return
@@ -221,7 +223,7 @@ func (h *Handler) requireOwner(w http.ResponseWriter, r *http.Request, slug stri
 }
 
 func (h *Handler) writeAdmission(w http.ResponseWriter, identity, name, room string, host bool) {
-	token, err := h.minter.MintToken(identity, name, room, host, tokenTTL)
+	token, err := h.minter.MintToken(identity, name, room, host, TokenTTL)
 	if err != nil {
 		writeLobbyError(w, http.StatusInternalServerError, "Could not join the room. Try again.")
 		return

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 
 	protocol "github.com/livekit/protocol/livekit"
@@ -28,12 +29,13 @@ type RoomService interface {
 }
 
 type Handler struct {
-	store   roomStore
-	service RoomService
+	store    roomStore
+	service  RoomService
+	denylist *Denylist
 }
 
-func NewHandler(rooms roomStore, service RoomService) *Handler {
-	return &Handler{store: rooms, service: service}
+func NewHandler(rooms roomStore, service RoomService, denylist *Denylist) *Handler {
+	return &Handler{store: rooms, service: service, denylist: denylist}
 }
 
 func (h *Handler) Kick(w http.ResponseWriter, r *http.Request) {
@@ -45,6 +47,12 @@ func (h *Handler) Kick(w http.ResponseWriter, r *http.Request) {
 	if _, ok := h.findParticipant(w, r, room.Slug, identity); !ok {
 		return
 	}
+	// Ban before removing so a rejoin racing the kick is still caught. The
+	// owner's own identity is never banned — kicking yourself must not lock
+	// you out of your own room.
+	if h.denylist != nil && identity != "host:"+room.OwnerSub {
+		h.denylist.Ban(room.Slug, identity)
+	}
 	if _, err := h.service.RemoveParticipant(r.Context(), &protocol.RoomParticipantIdentity{
 		Room: room.Slug, Identity: identity,
 	}); err != nil {
@@ -52,6 +60,20 @@ func (h *Handler) Kick(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// EnforceOnJoin re-removes a kicked participant that reconnected with a
+// cached admission token. Driven by the LiveKit participant_joined webhook,
+// so the rejoin window is one webhook round-trip.
+func (h *Handler) EnforceOnJoin(ctx context.Context, room, identity string) {
+	if h.denylist == nil || !h.denylist.Banned(room, identity) {
+		return
+	}
+	if _, err := h.service.RemoveParticipant(ctx, &protocol.RoomParticipantIdentity{
+		Room: room, Identity: identity,
+	}); err != nil {
+		log.Printf("moderation: could not re-remove banned participant %s from %s: %v", identity, room, err)
+	}
 }
 
 func (h *Handler) Mute(w http.ResponseWriter, r *http.Request) {

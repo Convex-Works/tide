@@ -38,14 +38,20 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store) http.Handler {
 	joinLimiter := newIPRateLimiter(10, time.Minute)
 	waitLimiter := newIPRateLimiter(20, time.Minute)
 	loginLimiter := newIPRateLimiter(10, time.Minute)
+	// Kick bans must outlive any cached admission token (see finding #2 in
+	// docs/REVIEW-2026-07-19.md), so the denylist TTL is the token TTL.
+	denylist := moderation.NewDenylist(lobby.TokenTTL)
+	moderationHandler := moderation.NewHandler(roomStore, moderation.NewRoomService(cfg), denylist)
+	recordingHandler := recording.New(cfg, roomStore)
+	recordingHandler.SetParticipantJoinedHook(moderationHandler.EnforceOnJoin)
 	handler := &Handler{
 		web:        web,
 		sessions:   sessions,
 		oidc:       auth.NewOIDC(cfg, sessions),
 		rooms:      rooms.NewHandler(roomStore),
 		lobby:      lobby.NewHandler(roomStore, registry, minter),
-		moderation: moderation.NewHandler(roomStore, moderation.NewRoomService(cfg)),
-		recording:  recording.New(cfg, roomStore),
+		moderation: moderationHandler,
+		recording:  recordingHandler,
 		minter:     minter,
 	}
 

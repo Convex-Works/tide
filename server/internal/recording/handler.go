@@ -55,6 +55,15 @@ type Handler struct {
 	now         func() time.Time
 	newID       func() (string, error)
 	receiver    WebhookReceiver
+	// onParticipantJoined lets the webhook fan participant_joined events out
+	// to moderation (kick-ban enforcement) without a package dependency.
+	onParticipantJoined func(ctx context.Context, room, identity string)
+}
+
+// SetParticipantJoinedHook registers a callback invoked for every verified
+// participant_joined webhook event.
+func (h *Handler) SetParticipantJoinedHook(hook func(ctx context.Context, room, identity string)) {
+	h.onParticipantJoined = hook
 }
 
 func NewHandler(

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	protocol "github.com/livekit/protocol/livekit"
 
@@ -52,7 +53,7 @@ func TestModerationOwnershipMatrix(t *testing.T) {
 	room := store.Room{Slug: "calm-otter-412", OwnerSub: "owner"}
 	participant := &protocol.ParticipantInfo{
 		Identity: "guest:1234",
-		Tracks: []*protocol.TrackInfo{{Sid: "TR_audio", Source: protocol.TrackSource_MICROPHONE}},
+		Tracks:   []*protocol.TrackInfo{{Sid: "TR_audio", Source: protocol.TrackSource_MICROPHONE}},
 	}
 	tests := []struct {
 		name       string
@@ -78,7 +79,7 @@ func TestModerationOwnershipMatrix(t *testing.T) {
 			for _, test := range tests {
 				t.Run(test.name, func(t *testing.T) {
 					service := &fakeRoomService{participants: []*protocol.ParticipantInfo{participant}}
-					handler := NewHandler(test.store, service)
+					handler := NewHandler(test.store, service, NewDenylist(time.Minute))
 					request := httptest.NewRequest(http.MethodPost, "/moderate", nil)
 					request.SetPathValue("slug", room.Slug)
 					request.SetPathValue("identity", participant.Identity)
@@ -118,7 +119,7 @@ func TestModerationParticipantAndLiveKitFailures(t *testing.T) {
 	}
 
 	t.Run("unknown participant", func(t *testing.T) {
-		handler := NewHandler(fakeRoomStore{room: room}, &fakeRoomService{})
+		handler := NewHandler(fakeRoomStore{room: room}, &fakeRoomService{}, NewDenylist(time.Minute))
 		recorder := httptest.NewRecorder()
 		handler.Kick(recorder, request("guest:missing"))
 		if recorder.Code != http.StatusNotFound {
@@ -128,7 +129,7 @@ func TestModerationParticipantAndLiveKitFailures(t *testing.T) {
 
 	t.Run("microphone missing", func(t *testing.T) {
 		service := &fakeRoomService{participants: []*protocol.ParticipantInfo{{Identity: "guest:1234"}}}
-		handler := NewHandler(fakeRoomStore{room: room}, service)
+		handler := NewHandler(fakeRoomStore{room: room}, service, NewDenylist(time.Minute))
 		recorder := httptest.NewRecorder()
 		handler.Mute(recorder, request("guest:1234"))
 		if recorder.Code != http.StatusNotFound || service.muted != nil {
@@ -139,9 +140,9 @@ func TestModerationParticipantAndLiveKitFailures(t *testing.T) {
 	t.Run("LiveKit rejection", func(t *testing.T) {
 		service := &fakeRoomService{
 			participants: []*protocol.ParticipantInfo{{Identity: "guest:1234"}},
-			removeErr:   errors.New("rejected"),
+			removeErr:    errors.New("rejected"),
 		}
-		handler := NewHandler(fakeRoomStore{room: room}, service)
+		handler := NewHandler(fakeRoomStore{room: room}, service, NewDenylist(time.Minute))
 		recorder := httptest.NewRecorder()
 		handler.Kick(recorder, request("guest:1234"))
 		if recorder.Code != http.StatusBadGateway {
@@ -150,7 +151,7 @@ func TestModerationParticipantAndLiveKitFailures(t *testing.T) {
 	})
 
 	t.Run("LiveKit list rejection", func(t *testing.T) {
-		handler := NewHandler(fakeRoomStore{room: room}, &fakeRoomService{listErr: errors.New("rejected")})
+		handler := NewHandler(fakeRoomStore{room: room}, &fakeRoomService{listErr: errors.New("rejected")}, NewDenylist(time.Minute))
 		recorder := httptest.NewRecorder()
 		handler.Kick(recorder, request("guest:1234"))
 		if recorder.Code != http.StatusBadGateway {
@@ -168,7 +169,7 @@ func TestModerationParticipantAndLiveKitFailures(t *testing.T) {
 			}},
 			muteErr: errors.New("rejected"),
 		}
-		handler := NewHandler(fakeRoomStore{room: room}, service)
+		handler := NewHandler(fakeRoomStore{room: room}, service, NewDenylist(time.Minute))
 		recorder := httptest.NewRecorder()
 		handler.Mute(recorder, request("guest:1234"))
 		if recorder.Code != http.StatusBadGateway {

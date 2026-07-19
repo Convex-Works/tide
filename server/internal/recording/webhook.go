@@ -32,7 +32,16 @@ func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 // can exercise synthetic LiveKit events. Production only reaches it through
 // Webhook, whose receiver verifies the signed request first.
 func (h *Handler) HandleWebhookEvent(r *http.Request, event *protocol.WebhookEvent) error {
-	if event == nil || event.EgressInfo == nil {
+	if event == nil {
+		return nil
+	}
+	if event.Event == "participant_joined" {
+		if h.onParticipantJoined != nil && event.Room != nil && event.Participant != nil {
+			h.onParticipantJoined(r.Context(), event.Room.Name, event.Participant.Identity)
+		}
+		return nil
+	}
+	if event.EgressInfo == nil {
 		return nil
 	}
 	info := event.EgressInfo

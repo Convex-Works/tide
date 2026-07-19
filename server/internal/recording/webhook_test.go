@@ -35,7 +35,7 @@ func TestWebhookEgressStateTransitions(t *testing.T) {
 		{"egress_updated", protocol.EgressStatus_EGRESS_ENDING, "finalizing"},
 	} {
 		err := handler.HandleWebhookEvent(request, &protocol.WebhookEvent{
-			Event: transition.event,
+			Event:      transition.event,
 			EgressInfo: &protocol.EgressInfo{EgressId: recording.EgressID, RoomName: room.Slug, Status: transition.status},
 		})
 		if err != nil {
@@ -102,5 +102,32 @@ func TestWebhookFailureAndUnknownEvent(t *testing.T) {
 	}
 	if len(rooms.updates) != 1 || rooms.updates[0].Metadata != `{"recording":false}` {
 		t.Fatalf("metadata updates = %#v", rooms.updates)
+	}
+}
+
+func TestWebhookParticipantJoinedHook(t *testing.T) {
+	handler, _, _, room := recordingTestHandler(t)
+	var gotRoom, gotIdentity string
+	handler.SetParticipantJoinedHook(func(_ context.Context, roomName, identity string) {
+		gotRoom, gotIdentity = roomName, identity
+	})
+	request := httptest.NewRequest("POST", "/webhook", nil)
+	if err := handler.HandleWebhookEvent(request, &protocol.WebhookEvent{
+		Event:       "participant_joined",
+		Room:        &protocol.Room{Name: room.Slug},
+		Participant: &protocol.ParticipantInfo{Identity: "guest:1234"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if gotRoom != room.Slug || gotIdentity != "guest:1234" {
+		t.Fatalf("hook got (%q, %q)", gotRoom, gotIdentity)
+	}
+	// Events without room/participant payloads must not panic or fire the hook.
+	gotIdentity = ""
+	if err := handler.HandleWebhookEvent(request, &protocol.WebhookEvent{Event: "participant_joined"}); err != nil {
+		t.Fatal(err)
+	}
+	if gotIdentity != "" {
+		t.Fatal("hook must not fire without a participant payload")
 	}
 }
