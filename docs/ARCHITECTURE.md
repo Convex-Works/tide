@@ -307,7 +307,7 @@ iteration:
 
 | Service | Port(s) |
 |---|---|
-| livekit | 7880 (ws/http), 7881 (tcp), 50000-50100/udp |
+| livekit | 7880 (ws/http), 7881 (tcp), 7882/udp (single-port UDP mux) |
 | redis | 6379 |
 | egress | — (worker; needs livekit + redis + minio) |
 | minio | 9000 (S3), 9001 (console) |

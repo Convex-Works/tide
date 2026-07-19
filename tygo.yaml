@@ -1,0 +1,3 @@
+packages:
+  - path: klisi/internal/api
+    output_path: web/src/lib/api/types.gen.ts

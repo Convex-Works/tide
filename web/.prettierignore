@@ -1,0 +1,4 @@
+.svelte-kit
+build
+node_modules
+src/lib/api/types.gen.ts

@@ -1,0 +1,114 @@
+name: klisi
+
+services:
+  redis:
+    image: redis:7-alpine
+    command: redis-server --save 60 1 --loglevel warning
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [klisi]
+
+  livekit:
+    image: livekit/livekit-server:v1.13.4
+    command: --config /etc/livekit.yaml
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+    ports:
+      - "7880:7880"
+      - "7881:7881"
+      - "7882:7882/udp"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:7880/ || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [klisi]
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: klisi
+      MINIO_ROOT_PASSWORD: klisi-dev-minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [klisi]
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        mc alias set local http://minio:9000 klisi klisi-dev-minio &&
+        mc mb --ignore-existing local/klisi-recordings
+    restart: "no"
+    networks: [klisi]
+
+  egress:
+    image: livekit/egress:v1.13.0
+    environment:
+      EGRESS_CONFIG_FILE: /etc/egress.yaml
+    volumes:
+      - ./egress.yaml:/etc/egress.yaml:ro
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - seccomp:unconfined
+    shm_size: 1gb
+    depends_on:
+      livekit:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8081/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    networks: [klisi]
+
+  dex:
+    image: ghcr.io/dexidp/dex:v2.43.1
+    command: dex serve /etc/dex/config.yaml
+    volumes:
+      - ./dex.yaml:/etc/dex/config.yaml:ro
+      - dex-data:/var/dex
+    ports:
+      - "5556:5556"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:5556/dex/.well-known/openid-configuration || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [klisi]
+
+networks:
+  klisi:
+    driver: bridge
+
+volumes:
+  minio-data:
+  dex-data:

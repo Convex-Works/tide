@@ -1,0 +1,97 @@
+:root {
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 450;
+  color: var(--ink);
+  background: var(--paper);
+  font-synthesis: none;
+
+  --paper: #f5f5f0;
+  --surface: #ecece6;
+  --surface-2: #e3e3db;
+  --border: #d8d8ce;
+  --ink: #171717;
+  --ink-2: #6e6e64;
+  --accent: #2320e6;
+  --accent-hover: #1b18c4;
+
+  --stage: #0f0f0e;
+  --panel: #161615;
+  --panel-2: #1e1e1c;
+  --border-d: #2a2a27;
+  --text: #edede6;
+  --text-2: #8f8f85;
+  --accent-d: #5b58ff;
+
+  --rec: #e5484d;
+  --ok: #4fa36f;
+  --warn: #d9a03f;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --radius-control: 4px;
+  --radius-card: 6px;
+  --radius-tile: 8px;
+  --control-height: 28px;
+  --motion-fast: 120ms ease-out;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100%;
+}
+
+body {
+  background: var(--paper);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.mono {
+  font-family: "Geist Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+.app-shell {
+  min-height: 100dvh;
+}
+
+.hairline {
+  position: fixed;
+  z-index: 100;
+  inset: 0 0 auto;
+  height: 2px;
+  background: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+  }
+}

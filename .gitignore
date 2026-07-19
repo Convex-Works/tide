@@ -10,6 +10,7 @@ server/klisi
 node_modules/
 web/build/
 web/.svelte-kit/
+server/web/build/
 
 # env
 .env
@@ -18,3 +19,7 @@ web/.svelte-kit/
 
 # misc
 .DS_Store
+
+# tests
+web/test-results/
+web/playwright-report/

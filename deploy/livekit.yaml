@@ -1,0 +1,20 @@
+port: 7880
+
+rtc:
+  tcp_port: 7881
+  udp_port: 7882
+  use_external_ip: false
+  # Dev: LiveKit runs in Docker; advertise the host loopback so browser ICE
+  # candidates hit the published 7881/7882 ports instead of the container IP.
+  node_ip: 127.0.0.1
+
+redis:
+  address: redis:6379
+
+keys:
+  devkey: klisi-dev-secret-please-change-0000000000
+
+webhook:
+  api_key: devkey
+  urls:
+    - http://host.docker.internal:8080/api/webhooks/livekit

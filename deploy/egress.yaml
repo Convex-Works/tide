@@ -1,0 +1,16 @@
+api_key: devkey
+api_secret: klisi-dev-secret-please-change-0000000000
+ws_url: ws://livekit:7880
+
+redis:
+  address: redis:6379
+
+health_port: 8081
+
+s3:
+  access_key: klisi
+  secret: klisi-dev-minio
+  region: us-east-1
+  endpoint: http://minio:9000
+  bucket: klisi-recordings
+  force_path_style: true
