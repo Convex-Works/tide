@@ -36,7 +36,7 @@ func TestWaitSSEApproveDenyAndExpiry(t *testing.T) {
 			if err := test.act(registry, request.ID); err != nil {
 				t.Fatal(err)
 			}
-			handler := &Handler{registry: registry}
+			handler := &Handler{registry: registry, streams: newStreamCaps(maxStreamsPerKey)}
 			recorder := httptest.NewRecorder()
 			httpRequest := httptest.NewRequest("GET", "/api/lobby/"+request.ID+"/wait", nil)
 			httpRequest.SetPathValue("id", request.ID)
@@ -54,7 +54,7 @@ func TestWaitSSEApproveDenyAndExpiry(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		handler := &Handler{registry: registry}
+		handler := &Handler{registry: registry, streams: newStreamCaps(maxStreamsPerKey)}
 		recorder := httptest.NewRecorder()
 		httpRequest := httptest.NewRequest("GET", "/api/lobby/"+request.ID+"/wait", nil)
 		httpRequest.SetPathValue("id", request.ID)
@@ -64,4 +64,21 @@ func TestWaitSSEApproveDenyAndExpiry(t *testing.T) {
 			t.Fatalf("SSE body = %q", body)
 		}
 	})
+}
+
+func TestStreamCaps(t *testing.T) {
+	caps := newStreamCaps(2)
+	if !caps.acquire("k") || !caps.acquire("k") {
+		t.Fatal("streams under the limit must be admitted")
+	}
+	if caps.acquire("k") {
+		t.Fatal("streams over the limit must be refused")
+	}
+	if !caps.acquire("other") {
+		t.Fatal("caps are per key")
+	}
+	caps.release("k")
+	if !caps.acquire("k") {
+		t.Fatal("released capacity must be reusable")
+	}
 }

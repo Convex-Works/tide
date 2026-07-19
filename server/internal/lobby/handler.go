@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"klisi/internal/api"
@@ -24,14 +25,59 @@ const (
 	maxJSONRequestBody = 1 << 20
 )
 
+const (
+	// maxStreamsPerKey bounds concurrent SSE streams per host session+room
+	// and per guest request, so one client cannot hold file descriptors and
+	// heartbeat goroutines open without limit.
+	maxStreamsPerKey = 4
+	// sseWriteTimeout is the per-write deadline on stream writes; a client
+	// that stops reading gets its stream torn down at the next heartbeat.
+	sseWriteTimeout = 10 * time.Second
+)
+
 type Handler struct {
 	store    *store.Store
 	registry *Registry
 	minter   *klisilivekit.Minter
+	streams  *streamCaps
 }
 
 func NewHandler(roomStore *store.Store, registry *Registry, minter *klisilivekit.Minter) *Handler {
-	return &Handler{store: roomStore, registry: registry, minter: minter}
+	return &Handler{
+		store: roomStore, registry: registry, minter: minter,
+		streams: newStreamCaps(maxStreamsPerKey),
+	}
+}
+
+// streamCaps counts live SSE streams per key.
+type streamCaps struct {
+	mu     sync.Mutex
+	counts map[string]int
+	limit  int
+}
+
+func newStreamCaps(limit int) *streamCaps {
+	return &streamCaps{counts: map[string]int{}, limit: limit}
+}
+
+func (c *streamCaps) acquire(key string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.counts[key] >= c.limit {
+		return false
+	}
+	c.counts[key]++
+	return true
+}
+
+func (c *streamCaps) release(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.counts[key] <= 1 {
+		delete(c.counts, key)
+	} else {
+		c.counts[key]--
+	}
 }
 
 func (h *Handler) Join(w http.ResponseWriter, r *http.Request) {
@@ -95,19 +141,25 @@ func (h *Handler) Wait(w http.ResponseWriter, r *http.Request) {
 		writeLobbyError(w, http.StatusNotFound, "Lobby request not found.")
 		return
 	}
-	flusher, ok := w.(http.Flusher)
-	if !ok {
+	if _, ok := w.(http.Flusher); !ok {
 		writeLobbyError(w, http.StatusInternalServerError, "Streaming is not supported.")
 		return
 	}
-	beginStream(w)
-
-	if request.Status != StatusWaiting {
-		h.writeTerminal(w, flusher, request)
+	streamKey := "wait\x00" + request.ID
+	if !h.streams.acquire(streamKey) {
+		writeLobbyError(w, http.StatusTooManyRequests, "Too many open streams for this request.")
 		return
 	}
-	writeSSE(w, "waiting", api.LobbyWaitingSSE{Status: string(StatusWaiting)})
-	flusher.Flush()
+	defer h.streams.release(streamKey)
+	stream := beginStream(w)
+
+	if request.Status != StatusWaiting {
+		h.writeTerminal(stream, request)
+		return
+	}
+	if err := stream.send("waiting", api.LobbyWaitingSSE{Status: string(StatusWaiting)}); err != nil {
+		return
+	}
 	heartbeat := time.NewTicker(10 * time.Second)
 	defer heartbeat.Stop()
 	for {
@@ -119,11 +171,12 @@ func (h *Handler) Wait(w http.ResponseWriter, r *http.Request) {
 			if !exists {
 				resolved = Request{Status: StatusDenied}
 			}
-			h.writeTerminal(w, flusher, resolved)
+			h.writeTerminal(stream, resolved)
 			return
 		case <-heartbeat.C:
-			writeSSE(w, "waiting", api.LobbyWaitingSSE{Status: string(StatusWaiting)})
-			flusher.Flush()
+			if err := stream.send("waiting", api.LobbyWaitingSSE{Status: string(StatusWaiting)}); err != nil {
+				return
+			}
 		}
 	}
 }
@@ -133,15 +186,23 @@ func (h *Handler) Host(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	flusher, ok := w.(http.Flusher)
-	if !ok {
+	if _, ok := w.(http.Flusher); !ok {
 		writeLobbyError(w, http.StatusInternalServerError, "Streaming is not supported.")
 		return
 	}
-	beginStream(w)
+	session, _ := auth.SessionFromContext(r.Context())
+	streamKey := "host\x00" + room.Slug + "\x00" + session.Sub
+	if !h.streams.acquire(streamKey) {
+		writeLobbyError(w, http.StatusTooManyRequests, "Too many open lobby streams.")
+		return
+	}
+	defer h.streams.release(streamKey)
+	stream := beginStream(w)
 	updates, unsubscribe := h.registry.Subscribe(room.Slug)
 	defer unsubscribe()
-	h.writePending(w, flusher, room.Slug)
+	if err := h.writePending(stream, room.Slug); err != nil {
+		return
+	}
 	heartbeat := time.NewTicker(15 * time.Second)
 	defer heartbeat.Stop()
 	for {
@@ -149,10 +210,13 @@ func (h *Handler) Host(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case <-updates:
-			h.writePending(w, flusher, room.Slug)
+			if err := h.writePending(stream, room.Slug); err != nil {
+				return
+			}
 		case <-heartbeat.C:
-			_, _ = fmt.Fprint(w, ": heartbeat\n\n")
-			flusher.Flush()
+			if err := stream.comment("heartbeat"); err != nil {
+				return
+			}
 		}
 	}
 }
@@ -236,19 +300,18 @@ func (h *Handler) writeAdmission(w http.ResponseWriter, identity, name, room str
 	})
 }
 
-func (h *Handler) writeTerminal(w http.ResponseWriter, flusher http.Flusher, request Request) {
+func (h *Handler) writeTerminal(stream *sseStream, request Request) {
 	switch request.Status {
 	case StatusAdmitted:
-		writeSSE(w, "admitted", api.LobbyAdmittedSSE{Token: request.Token, WSURL: request.WSURL})
+		_ = stream.send("admitted", api.LobbyAdmittedSSE{Token: request.Token, WSURL: request.WSURL})
 	case StatusExpired:
-		writeSSE(w, "expired", api.LobbyDeniedSSE{})
+		_ = stream.send("expired", api.LobbyDeniedSSE{})
 	default:
-		writeSSE(w, "denied", api.LobbyDeniedSSE{})
+		_ = stream.send("denied", api.LobbyDeniedSSE{})
 	}
-	flusher.Flush()
 }
 
-func (h *Handler) writePending(w http.ResponseWriter, flusher http.Flusher, slug string) {
+func (h *Handler) writePending(stream *sseStream, slug string) error {
 	pending := h.registry.Pending(slug)
 	sort.Slice(pending, func(i, j int) bool {
 		if pending[i].Created == pending[j].Created {
@@ -262,8 +325,7 @@ func (h *Handler) writePending(w http.ResponseWriter, flusher http.Flusher, slug
 			ID: request.ID, Name: request.Name, RequestedAt: request.Created,
 		})
 	}
-	writeSSE(w, "pending", api.LobbyPendingSSE{Requests: items})
-	flusher.Flush()
+	return stream.send("pending", api.LobbyPendingSSE{Requests: items})
 }
 
 func (h *Handler) writeResolveError(w http.ResponseWriter, err error) {
@@ -274,10 +336,18 @@ func (h *Handler) writeResolveError(w http.ResponseWriter, err error) {
 	writeLobbyError(w, http.StatusConflict, "Lobby request has already been resolved.")
 }
 
+// sseStream wraps a response for event streaming: every write carries its
+// own deadline, so a client that stops reading tears the stream down at the
+// next heartbeat instead of wedging a goroutine forever.
+type sseStream struct {
+	w       http.ResponseWriter
+	control *http.ResponseController
+}
+
 // beginStream sets SSE headers and clears the server's global read/write
 // deadlines for this connection — SSE streams outlive the 30-second timeouts
-// that protect every ordinary route.
-func beginStream(w http.ResponseWriter) {
+// that protect every ordinary route. Writes get per-write deadlines instead.
+func beginStream(w http.ResponseWriter) *sseStream {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache, no-store")
 	w.Header().Set("Connection", "keep-alive")
@@ -285,6 +355,31 @@ func beginStream(w http.ResponseWriter) {
 	control := http.NewResponseController(w)
 	_ = control.SetReadDeadline(time.Time{})
 	_ = control.SetWriteDeadline(time.Time{})
+	return &sseStream{w: w, control: control}
+}
+
+func (s *sseStream) send(event string, value any) error {
+	payload, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	return s.write(fmt.Sprintf("event: %s\ndata: %s\n\n", event, payload))
+}
+
+func (s *sseStream) comment(text string) error {
+	return s.write(": " + text + "\n\n")
+}
+
+func (s *sseStream) write(frame string) error {
+	_ = s.control.SetWriteDeadline(time.Now().Add(sseWriteTimeout))
+	if _, err := io.WriteString(s.w, frame); err != nil {
+		return err
+	}
+	if err := s.control.Flush(); err != nil {
+		return err
+	}
+	_ = s.control.SetWriteDeadline(time.Time{})
+	return nil
 }
 
 func guestIdentity() (string, error) {
@@ -293,14 +388,6 @@ func guestIdentity() (string, error) {
 		return "", err
 	}
 	return "guest:" + id, nil
-}
-
-func writeSSE(w io.Writer, event string, value any) {
-	payload, err := json.Marshal(value)
-	if err != nil {
-		return
-	}
-	_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, payload)
 }
 
 func decodeLobbyRequest(w http.ResponseWriter, r *http.Request, target any) error {
