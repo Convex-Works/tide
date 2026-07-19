@@ -200,7 +200,12 @@ export function lobbyWait(id: string, handlers: LobbyWaitHandlers): () => void {
   source.addEventListener('expired', (event) => {
     handlers.expired?.(JSON.parse((event as MessageEvent<string>).data) as LobbyDeniedSSE);
   });
-  source.onerror = () => handlers.error?.();
+  source.onerror = () => {
+    // EventSource retries transient failures itself. CLOSED means the server
+    // refused the stream permanently — e.g. the request expired while this
+    // tab was suspended (404) — and no event will ever arrive.
+    if (source.readyState === EventSource.CLOSED) handlers.error?.();
+  };
   return () => source.close();
 }
 

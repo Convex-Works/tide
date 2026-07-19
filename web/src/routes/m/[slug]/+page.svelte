@@ -115,6 +115,13 @@
             closeWait?.();
             closeWait = undefined;
             meetingState = 'expired';
+          },
+          error: () => {
+            // The wait stream died for good (request expired while the tab
+            // was suspended); leave "waiting" so the guest can ask again.
+            closeWait?.();
+            closeWait = undefined;
+            meetingState = 'expired';
           }
         });
         return;
