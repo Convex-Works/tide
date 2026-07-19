@@ -32,6 +32,9 @@
   let deleteConfirmRecordingID = $state('');
   let copyTimer: ReturnType<typeof setTimeout> | undefined;
   let recordingPoll: ReturnType<typeof setTimeout> | undefined;
+  // Guards in-flight listRecordings resolutions from rescheduling the poll
+  // after the dashboard is gone (review finding #15).
+  let destroyed = false;
 
   async function loadDashboard(): Promise<void> {
     dashboardState = 'loading';
@@ -139,10 +142,13 @@
   }
 
   async function loadRoomRecordings(slug: string): Promise<void> {
-    if (expandedRecordingsSlug !== slug) return;
+    if (destroyed || expandedRecordingsSlug !== slug) return;
     loadingRecordingsSlug = slug;
     try {
       const recordings = await listRecordings(slug);
+      // The await may resolve after teardown or after the user collapsed or
+      // switched rooms — never store results or reschedule in that case.
+      if (destroyed || expandedRecordingsSlug !== slug) return;
       recordingsByRoom = { ...recordingsByRoom, [slug]: recordings };
       if (
         recordings.some((recording) =>
@@ -153,6 +159,7 @@
         recordingPoll = setTimeout(() => void loadRoomRecordings(slug), 3_000);
       }
     } catch (cause) {
+      if (destroyed) return;
       error = cause instanceof Error ? cause.message : 'Could not load recordings. Try again.';
     } finally {
       loadingRecordingsSlug = '';
@@ -206,6 +213,7 @@
 
   onMount(() => void loadDashboard());
   onDestroy(() => {
+    destroyed = true;
     if (copyTimer) clearTimeout(copyTimer);
     if (recordingPoll) clearTimeout(recordingPoll);
   });
