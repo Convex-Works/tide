@@ -46,6 +46,11 @@ export interface PublicRoomInfo {
   slug: string;
   name: string;
   lobby_enabled: boolean;
+  /**
+   * IsOwner is true when the requesting session owns this room; the
+   * capability itself is still enforced server-side on every route.
+   */
+  is_owner: boolean;
 }
 export interface CreateRoomRequest {
   name: string;

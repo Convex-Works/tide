@@ -6,7 +6,6 @@
     approveLobby,
     denyLobby,
     joinRoom,
-    listRooms,
     lobbyWait,
     me,
     roomInfo,
@@ -79,13 +78,12 @@
       return;
     }
 
+    isOwner = details.is_owner;
     try {
       const user = await me();
       name = user.name;
-      const ownedRooms = await listRooms();
-      isOwner = ownedRooms.some((room) => room.slug === slug);
     } catch {
-      isOwner = false;
+      // Signed-out guests have no profile; they type a name in prejoin.
     }
     meetingState = 'prejoin';
   }

@@ -81,8 +81,10 @@ func (h *Handler) Public(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not load the room. Try again.")
 		return
 	}
+	session, _ := auth.SessionFromContext(r.Context())
 	httpx.WriteJSON(w, http.StatusOK, api.PublicRoomInfo{
 		Slug: room.Slug, Name: room.Name, LobbyEnabled: room.LobbyEnabled,
+		IsOwner: session.Sub != "" && session.Sub == room.OwnerSub,
 	})
 }
 
