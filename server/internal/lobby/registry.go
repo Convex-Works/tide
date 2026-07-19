@@ -21,6 +21,7 @@ const (
 	StatusWaiting  Status = "waiting"
 	StatusAdmitted Status = "admitted"
 	StatusDenied   Status = "denied"
+	StatusExpired  Status = "expired"
 )
 
 type Request struct {
@@ -82,7 +83,7 @@ func (r *Registry) Add(roomSlug, name string) (Request, error) {
 			status: StatusWaiting, decision: make(chan struct{}),
 		}
 		r.requests[id] = item
-		item.timer = time.AfterFunc(r.ttl, func() { _ = r.Deny(id) })
+		item.timer = time.AfterFunc(r.ttl, func() { _ = r.Expire(id) })
 		r.notifyLocked(roomSlug)
 		view := requestView(item)
 		r.mu.Unlock()
@@ -107,6 +108,10 @@ func (r *Registry) Approve(id, token, wsURL string) error {
 
 func (r *Registry) Deny(id string) error {
 	return r.resolve(id, StatusDenied, "", "")
+}
+
+func (r *Registry) Expire(id string) error {
+	return r.resolve(id, StatusExpired, "", "")
 }
 
 func (r *Registry) resolve(id string, status Status, token, wsURL string) error {

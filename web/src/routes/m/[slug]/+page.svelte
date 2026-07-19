@@ -12,11 +12,7 @@
     roomInfo,
     roomLobby
   } from '$lib/api/client';
-  import type {
-    LobbyAdmittedSSE,
-    LobbyRequestInfo,
-    PublicRoomInfo
-  } from '$lib/api/types.gen';
+  import type { LobbyAdmittedSSE, LobbyRequestInfo, PublicRoomInfo } from '$lib/api/types.gen';
   import PreJoin from '$lib/rtc/PreJoin.svelte';
   import RoomStage from '$lib/rtc/RoomStage.svelte';
   import { setConnectionChrome } from '$lib/rtc/connection.svelte';
@@ -30,6 +26,7 @@
     | 'joining'
     | 'waiting'
     | 'denied'
+    | 'expired'
     | 'connected'
     | 'removed'
     | 'left';
@@ -113,6 +110,11 @@
             closeWait?.();
             closeWait = undefined;
             meetingState = 'denied';
+          },
+          expired: () => {
+            closeWait?.();
+            closeWait = undefined;
+            meetingState = 'expired';
           }
         });
         return;
@@ -194,7 +196,7 @@
 
 {#if meetingState === 'connected'}
   <RoomStage
-    rtc={rtc}
+    {rtc}
     roomName={slug}
     onleave={leaveMeeting}
     {isOwner}
@@ -205,28 +207,20 @@
     ondeny={deny}
   />
 {:else if meetingState === 'prejoin' && details}
-  <PreJoin
-    room={slug}
-    bind:name
-    {error}
-    showRoom={false}
-    heading={details.name}
-    onjoin={join}
-  />
+  <PreJoin room={slug} bind:name {error} showRoom={false} heading={details.name} onjoin={join} />
 {:else if meetingState === 'loading'}
   <main class="meeting-state" aria-live="polite"><p>Loading room…</p></main>
 {:else if meetingState === 'missing'}
   <main class="meeting-state">
-    <div class="wordmark">klisi</div>
-    <h1>This room does not exist.</h1>
-    <p>Check the meeting link and try again.</p>
+    <p class="state-message">This room does not exist.</p>
+    <a class="state-action" href="/">Go to dashboard</a>
   </main>
 {:else if meetingState === 'load-error'}
   <main class="meeting-state">
-    <div class="wordmark">klisi</div>
-    <h1>Could not load the room.</h1>
-    <p role="alert">{error}</p>
-    <button type="button" onclick={() => void loadMeeting()}>Try again</button>
+    <p class="state-message" role="alert">{error}</p>
+    <button class="state-action" type="button" onclick={() => void loadMeeting()}>
+      Try again
+    </button>
   </main>
 {:else if meetingState === 'joining'}
   <main class="meeting-state" aria-live="polite">
@@ -241,21 +235,23 @@
   </main>
 {:else if meetingState === 'denied'}
   <main class="meeting-state">
-    <div class="wordmark">klisi</div>
-    <h1>The host did not let you in.</h1>
-    <p>You can close this page or ask the host for a new invitation.</p>
+    <p class="state-message">The host did not let you in.</p>
+    <a class="state-action" href="/">Go to dashboard</a>
+  </main>
+{:else if meetingState === 'expired'}
+  <main class="meeting-state">
+    <p class="state-message">Your lobby request expired.</p>
+    <button class="state-action" type="button" onclick={rejoin}>Try again</button>
   </main>
 {:else if meetingState === 'left'}
   <main class="meeting-state">
-    <div class="wordmark">klisi</div>
-    <h1>You left the meeting.</h1>
-    <button class="primary" type="button" onclick={rejoin}>Rejoin</button>
+    <p class="state-message">You left the meeting.</p>
+    <button class="state-action" type="button" onclick={rejoin}>Rejoin</button>
   </main>
 {:else if meetingState === 'removed'}
   <main class="meeting-state">
-    <div class="wordmark">klisi</div>
-    <h1>You were removed from the meeting.</h1>
-    <button class="primary" type="button" onclick={rejoin}>Request to rejoin</button>
+    <p class="state-message">You were removed from the meeting.</p>
+    <button class="state-action" type="button" onclick={rejoin}>Request to rejoin</button>
   </main>
 {/if}
 
@@ -272,29 +268,21 @@
     background: var(--paper);
   }
 
-  .meeting-state h1,
   .meeting-state p {
     margin: 0;
   }
 
-  .meeting-state h1 {
+  .state-message {
+    max-width: 380px;
     color: var(--ink);
-    font-size: 18px;
-    line-height: 24px;
+    font-size: 13px;
+    line-height: 20px;
     font-weight: 550;
   }
 
-  .meeting-state p {
+  .meeting-state > p:not(.state-message) {
     max-width: 380px;
     font-size: 12px;
-  }
-
-  .wordmark {
-    margin-bottom: 8px;
-    color: var(--accent);
-    font-size: 15px;
-    font-weight: 550;
-    letter-spacing: 0.02em;
   }
 
   .slug {
@@ -314,27 +302,22 @@
     border-radius: 999px;
   }
 
-  button {
+  button,
+  .state-action {
+    display: inline-flex;
     height: var(--control-height);
+    align-items: center;
     padding: 3px 8px;
-    color: var(--ink);
-    background: var(--surface);
-    border: 1px solid var(--border);
+    color: white;
+    font-weight: 550;
+    text-decoration: none;
+    background: var(--accent);
+    border: 1px solid var(--accent);
     border-radius: var(--radius-control);
   }
 
-  button:hover {
-    background: var(--surface-2);
-  }
-
-  button.primary {
-    color: white;
-    font-weight: 550;
-    background: var(--accent);
-    border-color: var(--accent);
-  }
-
-  button.primary:hover {
+  button:hover,
+  .state-action:hover {
     background: var(--accent-hover);
     border-color: var(--accent-hover);
   }

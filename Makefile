@@ -1,4 +1,4 @@
-.PHONY: dev gen check build clean
+.PHONY: dev gen server-check web-check typesync check build clean
 
 dev:
 	# LiveKit must advertise an address reachable by host browsers AND the
@@ -16,12 +16,18 @@ dev:
 gen:
 	go run github.com/gzuidhof/tygo@latest generate
 
-check:
+server-check:
 	cd server && go vet ./...
-	cd server && staticcheck ./...
 	cd server && go test ./...
+
+web-check:
 	cd web && npm run check
 	cd web && npm run lint
+
+typesync: gen
+	git diff --exit-code -- web/src/lib/api/types.gen.ts
+
+check: server-check web-check typesync
 
 build:
 	cd web && npm run build

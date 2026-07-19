@@ -13,6 +13,8 @@ import (
 	"klisi/internal/store"
 )
 
+const maxJSONRequestBody = 1 << 20
+
 type Handler struct {
 	store   *store.Store
 	service *Service
@@ -159,7 +161,7 @@ func roomInfo(room store.Room) api.RoomInfo {
 }
 
 func decodeRequest(w http.ResponseWriter, r *http.Request, target any) error {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONRequestBody)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {

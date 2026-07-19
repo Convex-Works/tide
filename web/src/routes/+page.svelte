@@ -13,12 +13,7 @@
     recordingDownloadURL,
     updateRoom
   } from '$lib/api/client';
-  import {
-    AuthLoginPath,
-    type Me,
-    type RecordingInfo,
-    type RoomInfo
-  } from '$lib/api/types.gen';
+  import { AuthLoginPath, type Me, type RecordingInfo, type RoomInfo } from '$lib/api/types.gen';
 
   type DashboardState = 'loading' | 'signed-out' | 'ready' | 'error';
 
@@ -50,7 +45,8 @@
         dashboardState = 'signed-out';
         return;
       }
-      error = cause instanceof Error ? cause.message : 'Could not load the dashboard. Reload the page.';
+      error =
+        cause instanceof Error ? cause.message : 'Could not load the dashboard. Reload the page.';
       dashboardState = 'error';
     }
   }
@@ -274,104 +270,122 @@
           <div class="room-list">
             {#each rooms as room (room.id)}
               <div class="room-entry">
-              <article class="room-row">
-                <a class="room-link" href={`/m/${room.slug}`}>
-                  <strong>{room.name}</strong>
-                  <span class="slug mono">{room.slug}</span>
-                </a>
-                <div class="row-actions">
-                  <button
-                    class="icon-button recordings-toggle"
-                    class:expanded={expandedRecordingsSlug === room.slug}
-                    type="button"
-                    aria-expanded={expandedRecordingsSlug === room.slug}
-                    aria-label={`${expandedRecordingsSlug === room.slug ? 'Hide' : 'Show'} recordings for ${room.name}`}
-                    title="Recordings"
-                    onclick={() => void toggleRecordings(room.slug)}
-                  >
-                    <CaretDown size={16} weight="regular" aria-hidden="true" />
-                  </button>
-                  <button
-                    class="icon-button copy"
-                    type="button"
-                    aria-label={`Copy link for ${room.name}`}
-                    title="Copy meeting link"
-                    onclick={() => void copyLink(room.slug)}
-                  >
-                    <Copy size={16} weight="regular" aria-hidden="true" />
-                    {#if copiedSlug === room.slug}<span class="copied">Copied</span>{/if}
-                  </button>
-                  <label class="lobby-toggle">
-                    <input
-                      type="checkbox"
-                      checked={room.lobby_enabled}
+                <article class="room-row">
+                  <a class="room-link" href={`/m/${room.slug}`}>
+                    <strong>{room.name}</strong>
+                    <span class="slug mono">{room.slug}</span>
+                  </a>
+                  <div class="row-actions">
+                    <button
+                      class="icon-button recordings-toggle"
+                      class:expanded={expandedRecordingsSlug === room.slug}
+                      type="button"
+                      aria-expanded={expandedRecordingsSlug === room.slug}
+                      aria-label={`${expandedRecordingsSlug === room.slug ? 'Hide' : 'Show'} recordings for ${room.name}`}
+                      title="Recordings"
+                      onclick={() => void toggleRecordings(room.slug)}
+                    >
+                      <CaretDown size={16} weight="regular" aria-hidden="true" />
+                    </button>
+                    <button
+                      class="icon-button copy"
+                      type="button"
+                      aria-label={`Copy link for ${room.name}`}
+                      title="Copy meeting link"
+                      onclick={() => void copyLink(room.slug)}
+                    >
+                      <Copy size={16} weight="regular" aria-hidden="true" />
+                      {#if copiedSlug === room.slug}<span class="copied">Copied</span>{/if}
+                    </button>
+                    <button
+                      class="lobby-toggle"
+                      class:on={room.lobby_enabled}
+                      type="button"
+                      role="switch"
+                      aria-checked={room.lobby_enabled}
+                      aria-label="Lobby"
                       disabled={changingSlug === room.slug}
-                      onchange={(event) =>
-                        void toggleLobby(room, (event.currentTarget as HTMLInputElement).checked)}
-                    />
-                    <span>Lobby</span>
-                  </label>
-                  <button
-                    class:confirm-delete={deleteConfirmSlug === room.slug}
-                    class="delete-button"
-                    type="button"
-                    disabled={changingSlug === room.slug}
-                    aria-label={deleteConfirmSlug === room.slug ? `Confirm delete ${room.name}` : `Delete ${room.name}`}
-                    onclick={() => void removeRoom(room)}
-                  >
-                    {#if deleteConfirmSlug === room.slug}
-                      Delete?
+                      onclick={() => void toggleLobby(room, !room.lobby_enabled)}
+                    >
+                      <span class="switch-track" aria-hidden="true"><span></span></span>
+                      <span>Lobby</span>
+                    </button>
+                    <button
+                      class:confirm-delete={deleteConfirmSlug === room.slug}
+                      class="delete-button"
+                      type="button"
+                      disabled={changingSlug === room.slug}
+                      aria-label={deleteConfirmSlug === room.slug
+                        ? `Confirm delete ${room.name}`
+                        : `Delete ${room.name}`}
+                      onclick={() => void removeRoom(room)}
+                    >
+                      {#if deleteConfirmSlug === room.slug}
+                        Delete?
+                      {:else}
+                        <Trash size={16} weight="regular" aria-hidden="true" />
+                      {/if}
+                    </button>
+                  </div>
+                </article>
+                {#if expandedRecordingsSlug === room.slug}
+                  <section class="recordings" aria-label={`Recordings for ${room.name}`}>
+                    {#if loadingRecordingsSlug === room.slug && !recordingsByRoom[room.slug]}
+                      <p class="recordings-state">Loading recordings…</p>
+                    {:else if (recordingsByRoom[room.slug] ?? []).length === 0}
+                      <p class="recordings-state">No recordings yet.</p>
                     {:else}
-                      <Trash size={16} weight="regular" aria-hidden="true" />
-                    {/if}
-                  </button>
-                </div>
-              </article>
-              {#if expandedRecordingsSlug === room.slug}
-                <section class="recordings" aria-label={`Recordings for ${room.name}`}>
-                  {#if loadingRecordingsSlug === room.slug && !recordingsByRoom[room.slug]}
-                    <p class="recordings-state">Loading recordings…</p>
-                  {:else if (recordingsByRoom[room.slug] ?? []).length === 0}
-                    <p class="recordings-state">No recordings yet.</p>
-                  {:else}
-                    {#each recordingsByRoom[room.slug] ?? [] as recording (recording.id)}
-                      <div class="recording-row" data-recording-id={recording.id}>
-                        <span class:failed={recording.status === 'failed'} class="recording-status mono">
-                          {recording.status}
-                        </span>
-                        <time datetime={new Date(recording.started_at * 1000).toISOString()}>
-                          {relativeDate(recording.started_at)}
-                        </time>
-                        <span class="mono">{durationLabel(recording.duration_s)}</span>
-                        <span class="mono">{sizeLabel(recording.size_bytes)}</span>
-                        <div class="recording-actions">
-                          {#if recording.status === 'completed'}
-                            <a
-                              class="download-button"
-                              href={recordingDownloadURL(recording.id)}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
-                              <DownloadSimple size={14} weight="regular" aria-hidden="true" />
-                              Download
-                            </a>
-                          {/if}
-                          <button
-                            class:confirm-delete={deleteConfirmRecordingID === recording.id}
-                            class="recording-delete"
-                            type="button"
-                            disabled={changingSlug === room.slug || ['starting', 'recording', 'finalizing'].includes(recording.status)}
-                            aria-label={deleteConfirmRecordingID === recording.id ? 'Delete recording?' : 'Delete recording'}
-                            onclick={() => void removeRecording(room.slug, recording.id)}
+                      {#each recordingsByRoom[room.slug] ?? [] as recording (recording.id)}
+                        <div class="recording-row" data-recording-id={recording.id}>
+                          <span
+                            class:pending={['starting', 'recording', 'finalizing'].includes(
+                              recording.status
+                            )}
+                            class:completed={recording.status === 'completed'}
+                            class:failed={recording.status === 'failed'}
+                            class="recording-status mono"
                           >
-                            {deleteConfirmRecordingID === recording.id ? 'Delete?' : 'Delete'}
-                          </button>
+                            {recording.status}
+                          </span>
+                          <time
+                            class="mono"
+                            datetime={new Date(recording.started_at * 1000).toISOString()}
+                          >
+                            {relativeDate(recording.started_at)}
+                          </time>
+                          <span class="mono">{durationLabel(recording.duration_s)}</span>
+                          <span class="mono">{sizeLabel(recording.size_bytes)}</span>
+                          <div class="recording-actions">
+                            {#if recording.status === 'completed'}
+                              <a
+                                class="download-button"
+                                href={recordingDownloadURL(recording.id)}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                <DownloadSimple size={16} weight="regular" aria-hidden="true" />
+                                Download
+                              </a>
+                            {/if}
+                            <button
+                              class:confirm-delete={deleteConfirmRecordingID === recording.id}
+                              class="recording-delete"
+                              type="button"
+                              disabled={changingSlug === room.slug ||
+                                ['starting', 'recording', 'finalizing'].includes(recording.status)}
+                              aria-label={deleteConfirmRecordingID === recording.id
+                                ? 'Delete recording?'
+                                : 'Delete recording'}
+                              onclick={() => void removeRecording(room.slug, recording.id)}
+                            >
+                              {deleteConfirmRecordingID === recording.id ? 'Delete?' : 'Delete'}
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    {/each}
-                  {/if}
-                </section>
-              {/if}
+                      {/each}
+                    {/if}
+                  </section>
+                {/if}
               </div>
             {/each}
           </div>
@@ -522,6 +536,12 @@
     padding: 8px 10px;
     background: var(--surface);
     border-bottom: 1px solid var(--border);
+    transition: background var(--motion-fast);
+  }
+
+  .room-row:hover,
+  .room-row:focus-within {
+    background: var(--surface-2);
   }
 
   .room-entry {
@@ -653,13 +673,33 @@
   }
 
   .recording-status {
-    color: var(--ok);
+    width: max-content;
+    padding: 0 5px;
+    color: var(--ink-2);
     font-size: 10px;
+    line-height: 18px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 999px;
     text-transform: uppercase;
+  }
+
+  .recording-status.pending {
+    color: color-mix(in srgb, var(--warn) 76%, var(--ink));
+    background: color-mix(in srgb, var(--warn) 12%, var(--paper));
+    border-color: color-mix(in srgb, var(--warn) 35%, var(--border));
+  }
+
+  .recording-status.completed {
+    color: var(--ok);
+    background: color-mix(in srgb, var(--ok) 10%, var(--paper));
+    border-color: color-mix(in srgb, var(--ok) 30%, var(--border));
   }
 
   .recording-status.failed {
     color: var(--rec);
+    background: color-mix(in srgb, var(--rec) 9%, var(--paper));
+    border-color: color-mix(in srgb, var(--rec) 28%, var(--border));
   }
 
   .recording-actions {
@@ -685,7 +725,7 @@
   }
 
   .recording-delete {
-    color: var(--rec);
+    color: var(--ink-2);
   }
 
   .recording-delete.confirm-delete {
@@ -716,20 +756,41 @@
     gap: 5px;
     padding: 3px 7px;
     color: var(--ink-2);
+    background: var(--paper);
     font-size: 12px;
     border: 1px solid var(--border);
     border-radius: var(--radius-control);
   }
 
-  .lobby-toggle input {
-    width: 13px;
-    height: 13px;
-    margin: 0;
-    accent-color: var(--accent);
+  .switch-track {
+    display: flex;
+    width: 22px;
+    height: 12px;
+    align-items: center;
+    padding: 1px;
+    background: var(--border);
+    border-radius: 999px;
+    transition: background var(--motion-fast);
+  }
+
+  .switch-track span {
+    width: 8px;
+    height: 8px;
+    background: var(--paper);
+    border-radius: 999px;
+    transition: transform var(--motion-fast);
+  }
+
+  .lobby-toggle.on .switch-track {
+    background: var(--accent);
+  }
+
+  .lobby-toggle.on .switch-track span {
+    transform: translateX(10px);
   }
 
   .delete-button {
-    color: var(--rec);
+    color: var(--ink-2);
   }
 
   .delete-button.confirm-delete {

@@ -327,10 +327,7 @@ export class RoomState {
   }
 
   private syncConnectionChrome(state: ConnectionState): void {
-    if (
-      state === ConnectionState.Reconnecting ||
-      state === ConnectionState.SignalReconnecting
-    ) {
+    if (state === ConnectionState.Reconnecting || state === ConnectionState.SignalReconnecting) {
       setConnectionChrome('reconnecting');
     } else if (state === ConnectionState.Disconnected) {
       setConnectionChrome('offline');

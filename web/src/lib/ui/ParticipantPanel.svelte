@@ -96,10 +96,10 @@
           </div>
           <div class="media-state">
             {#if participant.micMuted}
-              <MicrophoneSlash size={14} weight="regular" aria-label="Microphone off" />
+              <MicrophoneSlash size={16} weight="regular" aria-label="Microphone off" />
             {/if}
             {#if participant.camMuted}
-              <VideoCameraSlash size={14} weight="regular" aria-label="Camera off" />
+              <VideoCameraSlash size={16} weight="regular" aria-label="Camera off" />
             {/if}
           </div>
         </div>
@@ -136,7 +136,7 @@
     z-index: 15;
     top: 50px;
     right: 12px;
-    bottom: 64px;
+    bottom: 78px;
     display: flex;
     width: min(300px, calc(100vw - 24px));
     padding: 12px;
@@ -177,15 +177,15 @@
   }
 
   h2 {
-    font-size: 13px;
+    color: var(--text-2);
+    font-size: 12px;
     font-weight: 550;
   }
 
   h3 {
     color: var(--text-2);
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 550;
-    text-transform: uppercase;
   }
 
   header > span,

@@ -78,7 +78,7 @@
     z-index: 15;
     top: 50px;
     right: 12px;
-    bottom: 64px;
+    bottom: 78px;
     display: grid;
     width: min(300px, calc(100vw - 24px));
     padding: 12px;
@@ -107,7 +107,8 @@
   }
 
   h2 {
-    font-size: 13px;
+    color: var(--text-2);
+    font-size: 12px;
     font-weight: 550;
   }
 

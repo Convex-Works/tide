@@ -35,6 +35,9 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store) http.Handler {
 	sessions := auth.NewSessions(cfg.SessionSecret, cfg.BaseURL)
 	minter := klisilivekit.NewMinter(cfg)
 	registry := lobby.NewRegistry(lobby.DefaultRequestTTL)
+	joinLimiter := newIPRateLimiter(10, time.Minute)
+	waitLimiter := newIPRateLimiter(20, time.Minute)
+	loginLimiter := newIPRateLimiter(10, time.Minute)
 	handler := &Handler{
 		web:        web,
 		sessions:   sessions,
@@ -48,7 +51,10 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store) http.Handler {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handler.health)
-	mux.HandleFunc("GET "+api.AuthLoginPath, handler.oidc.Login)
+	mux.Handle(
+		"GET "+api.AuthLoginPath,
+		withRateLimit(loginLimiter, http.HandlerFunc(handler.oidc.Login)),
+	)
 	mux.HandleFunc("GET "+api.AuthCallbackPath, handler.oidc.Callback)
 	mux.Handle("POST "+api.AuthLogoutPath, handler.csrf(http.HandlerFunc(handler.oidc.Logout)))
 	mux.Handle("GET "+api.MePath, handler.requireAuth(http.HandlerFunc(handler.oidc.Me)))
@@ -66,9 +72,15 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store) http.Handler {
 	mux.Handle("DELETE "+api.RecordingPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.recording.Delete))))
 	mux.Handle("GET "+api.RecordingDownloadPath, handler.requireAuth(http.HandlerFunc(handler.recording.Download)))
 
-	mux.Handle("POST "+api.RoomJoinPath, handler.csrf(http.HandlerFunc(handler.lobby.Join)))
+	mux.Handle(
+		"POST "+api.RoomJoinPath,
+		withRateLimit(joinLimiter, handler.csrf(http.HandlerFunc(handler.lobby.Join))),
+	)
 	mux.Handle("GET "+api.RoomLobbyPath, handler.requireAuth(http.HandlerFunc(handler.lobby.Host)))
-	mux.HandleFunc("GET "+api.LobbyWaitPath, handler.lobby.Wait)
+	mux.Handle(
+		"GET "+api.LobbyWaitPath,
+		withRateLimit(waitLimiter, http.HandlerFunc(handler.lobby.Wait)),
+	)
 	mux.Handle("POST "+api.LobbyApprovePath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.lobby.Approve))))
 	mux.Handle("POST "+api.LobbyDenyPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.lobby.Deny))))
 
@@ -100,7 +112,7 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store) http.Handler {
 		registerMethodFallback(mux, api.DevTokenPath, http.MethodGet)
 	}
 	mux.HandleFunc("/", handler.spa)
-	return handler.withSession(mux)
+	return securityHeaders(handler.withSession(mux))
 }
 
 func registerMethodFallback(mux *http.ServeMux, pattern, allow string) {

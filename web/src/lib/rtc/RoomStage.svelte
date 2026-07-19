@@ -130,7 +130,7 @@
       <span>{participant.name}</span>
       {#if participant.isLocal}<span class="you mono">You</span>{/if}
       {#if participant.micMuted}
-        <MicrophoneSlash size={13} weight="regular" aria-label="Microphone muted" />
+        <MicrophoneSlash size={16} weight="regular" aria-label="Microphone muted" />
       {/if}
     </div>
   </article>
@@ -148,15 +148,7 @@
   </header>
 
   {#if peopleOpen}
-    <ParticipantPanel
-      {rtc}
-      slug={roomName}
-      {isOwner}
-      {pending}
-      {lobbyError}
-      {onadmit}
-      {ondeny}
-    />
+    <ParticipantPanel {rtc} slug={roomName} {isOwner} {pending} {lobbyError} {onadmit} {ondeny} />
   {:else if chatOpen}
     <ChatPanel {rtc} />
   {/if}
@@ -213,8 +205,10 @@
 
 <style>
   .stage {
+    --focus-ring: var(--accent-d);
+
     min-height: 100dvh;
-    padding: 14px 12px 64px;
+    padding: 14px 12px 78px;
     color: var(--text);
     background: var(--stage);
   }
@@ -260,7 +254,7 @@
 
   .grid {
     display: grid;
-    height: calc(100dvh - 114px);
+    height: calc(100dvh - 128px);
     grid-template-columns: repeat(var(--grid-columns), minmax(0, 1fr));
     grid-template-rows: repeat(var(--grid-rows), minmax(0, 1fr));
     gap: 8px;
@@ -337,7 +331,7 @@
 
   .focus-layout {
     display: grid;
-    height: calc(100dvh - 114px);
+    height: calc(100dvh - 128px);
     grid-template-columns: minmax(0, 1fr) 160px;
     gap: 8px;
   }

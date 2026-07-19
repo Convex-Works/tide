@@ -17,7 +17,10 @@ import (
 	"klisi/internal/store"
 )
 
-const tokenTTL = 10 * time.Minute
+const (
+	tokenTTL           = 10 * time.Minute
+	maxJSONRequestBody = 1 << 20
+)
 
 type Handler struct {
 	store    *store.Store
@@ -229,9 +232,12 @@ func (h *Handler) writeAdmission(w http.ResponseWriter, identity, name, room str
 }
 
 func (h *Handler) writeTerminal(w http.ResponseWriter, flusher http.Flusher, request Request) {
-	if request.Status == StatusAdmitted {
+	switch request.Status {
+	case StatusAdmitted:
 		writeSSE(w, "admitted", api.LobbyAdmittedSSE{Token: request.Token, WSURL: request.WSURL})
-	} else {
+	case StatusExpired:
+		writeSSE(w, "expired", api.LobbyDeniedSSE{})
+	default:
 		writeSSE(w, "denied", api.LobbyDeniedSSE{})
 	}
 	flusher.Flush()
@@ -280,7 +286,7 @@ func writeSSE(w io.Writer, event string, value any) {
 }
 
 func decodeLobbyRequest(w http.ResponseWriter, r *http.Request, target any) error {
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	r.Body = http.MaxBytesReader(w, r.Body, maxJSONRequestBody)
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(target); err != nil {

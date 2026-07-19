@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# Browser e2e is intentionally outside CI: it needs the Docker Compose stack,
+# LiveKit Egress, MinIO, Dex, and Chromium fake-media devices.
+jobs:
+  server:
+    runs-on: docker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: server/go.sum
+      - name: Vet
+        working-directory: server
+        run: go vet ./...
+      - name: Test
+        working-directory: server
+        run: go test ./...
+
+  web:
+    runs-on: docker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install
+        working-directory: web
+        run: npm ci
+      - name: Check
+        working-directory: web
+        run: npm run check
+      - name: Prettier
+        working-directory: web
+        run: npx prettier --check .
+      - name: Build SPA
+        working-directory: web
+        run: npx vite build
+
+  typesync:
+    runs-on: docker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: server/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Generate API types
+        run: make gen
+      - name: Check generated type drift
+        run: git diff --exit-code -- web/src/lib/api/types.gen.ts
+
+  build:
+    runs-on: docker
+    needs: [server, web, typesync]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache-dependency-path: server/go.sum
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install web dependencies
+        working-directory: web
+        run: npm ci
+      - name: Build binary
+        run: make build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: klisi
+          path: bin/klisi
+          if-no-files-found: error

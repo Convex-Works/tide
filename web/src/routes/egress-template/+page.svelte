@@ -1,11 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import {
-    Room,
-    RoomEvent,
-    Track,
-    type RemoteParticipant
-  } from 'livekit-client';
+  import { Room, RoomEvent, Track, type RemoteParticipant } from 'livekit-client';
 
   interface CompositeParticipant {
     identity: string;
@@ -25,12 +20,8 @@
   let recordingEnded = false;
   let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
 
-  let focusParticipant = $derived(
-    participants.find((participant) => participant.screenShareTrack)
-  );
-  let gridColumns = $derived(
-    Math.min(3, Math.max(1, Math.ceil(Math.sqrt(participants.length))))
-  );
+  let focusParticipant = $derived(participants.find((participant) => participant.screenShareTrack));
+  let gridColumns = $derived(Math.min(3, Math.max(1, Math.ceil(Math.sqrt(participants.length)))));
   let gridRows = $derived(Math.max(1, Math.ceil(participants.length / gridColumns)));
 
   function syncParticipants(): void {
@@ -183,7 +174,8 @@
             {/if}
             {#each participant.audioTracks as track}
               <!-- svelte-ignore a11y_media_has_caption -->
-              <audio use:attachTrack={track} autoplay aria-label={`${participant.name}'s audio`}></audio>
+              <audio use:attachTrack={track} autoplay aria-label={`${participant.name}'s audio`}
+              ></audio>
             {/each}
             <div class="label">{participant.name}</div>
           </article>
@@ -212,7 +204,8 @@
           {/if}
           {#each participant.audioTracks as track}
             <!-- svelte-ignore a11y_media_has_caption -->
-            <audio use:attachTrack={track} autoplay aria-label={`${participant.name}'s audio`}></audio>
+            <audio use:attachTrack={track} autoplay aria-label={`${participant.name}'s audio`}
+            ></audio>
           {/each}
           <div class="label">{participant.name}</div>
         </article>

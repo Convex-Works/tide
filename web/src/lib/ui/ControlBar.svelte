@@ -98,12 +98,16 @@
       class:recording={rtc.isRecording}
       class:confirm={recordingConfirm}
       disabled={recordingBusy}
-      aria-label={rtc.isRecording ? 'Stop recording' : recordingConfirm ? 'Record?' : 'Start recording'}
+      aria-label={rtc.isRecording
+        ? 'Stop recording'
+        : recordingConfirm
+          ? 'Record?'
+          : 'Start recording'}
       aria-pressed={rtc.isRecording}
       title={rtc.isRecording ? 'Stop recording' : 'Start recording'}
       onclick={() => void toggleRecording()}
     >
-      <Record size={16} weight={rtc.isRecording ? 'fill' : 'regular'} aria-hidden="true" />
+      <Record size={16} weight="regular" aria-hidden="true" />
       {#if recordingConfirm}<span>Record?</span>{/if}
     </button>
   {/if}
@@ -183,8 +187,8 @@
     left: 50%;
     display: flex;
     align-items: center;
-    gap: 4px;
-    padding: 5px;
+    gap: 8px;
+    padding: 12px;
     background: var(--panel);
     border: 1px solid var(--border-d);
     border-radius: var(--radius-card);
@@ -193,7 +197,7 @@
 
   button {
     display: grid;
-    width: 32px;
+    width: var(--control-height);
     height: var(--control-height);
     padding: 0;
     place-items: center;

@@ -163,11 +163,15 @@ to the egress job, not to any participant's tab.
 
 1. Host clicks Record → `POST /api/rooms/:slug/recording/start` → server checks
    ownership → `StartRoomCompositeEgress` with S3 output
-   (`recordings/<room>/<ts>.mp4`) and our **layout URL**.
+   (`recordings/<room>/<ts>.mp4`) and our **layout URL**. The S3 destination
+   travels in every egress request; its worker-visible endpoint is configured
+   by `KLISI_S3_EGRESS_ENDPOINT`.
 2. The layout is a route of our own SPA (`/egress-template`) implementing
    LiveKit's egress template contract (it receives `url`, `token`, `layout`
    query params and joins as a hidden subscriber). Recordings therefore use
-   klisi's own tile design — same components as the live room.
+   klisi's own tile design — same components as the live room. In development,
+   Egress loads the route through Vite at `host.docker.internal`; Vite admits
+   that hostname through `server.allowedHosts`.
 3. Egress lifecycle webhooks (`egress_started/updated/ended`) hit
    `POST /api/webhooks/livekit` (signature-verified) and drive the
    `recordings` table: `id, room_id, egress_id, status, started_by, started_at,
@@ -297,7 +301,8 @@ KLISI_ADDR=:8080                 KLISI_BASE_URL=http://localhost:8080
 KLISI_SESSION_SECRET=…           KLISI_DB_PATH=./data/klisi.db
 KLISI_LIVEKIT_URL=ws://…:7880    KLISI_LIVEKIT_API_KEY / _API_SECRET
 KLISI_OIDC_ISSUER=…              KLISI_OIDC_CLIENT_ID / _CLIENT_SECRET
-KLISI_S3_ENDPOINT=…              KLISI_S3_BUCKET / _ACCESS_KEY / _SECRET_KEY
+KLISI_S3_ENDPOINT=…              KLISI_S3_PUBLIC_ENDPOINT=…
+KLISI_S3_EGRESS_ENDPOINT=…       KLISI_S3_BUCKET / _ACCESS_KEY / _SECRET_KEY
 ```
 
 ## 13. Development environment
@@ -314,14 +319,28 @@ iteration:
 | dex | 5556 (issuer), static test users (`host@klisi.dev`) |
 
 `Makefile` targets: `dev` (compose up + Go server + Vite, concurrently),
-`gen` (tygo), `check` (vet + staticcheck + go test + svelte-check + lint),
+`gen` (tygo), `check` (vet + go test + svelte-check + Prettier + type drift),
 `build` (SPA build → embed → single binary), `clean`.
+
+`make dev` detects the host LAN address and writes it as `KLISI_NODE_IP` in
+`deploy/.env`. LiveKit advertises that address to host browsers. Egress shares
+LiveKit's network namespace so the same WebRTC candidates work inside its
+headless browser, and it stages recordings under `/recordings` on a tmpfs
+before upload.
+
+S3 has three deliberate views in development:
+
+| Caller | Endpoint | Why |
+|---|---|---|
+| klisi server | `http://localhost:9000` | Object management from the host |
+| Browser | `http://localhost:9000` | Host-reachable presigned download URLs |
+| Egress | `http://minio:9000` | Uploads from the Compose network |
 
 ## 14. CI
 
 Forgejo Actions (`.forgejo/workflows/ci.yml`), on every push/PR:
 
-1. **server** — `go vet`, `staticcheck`, `go test ./...`
+1. **server** — `go vet`, `go test ./...`
 2. **web** — `svelte-check`, prettier check, `vite build`
 3. **typesync** — `make gen && git diff --exit-code` (§11)
 4. **build** — full binary build (SPA embed included) as the merge gate
@@ -332,11 +351,15 @@ Forgejo Actions (`.forgejo/workflows/ci.yml`), on every push/PR:
   recording endpoint; tokens minted only after policy passes.
 - LiveKit webhook requests are verified against the API key/secret signature.
 - Session cookies: HttpOnly, Secure, SameSite=Lax, HMAC-signed, short expiry.
-- Guests are rate-limited on join requests per IP; lobby requests expire.
+- Per-IP token buckets limit guest joins (10/min), lobby wait streams (20/min),
+  and login redirects (10/min); stale buckets are cleaned in memory.
+- JSON request bodies are limited to 1 MB before decoding; lobby requests
+  expire after 10 minutes.
 - Presigned download URLs are short-lived (5 min) and minted per request after
   an ownership check.
 - No secrets in the SPA: the client knows only its own token and public URLs.
-- CSP on the shell; the SPA makes no third-party requests (fonts self-hosted).
+- CSP, clickjacking, MIME-sniffing, and referrer-policy headers wrap every
+  response; the SPA makes no third-party requests (fonts are self-hosted).
 
 ## 16. Phased build
 

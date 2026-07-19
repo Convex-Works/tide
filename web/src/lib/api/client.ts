@@ -102,10 +102,7 @@ export function roomInfo(slug: string): Promise<PublicRoomInfo> {
 }
 
 export function updateRoom(slug: string, patch: UpdateRoomRequest): Promise<RoomInfo> {
-  return requestJSON<RoomInfo>(
-    pathWith(RoomPath, 'slug', slug),
-    jsonRequest('PATCH', patch)
-  );
+  return requestJSON<RoomInfo>(pathWith(RoomPath, 'slug', slug), jsonRequest('PATCH', patch));
 }
 
 export function deleteRoom(slug: string): Promise<void> {
@@ -160,10 +157,7 @@ export function recordingDownloadURL(id: string): string {
 
 export function joinRoom(slug: string, name: string): Promise<JoinResponse> {
   const body: JoinRequest = { name };
-  return requestJSON<JoinResponse>(
-    pathWith(RoomJoinPath, 'slug', slug),
-    jsonRequest('POST', body)
-  );
+  return requestJSON<JoinResponse>(pathWith(RoomJoinPath, 'slug', slug), jsonRequest('POST', body));
 }
 
 export function approveLobby(id: string): Promise<void> {
@@ -188,6 +182,7 @@ export interface LobbyWaitHandlers {
   waiting?: (event: LobbyWaitingSSE) => void;
   admitted: (event: LobbyAdmittedSSE) => void;
   denied: (event: LobbyDeniedSSE) => void;
+  expired?: (event: LobbyDeniedSSE) => void;
   error?: () => void;
 }
 
@@ -201,6 +196,9 @@ export function lobbyWait(id: string, handlers: LobbyWaitHandlers): () => void {
   });
   source.addEventListener('denied', (event) => {
     handlers.denied(JSON.parse((event as MessageEvent<string>).data) as LobbyDeniedSSE);
+  });
+  source.addEventListener('expired', (event) => {
+    handlers.expired?.(JSON.parse((event as MessageEvent<string>).data) as LobbyDeniedSSE);
   });
   source.onerror = () => handlers.error?.();
   return () => source.close();

@@ -1,21 +1,70 @@
 # klisi
 
-Lean, self-hosted video meetings. Meeting URLs, host auth (OIDC), guest lobby,
-mic/cam/screenshare, participant moderation, reconnection, ephemeral chat, and
-server-orchestrated recording. Nothing else.
+klisi is a small, self-hosted video meeting service. The production artifact is
+one Go binary with an embedded SvelteKit app; LiveKit handles media, Redis backs
+LiveKit jobs, Egress records meetings, and S3-compatible storage keeps the files.
 
-Built as a single Go binary (SvelteKit SPA embedded) on top of
-[LiveKit](https://livekit.io) for the media plane.
+The feature list is frozen:
 
-- Architecture, design language, and build plan: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- Reusable meeting links and OIDC sign-in for hosts
+- Guest lobby with admit and deny controls
+- Microphone, camera, screen sharing, device selection, and reconnection
+- Participant list with host mute and remove controls
+- Ephemeral in-room chat
+- Server-owned room recording with download and delete management
 
-## Development
+The system shape and design rules are in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
-Requires Go ≥ 1.24, Node ≥ 22, Docker + Compose.
+## Quickstart
+
+Requires Go 1.24 or newer, Node 22 or newer, and Docker with Compose. Install
+the web dependencies once, then start the app and its development services:
 
 ```sh
-make dev     # compose stack (livekit, redis, egress, minio, dex) + server + vite
-make check   # vet, staticcheck, tests, svelte-check, lint
-make gen     # regenerate TS types from Go (tygo)
-make build   # production binary with embedded SPA
+cd web
+npm install
+cd ..
+make dev
 ```
+
+Open `http://localhost:5173`. The Dex test login is `host@klisi.dev` with
+password `klisi-dev`. `make dev` writes the detected LAN address to
+`deploy/.env`, starts the Compose stack, then runs the Go server and Vite.
+
+Useful targets:
+
+```sh
+make check   # server tests and vet, web checks, formatting, generated-type drift
+make gen     # regenerate TypeScript API types from Go
+make build   # build bin/klisi with the SPA embedded
+```
+
+## End-to-end tests
+
+Start `make dev` first so LiveKit, Redis, Egress, MinIO, Dex, the server, and
+Vite are available. The Playwright setup uses Chromium fake media devices.
+
+```sh
+cd web
+npx playwright test
+```
+
+## Recording
+
+The server starts a LiveKit room-composite Egress job and includes the S3
+destination in that request. Egress renders klisi's own `/egress-template`,
+writes the MP4 to S3-compatible storage, and reports state through signed
+LiveKit webhooks.
+
+## Production notes
+
+Configuration is described in [Architecture §12](docs/ARCHITECTURE.md#12-configuration),
+and the service topology and address boundaries are described in
+[Architecture §13](docs/ARCHITECTURE.md#13-development-environment). Build the
+deployable binary with `make build`; production still requires LiveKit, Redis,
+Egress, and S3-compatible object storage.
+
+klisi is an AGPL-free, fresh-history implementation and derives no code from
+the AGPL-licensed mirotalksfu project. That separation is recorded in the
+[decision log](docs/ARCHITECTURE.md#17-decision-log).

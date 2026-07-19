@@ -1,11 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import {
-    Microphone,
-    MicrophoneSlash,
-    VideoCamera,
-    VideoCameraSlash
-  } from 'phosphor-svelte';
+  import { Microphone, MicrophoneSlash, VideoCamera, VideoCameraSlash } from 'phosphor-svelte';
   import {
     Room,
     createLocalAudioTrack,
@@ -239,12 +234,7 @@
       {#if cameraTrack && camEnabled}
         <!-- Local preview video does not have a caption track. -->
         <!-- svelte-ignore a11y_media_has_caption -->
-        <video
-          use:attachTrack={cameraTrack}
-          autoplay
-          playsinline
-          muted
-          aria-label="Camera preview"
+        <video use:attachTrack={cameraTrack} autoplay playsinline muted aria-label="Camera preview"
         ></video>
       {:else}
         <div class="preview-placeholder" aria-label="Camera off">
@@ -398,7 +388,8 @@
   .preview-placeholder {
     display: grid;
     place-items: center;
-    color: var(--ink-2);
+    color: var(--text-2);
+    background: var(--panel-2);
   }
 
   .details {
@@ -461,6 +452,12 @@
     transition: border-color var(--motion-fast);
   }
 
+  select {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   input:hover,
   select:hover:not(:disabled) {
     border-color: var(--ink-2);
@@ -472,15 +469,19 @@
 
   .device-row {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
+  }
+
+  .device-row label {
+    min-width: 0;
   }
 
   .preview-toggle,
   .mic-toggle {
     display: grid;
-    width: 32px;
-    height: 32px;
+    width: var(--control-height);
+    height: var(--control-height);
     padding: 0;
     place-items: center;
     color: var(--ink);
@@ -501,7 +502,8 @@
   }
 
   .mic-control {
-    display: flex;
+    display: grid;
+    grid-template-columns: var(--control-height) minmax(0, 1fr);
     align-items: center;
     gap: 8px;
   }

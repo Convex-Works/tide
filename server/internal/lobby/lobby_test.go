@@ -60,7 +60,7 @@ func TestWaitSSEApproveDenyAndExpiry(t *testing.T) {
 		httpRequest.SetPathValue("id", request.ID)
 		handler.Wait(recorder, httpRequest)
 		body := recorder.Body.String()
-		if !strings.Contains(body, "event: waiting") || !strings.Contains(body, "event: denied") {
+		if !strings.Contains(body, "event: waiting") || !strings.Contains(body, "event: expired") {
 			t.Fatalf("SSE body = %q", body)
 		}
 	})
