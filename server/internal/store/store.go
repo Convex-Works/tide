@@ -26,17 +26,17 @@ type Room struct {
 }
 
 type Recording struct {
-	ID         string
-	RoomID     string
-	RoomSlug   string
-	EgressID   string
-	Status     string
-	StartedBy  string
-	StartedAt  int64
-	EndedAt    *int64
-	DurationS  *int64
-	S3Key      *string
-	SizeBytes  *int64
+	ID        string
+	RoomID    string
+	RoomSlug  string
+	EgressID  string
+	Status    string
+	StartedBy string
+	StartedAt int64
+	EndedAt   *int64
+	DurationS *int64
+	S3Key     *string
+	SizeBytes *int64
 }
 
 type RecordingUpdate struct {

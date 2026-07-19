@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -40,7 +41,11 @@ type Config struct {
 	S3SecretKey       string
 	S3Region          string
 	EgressTemplateURL string
-	DevMode           bool
+	// TrustedProxies are CIDRs (or bare IPs) of reverse proxies whose
+	// X-Forwarded-For may be believed. Empty means no proxy is trusted and
+	// the TCP peer address is always the client.
+	TrustedProxies []*net.IPNet
+	DevMode        bool
 }
 
 // Load reads configuration from the environment. Dev mode is opt-in
@@ -79,6 +84,11 @@ func Load() (Config, error) {
 		EgressTemplateURL: env("KLISI_EGRESS_TEMPLATE_URL", baseURL+"/egress-template"),
 		DevMode:           dev,
 	}
+	trusted, err := parseTrustedProxies(env("KLISI_TRUSTED_PROXIES", ""))
+	if err != nil {
+		return Config{}, fmt.Errorf("KLISI_TRUSTED_PROXIES: %w", err)
+	}
+	cfg.TrustedProxies = trusted
 	if !dev {
 		if err := cfg.validateProduction(); err != nil {
 			return Config{}, err
@@ -120,6 +130,36 @@ func (c Config) validateProduction() error {
 			" (set KLISI_DEV_MODE=true only for local development)")
 	}
 	return nil
+}
+
+// parseTrustedProxies accepts a comma-separated list of CIDRs; a bare IP is
+// treated as a single-host network. Invalid entries refuse startup rather
+// than silently trusting the wrong hosts.
+func parseTrustedProxies(raw string) ([]*net.IPNet, error) {
+	var networks []*net.IPNet
+	for _, entry := range strings.Split(raw, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		if !strings.Contains(entry, "/") {
+			ip := net.ParseIP(entry)
+			if ip == nil {
+				return nil, fmt.Errorf("invalid IP %q", entry)
+			}
+			bits := 32
+			if ip.To4() == nil {
+				bits = 128
+			}
+			entry = fmt.Sprintf("%s/%d", ip, bits)
+		}
+		_, network, err := net.ParseCIDR(entry)
+		if err != nil {
+			return nil, fmt.Errorf("invalid CIDR %q", entry)
+		}
+		networks = append(networks, network)
+	}
+	return networks, nil
 }
 
 func env(name, fallback string) string {

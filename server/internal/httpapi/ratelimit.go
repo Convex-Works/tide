@@ -88,9 +88,9 @@ func (l *ipRateLimiter) allow(key string) bool {
 	return true
 }
 
-func withRateLimit(limiter *ipRateLimiter, next http.Handler) http.Handler {
+func withRateLimit(limiter *ipRateLimiter, ips *clientIPResolver, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !limiter.allow(clientIP(r)) {
+		if !limiter.allow(ips.resolve(r)) {
 			w.Header().Set("Cache-Control", "no-store")
 			writeJSON(w, http.StatusTooManyRequests, api.ErrorResponse{
 				Error: "Too many requests. Try again later.",
@@ -101,7 +101,55 @@ func withRateLimit(limiter *ipRateLimiter, next http.Handler) http.Handler {
 	})
 }
 
-func clientIP(r *http.Request) string {
+// clientIPResolver resolves the real client address behind the configured
+// trusted reverse proxies. With no trusted proxies the TCP peer is the
+// client and X-Forwarded-For is ignored entirely — an untrusted peer must
+// never be able to choose its own rate-limit bucket.
+type clientIPResolver struct {
+	trusted []*net.IPNet
+}
+
+func newClientIPResolver(trusted []*net.IPNet) *clientIPResolver {
+	return &clientIPResolver{trusted: trusted}
+}
+
+func (c *clientIPResolver) resolve(r *http.Request) string {
+	peer := remoteIP(r)
+	if !c.isTrusted(peer) {
+		return peer
+	}
+	// Walk X-Forwarded-For right to left, skipping our own trusted hops;
+	// the first untrusted address is the client as seen by the edge proxy.
+	hops := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
+	for i := len(hops) - 1; i >= 0; i-- {
+		hop := strings.TrimSpace(hops[i])
+		if hop == "" {
+			continue
+		}
+		if net.ParseIP(hop) == nil {
+			return peer // malformed header — fall back to the proxy address
+		}
+		if !c.isTrusted(hop) {
+			return hop
+		}
+	}
+	return peer
+}
+
+func (c *clientIPResolver) isTrusted(address string) bool {
+	ip := net.ParseIP(address)
+	if ip == nil {
+		return false
+	}
+	for _, network := range c.trusted {
+		if network.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func remoteIP(r *http.Request) string {
 	remote := strings.TrimSpace(r.RemoteAddr)
 	if host, _, err := net.SplitHostPort(remote); err == nil {
 		return host

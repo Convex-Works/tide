@@ -38,6 +38,7 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store) (http.Handler, *r
 	sessions := auth.NewSessions(cfg.SessionSecret, cfg.BaseURL)
 	minter := klisilivekit.NewMinter(cfg)
 	registry := lobby.NewRegistry(lobby.DefaultRequestTTL)
+	ips := newClientIPResolver(cfg.TrustedProxies)
 	joinLimiter := newIPRateLimiter(10, time.Minute)
 	waitLimiter := newIPRateLimiter(20, time.Minute)
 	loginLimiter := newIPRateLimiter(10, time.Minute)
@@ -62,7 +63,7 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store) (http.Handler, *r
 	mux.HandleFunc("GET /healthz", handler.health)
 	mux.Handle(
 		"GET "+api.AuthLoginPath,
-		withRateLimit(loginLimiter, http.HandlerFunc(handler.oidc.Login)),
+		withRateLimit(loginLimiter, ips, http.HandlerFunc(handler.oidc.Login)),
 	)
 	mux.HandleFunc("GET "+api.AuthCallbackPath, handler.oidc.Callback)
 	mux.Handle("POST "+api.AuthLogoutPath, handler.csrf(http.HandlerFunc(handler.oidc.Logout)))
@@ -83,12 +84,12 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store) (http.Handler, *r
 
 	mux.Handle(
 		"POST "+api.RoomJoinPath,
-		withRateLimit(joinLimiter, handler.csrf(http.HandlerFunc(handler.lobby.Join))),
+		withRateLimit(joinLimiter, ips, handler.csrf(http.HandlerFunc(handler.lobby.Join))),
 	)
 	mux.Handle("GET "+api.RoomLobbyPath, handler.requireAuth(http.HandlerFunc(handler.lobby.Host)))
 	mux.Handle(
 		"GET "+api.LobbyWaitPath,
-		withRateLimit(waitLimiter, http.HandlerFunc(handler.lobby.Wait)),
+		withRateLimit(waitLimiter, ips, http.HandlerFunc(handler.lobby.Wait)),
 	)
 	mux.Handle("POST "+api.LobbyApprovePath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.lobby.Approve))))
 	mux.Handle("POST "+api.LobbyDenyPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.lobby.Deny))))

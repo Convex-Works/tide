@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -56,7 +57,7 @@ func TestIPRateLimiterCleansStaleBuckets(t *testing.T) {
 func TestRateLimitMiddlewareReturnsJSON(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
 	limiter := newIPRateLimiterWithClock(1, time.Minute, func() time.Time { return now })
-	handler := withRateLimit(limiter, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := withRateLimit(limiter, newClientIPResolver(nil), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 
@@ -81,5 +82,42 @@ func TestRateLimitMiddlewareReturnsJSON(t *testing.T) {
 	}
 	if response.Error == "" {
 		t.Fatal("rate-limit response should include an error")
+	}
+}
+
+func TestClientIPResolver(t *testing.T) {
+	newRequest := func(remote, forwarded string) *http.Request {
+		request := httptest.NewRequest(http.MethodGet, "/", nil)
+		request.RemoteAddr = remote
+		if forwarded != "" {
+			request.Header.Set("X-Forwarded-For", forwarded)
+		}
+		return request
+	}
+	// No trusted proxies: the TCP peer is always the client; a forged
+	// X-Forwarded-For must never pick the bucket.
+	open := newClientIPResolver(nil)
+	if got := open.resolve(newRequest("203.0.113.7:1234", "10.0.0.1")); got != "203.0.113.7" {
+		t.Fatalf("untrusted peer XFF must be ignored, got %q", got)
+	}
+
+	_, ingress, _ := net.ParseCIDR("10.0.0.0/8")
+	behindProxy := newClientIPResolver([]*net.IPNet{ingress})
+
+	// Trusted peer: rightmost untrusted XFF hop is the client.
+	if got := behindProxy.resolve(newRequest("10.0.0.1:1234", "198.51.100.9, 10.0.0.2")); got != "198.51.100.9" {
+		t.Fatalf("expected forwarded client, got %q", got)
+	}
+	// Client-forged prefix hops are ignored: only the hop the edge saw counts.
+	if got := behindProxy.resolve(newRequest("10.0.0.1:1234", "1.2.3.4, 198.51.100.9")); got != "198.51.100.9" {
+		t.Fatalf("expected edge-observed client, got %q", got)
+	}
+	// Malformed header falls back to the proxy address.
+	if got := behindProxy.resolve(newRequest("10.0.0.1:1234", "not-an-ip")); got != "10.0.0.1" {
+		t.Fatalf("malformed XFF should fall back to peer, got %q", got)
+	}
+	// Trusted peer with no header: peer address.
+	if got := behindProxy.resolve(newRequest("10.0.0.1:1234", "")); got != "10.0.0.1" {
+		t.Fatalf("expected peer, got %q", got)
 	}
 }
