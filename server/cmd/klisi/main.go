@@ -13,7 +13,13 @@ import (
 )
 
 func main() {
-	cfg := config.Load()
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatal(err)
+	}
+	if cfg.DevMode {
+		log.Print("WARNING: dev mode is on — unauthenticated /api/dev/token is exposed and dev secrets are in use")
+	}
 	db, err := store.Open(cfg.DBPath)
 	if err != nil {
 		log.Fatal(err)
