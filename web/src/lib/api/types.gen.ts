@@ -4,10 +4,72 @@
 // source: types.go
 
 export const DevTokenPath = "/api/dev/token";
+export const AuthLoginPath = "/api/auth/login";
+export const AuthCallbackPath = "/api/auth/callback";
+export const AuthLogoutPath = "/api/auth/logout";
+export const MePath = "/api/me";
+export const RoomsPath = "/api/rooms";
+export const RoomPath = "/api/rooms/{slug}";
+export const RoomJoinPath = "/api/rooms/{slug}/join";
+export const RoomLobbyPath = "/api/rooms/{slug}/lobby";
+export const LobbyWaitPath = "/api/lobby/{id}/wait";
+export const LobbyApprovePath = "/api/lobby/{id}/approve";
+export const LobbyDenyPath = "/api/lobby/{id}/deny";
+export const LiveKitWebhookPath = "/api/webhooks/livekit";
 export interface TokenResponse {
   token: string;
   ws_url: string;
 }
 export interface ErrorResponse {
   error: string;
+}
+export interface Me {
+  sub: string;
+  email: string;
+  name: string;
+}
+export interface RoomInfo {
+  id: string;
+  slug: string;
+  name: string;
+  lobby_enabled: boolean;
+  created_at: number /* int64 */;
+}
+export interface PublicRoomInfo {
+  slug: string;
+  name: string;
+  lobby_enabled: boolean;
+}
+export interface CreateRoomRequest {
+  name: string;
+}
+export interface UpdateRoomRequest {
+  name?: string;
+  lobby_enabled?: boolean;
+}
+export interface JoinRequest {
+  name: string;
+}
+export interface JoinResponse {
+  status: string;
+  token?: string;
+  ws_url?: string;
+  request_id?: string;
+}
+export interface LobbyRequestInfo {
+  id: string;
+  name: string;
+  requested_at: number /* int64 */;
+}
+export interface LobbyWaitingSSE {
+  status: string;
+}
+export interface LobbyAdmittedSSE {
+  token: string;
+  ws_url: string;
+}
+export interface LobbyDeniedSSE {
+}
+export interface LobbyPendingSSE {
+  requests: LobbyRequestInfo[];
 }

@@ -9,13 +9,23 @@ import (
 	klisi "klisi"
 	"klisi/internal/config"
 	"klisi/internal/httpapi"
+	"klisi/internal/store"
 )
 
 func main() {
 	cfg := config.Load()
+	db, err := store.Open(cfg.DBPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			log.Printf("close database: %v", err)
+		}
+	}()
 	server := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           httpapi.New(cfg, klisi.WebFS()),
+		Handler:           httpapi.New(cfg, klisi.WebFS(), db),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

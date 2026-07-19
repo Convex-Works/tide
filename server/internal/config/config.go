@@ -11,6 +11,7 @@ type Config struct {
 	SessionSecret    string
 	DBPath           string
 	LiveKitURL       string
+	LiveKitPublicURL string
 	LiveKitAPIKey    string
 	LiveKitAPISecret string
 	OIDCIssuer       string
@@ -30,6 +31,7 @@ func Load() Config {
 		SessionSecret:    env("KLISI_SESSION_SECRET", "klisi-dev-session-secret-please-change"),
 		DBPath:           env("KLISI_DB_PATH", "./data/klisi.db"),
 		LiveKitURL:       env("KLISI_LIVEKIT_URL", "ws://localhost:7880"),
+		LiveKitPublicURL: env("KLISI_LIVEKIT_PUBLIC_URL", "ws://localhost:7880"),
 		LiveKitAPIKey:    env("KLISI_LIVEKIT_API_KEY", "devkey"),
 		LiveKitAPISecret: env("KLISI_LIVEKIT_API_SECRET", "klisi-dev-secret-please-change-0000000000"),
 		OIDCIssuer:       env("KLISI_OIDC_ISSUER", "http://localhost:5556/dex"),
