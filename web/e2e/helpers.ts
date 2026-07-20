@@ -1,5 +1,38 @@
 import { expect, type Page } from '@playwright/test';
 
+type CueCaptureWindow = Window &
+  typeof globalThis & {
+    __klisiCueOscillators?: OscillatorNode[];
+  };
+
+export async function installCueCapture(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    const cueWindow = window as CueCaptureWindow;
+    const createOscillator = AudioContext.prototype.createOscillator;
+    cueWindow.__klisiCueOscillators = [];
+    AudioContext.prototype.createOscillator = function (this: AudioContext): OscillatorNode {
+      const oscillator = createOscillator.call(this);
+      cueWindow.__klisiCueOscillators?.push(oscillator);
+      return oscillator;
+    };
+  });
+}
+
+export async function resetCueCapture(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    (window as CueCaptureWindow).__klisiCueOscillators = [];
+  });
+}
+
+export async function capturedCueDetunes(page: Page): Promise<number[]> {
+  return page.evaluate(
+    () =>
+      (window as CueCaptureWindow).__klisiCueOscillators?.map(
+        (oscillator) => oscillator.detune.value
+      ) ?? []
+  );
+}
+
 export async function dexLogin(page: Page): Promise<void> {
   await page.goto('/');
   await page.getByRole('button', { name: 'Continue with SSO' }).click();

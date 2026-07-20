@@ -1,7 +1,13 @@
 import { test, expect, chromium, type BrowserContext } from '@playwright/test';
-import { createRoomAndGetSlug, dexLogin, joinAsGuestThroughLobby } from './helpers';
+import {
+  capturedCueDetunes,
+  createRoomAndGetSlug,
+  dexLogin,
+  installCueCapture,
+  resetCueCapture
+} from './helpers';
 
-test('a host admits one guest and denies another through the lobby', async () => {
+test('lobby and participant changes play their cues while the host moderates guests', async () => {
   test.setTimeout(120_000);
   const browser = await chromium.launch({
     args: [
@@ -24,6 +30,7 @@ test('a host admits one guest and denies another through the lobby', async () =>
   try {
     const hostContext = await newContext();
     const host = await hostContext.newPage();
+    await installCueCapture(host);
     await dexLogin(host);
     const roomName = `Lobby e2e ${Date.now()}`;
     const slug = await createRoomAndGetSlug(host, roomName);
@@ -32,13 +39,43 @@ test('a host admits one guest and denies another through the lobby', async () =>
     await expect(host.getByRole('button', { name: 'Share screen' })).toBeVisible({
       timeout: 20_000
     });
+    await expect.poll(() => capturedCueDetunes(host)).toEqual([-1200, -1200]);
+    await resetCueCapture(host);
 
     const visitorContext = await newContext();
     const visitor = await visitorContext.newPage();
-    await joinAsGuestThroughLobby(visitor, host, slug, 'Visitor');
+    await visitor.goto(`/m/${slug}`);
+    await visitor.fill('input[name="name"]', 'Visitor');
+    await visitor.getByRole('button', { name: 'Join room' }).click();
+    await expect(visitor.getByText('Waiting for the host to let you in.')).toBeVisible({
+      timeout: 20_000
+    });
+    const people = host.getByRole('complementary', { name: 'People' });
+    await expect(people.getByText('Visitor', { exact: true })).toBeVisible({ timeout: 20_000 });
+    await expect.poll(() => capturedCueDetunes(host)).toEqual([-500, -500, -1200, -1200]);
+
+    await resetCueCapture(host);
+    await people
+      .getByRole('region', { name: 'Lobby' })
+      .getByRole('button', { name: 'Admit' })
+      .click();
+    await expect(visitor.getByRole('button', { name: 'Share screen' })).toBeVisible({
+      timeout: 20_000
+    });
     await expect(host.getByTestId('participant-tile').filter({ hasText: 'Visitor' })).toBeVisible({
       timeout: 20_000
     });
+    await expect.poll(() => capturedCueDetunes(host)).toEqual([-1200, -1200]);
+
+    await resetCueCapture(host);
+    await visitor.getByRole('button', { name: 'Leave room' }).click();
+    await expect(host.getByTestId('participant-tile').filter({ hasText: 'Visitor' })).toHaveCount(
+      0,
+      {
+        timeout: 20_000
+      }
+    );
+    await expect.poll(() => capturedCueDetunes(host)).toEqual([0, 0]);
 
     const deniedContext = await newContext();
     const denied = await deniedContext.newPage();
@@ -48,7 +85,6 @@ test('a host admits one guest and denies another through the lobby', async () =>
     await expect(denied.getByText('Waiting for the host to let you in.')).toBeVisible({
       timeout: 20_000
     });
-    const people = host.getByRole('complementary', { name: 'People' });
     await expect(people.getByText('Second visitor')).toBeVisible({ timeout: 20_000 });
     await people.getByRole('button', { name: 'Deny' }).click();
     await expect(denied.getByText('The host did not let you in.')).toBeVisible({

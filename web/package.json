@@ -11,6 +11,7 @@
     "format": "prettier --write ."
   },
   "dependencies": {
+    "cuelume": "file:vendor/cuelume-0.1.2-14a71236.tgz",
     "livekit-client": "^2.15.0",
     "phosphor-svelte": "^3.0.1"
   },

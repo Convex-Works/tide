@@ -17,6 +17,7 @@
   import RoomStage from '$lib/rtc/RoomStage.svelte';
   import { setConnectionChrome } from '$lib/rtc/connection.svelte';
   import { RoomState, type PreJoinOptions } from '$lib/rtc/room.svelte';
+  import { playLobbyKnockSound } from '$lib/sounds';
 
   type MeetingState =
     | 'loading'
@@ -45,6 +46,7 @@
   let mediaOptions: PreJoinOptions | undefined;
   let closeWait: (() => void) | undefined;
   let closeHostLobby: (() => void) | undefined;
+  const announcedLobbyRequestIDs = new Set<string>();
 
   $effect(() => {
     if (meetingState !== 'connected') return;
@@ -150,6 +152,11 @@
   function subscribeToHostLobby(): void {
     closeHostLobby?.();
     closeHostLobby = roomLobby(slug, (event) => {
+      for (const request of event.requests) {
+        if (announcedLobbyRequestIDs.has(request.id)) continue;
+        announcedLobbyRequestIDs.add(request.id);
+        playLobbyKnockSound();
+      }
       pending = event.requests;
     });
   }
@@ -175,6 +182,7 @@
   function leaveMeeting(): void {
     closeHostLobby?.();
     closeHostLobby = undefined;
+    announcedLobbyRequestIDs.clear();
     pending = [];
     peopleOpen = false;
     setConnectionChrome('connected');
@@ -189,6 +197,7 @@
   function leaveMeetingChrome(): void {
     closeHostLobby?.();
     closeHostLobby = undefined;
+    announcedLobbyRequestIDs.clear();
     pending = [];
     peopleOpen = false;
     setConnectionChrome('connected');

@@ -1,12 +1,19 @@
 import {
   ConnectionState,
   DisconnectReason,
+  ParticipantKind,
   Room,
   RoomEvent,
   Track,
   type Participant,
   type RemoteParticipant
 } from 'livekit-client';
+import {
+  playNewMessageSound,
+  playParticipantEnteredSound,
+  playParticipantExitedSound,
+  playRecordingStartedSound
+} from '$lib/sounds';
 import { setConnectionChrome } from './connection.svelte';
 
 export type DeviceKind = 'audioinput' | 'videoinput' | 'audiooutput';
@@ -91,6 +98,7 @@ export class RoomState {
     videoinput: '',
     audiooutput: ''
   });
+  private hasSyncedRoomMetadata = false;
 
   constructor() {
     this.room
@@ -99,8 +107,20 @@ export class RoomState {
         this.syncConnectionChrome(state);
       })
       .on(RoomEvent.Disconnected, (reason?: DisconnectReason) => this.handleDisconnected(reason))
-      .on(RoomEvent.ParticipantConnected, () => this.syncParticipants())
-      .on(RoomEvent.ParticipantDisconnected, () => this.syncParticipants())
+      .on(RoomEvent.ParticipantConnected, (participant: RemoteParticipant) => {
+        this.syncParticipants();
+        if (participant.kind !== ParticipantKind.EGRESS) playParticipantEnteredSound();
+      })
+      .on(RoomEvent.ParticipantDisconnected, (participant: RemoteParticipant) => {
+        this.syncParticipants();
+        if (participant.kind === ParticipantKind.EGRESS) return;
+        // A full LiveKit reconnect temporarily removes every remote participant
+        // before changing the room state. Defer the cue so that transition can
+        // suppress false exit sounds.
+        queueMicrotask(() => {
+          if (this.connectionState === ConnectionState.Connected) playParticipantExitedSound();
+        });
+      })
       .on(RoomEvent.TrackPublished, () => this.syncParticipants())
       .on(RoomEvent.TrackUnpublished, () => this.syncParticipants())
       .on(RoomEvent.TrackSubscribed, () => this.syncParticipants())
@@ -134,6 +154,7 @@ export class RoomState {
   async connect(wsURL: string, token: string, media: JoinMediaOptions): Promise<void> {
     this.chat = [];
     this.chatRevision = 0;
+    this.hasSyncedRoomMetadata = false;
     this.disconnectReason = undefined;
     this.wasRemoved = false;
     try {
@@ -153,6 +174,7 @@ export class RoomState {
       ]);
       this.syncAllMediaState();
       await this.refreshDevices().catch(() => undefined);
+      playParticipantEnteredSound();
     } catch (error) {
       await this.leave().catch(() => undefined);
       throw error;
@@ -283,6 +305,7 @@ export class RoomState {
     this.camEnabled = false;
     this.screenShareEnabled = false;
     this.isRecording = false;
+    this.hasSyncedRoomMetadata = false;
     setConnectionChrome('offline');
   }
 
@@ -306,7 +329,10 @@ export class RoomState {
         recording = false;
       }
     }
+    const recordingStarted = this.hasSyncedRoomMetadata && recording && !this.isRecording;
     this.isRecording = recording;
+    this.hasSyncedRoomMetadata = true;
+    if (recordingStarted) playRecordingStartedSound();
     this.syncConnectionChrome(this.connectionState);
   }
 
@@ -334,6 +360,7 @@ export class RoomState {
   private appendChat(message: ChatMessage): void {
     this.chat = [...this.chat, message].slice(-maximumChatMessages);
     this.chatRevision += 1;
+    if (!message.mine) playNewMessageSound();
   }
 
   private syncConnectionChrome(state: ConnectionState): void {
