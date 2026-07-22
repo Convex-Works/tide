@@ -1,0 +1,166 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: klisi
+  labels:
+    app.kubernetes.io/name: klisi
+    app.kubernetes.io/component: app
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: klisi
+      app.kubernetes.io/component: app
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: klisi
+        app.kubernetes.io/component: app
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: klisi
+          image: registry.example.com/klisi:latest # OVERLAY: Use the image built from this repository.
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: KLISI_ADDR
+              value: :8080
+            - name: KLISI_BASE_URL
+              value: https://meet.example.com # OVERLAY: Set the public HTTPS origin, with no trailing slash.
+            - name: KLISI_SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: klisi-secrets
+                  key: session-secret
+            - name: KLISI_DB_PATH
+              value: /data/klisi.db
+            - name: KLISI_LIVEKIT_URL
+              value: ws://livekit:7880
+            - name: KLISI_LIVEKIT_PUBLIC_URL
+              value: wss://livekit.example.com # OVERLAY: Set the browser-facing signaling URL.
+            - name: KLISI_LIVEKIT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: livekit-secrets
+                  key: api-key
+            - name: KLISI_LIVEKIT_API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: livekit-secrets
+                  key: api-secret
+            - name: KLISI_OIDC_ISSUER
+              value: https://id.example.com # OVERLAY: Set the external OIDC issuer URL exactly as published.
+            - name: KLISI_OIDC_CLIENT_ID
+              value: klisi # OVERLAY: Set the registered OIDC client ID.
+            - name: KLISI_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: klisi-secrets
+                  key: oidc-client-secret
+            - name: KLISI_S3_ENDPOINT
+              value: http://s3.storage.svc.cluster.local:9000 # OVERLAY: Set the klisi-server view of S3.
+            - name: KLISI_S3_PUBLIC_ENDPOINT
+              value: https://recordings.example.com # OVERLAY: Set the browser-reachable S3 origin used in presigned URLs.
+            - name: KLISI_S3_EGRESS_ENDPOINT
+              value: http://s3.storage.svc.cluster.local:9000 # OVERLAY: Set the egress-worker view of S3.
+            - name: KLISI_S3_BUCKET
+              value: klisi-recordings # OVERLAY: Set the existing recording bucket.
+            - name: KLISI_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secrets
+                  key: access-key
+            - name: KLISI_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secrets
+                  key: secret-key
+            - name: KLISI_S3_REGION
+              value: us-east-1 # OVERLAY: Set the S3 signing region.
+            - name: KLISI_EGRESS_TEMPLATE_URL
+              value: http://klisi:8080/egress-template
+            - name: KLISI_TRUSTED_PROXIES
+              value: "" # OVERLAY: Set ingress proxy IPs or CIDRs, comma-separated, if forwarded client IPs are needed.
+            - name: KLISI_DEV_MODE
+              value: "false"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /data
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: klisi-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: klisi
+  labels:
+    app.kubernetes.io/name: klisi
+    app.kubernetes.io/component: app
+spec:
+  selector:
+    app.kubernetes.io/name: klisi
+    app.kubernetes.io/component: app
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: klisi-data
+  labels:
+    app.kubernetes.io/name: klisi
+    app.kubernetes.io/component: database
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard # OVERLAY: Set a storage class with the required durability and topology.
+  resources:
+    requests:
+      storage: 5Gi # OVERLAY: Size for SQLite state; recordings do not live here.

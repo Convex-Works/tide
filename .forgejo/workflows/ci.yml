@@ -84,3 +84,49 @@ jobs:
           name: klisi
           path: bin/klisi
           if-no-files-found: error
+
+  docker:
+    runs-on: docker
+    needs: [server, web, typesync]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          set -eu
+          docker build --iidfile /tmp/klisi-image-id --tag "klisi:${SHA}" .
+          echo "Built image ID: $(cat /tmp/klisi-image-id)"
+      - name: Push image
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          REGISTRY_URL: ${{ secrets.REGISTRY_URL }}
+          REGISTRY_USER: ${{ secrets.REGISTRY_USER }}
+          REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -eu
+          if [ -z "${REGISTRY_URL}" ] || [ -z "${REGISTRY_USER}" ] || [ -z "${REGISTRY_TOKEN}" ]; then
+            echo "Registry secrets are unset; skipping image push."
+            exit 0
+          fi
+
+          registry_path="${REGISTRY_URL#http://}"
+          registry_path="${registry_path#https://}"
+          registry_path="${registry_path%/}"
+          registry_host="${registry_path%%/*}"
+          image="${registry_path}/klisi:${SHA}"
+
+          printf '%s' "${REGISTRY_TOKEN}" \
+            | docker login "${registry_host}" --username "${REGISTRY_USER}" --password-stdin
+          docker tag "klisi:${SHA}" "${image}"
+          push_output="$(docker push "${image}" 2>&1)"
+          printf '%s\n' "${push_output}"
+          digest="$(printf '%s\n' "${push_output}" \
+            | sed -n 's/^.*digest: \(sha256:[0-9a-f]*\).*$/\1/p' \
+            | tail -n 1)"
+          if [ -z "${digest}" ]; then
+            echo "The registry did not return an image digest."
+            exit 1
+          fi
+          echo "Pushed digest: ${digest}"

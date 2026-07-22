@@ -1,0 +1,174 @@
+# Read docs/DEPLOYMENT.md#choose-the-webrtc-media-path before applying this
+# base. It exposes signaling inside the cluster but deliberately exposes no
+# public media path. An overlay must select and configure one media option.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: livekit-config
+  labels:
+    app.kubernetes.io/name: livekit
+    app.kubernetes.io/component: media
+data:
+  livekit.yaml: |
+    port: 7880
+
+    rtc:
+      tcp_port: 7881
+      udp_port: 7882
+      use_external_ip: false
+
+    redis:
+      address: redis:6379
+
+    # LIVEKIT_KEYS supplies the key/secret map from livekit-secrets.
+    webhook:
+      api_key: replace-with-livekit-api-key # OVERLAY: Set the api-key identifier from livekit-secrets; do not put the API secret here.
+      urls:
+        - http://klisi:8080/api/webhooks/livekit
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: livekit
+  labels:
+    app.kubernetes.io/name: livekit
+    app.kubernetes.io/component: media
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: livekit
+      app.kubernetes.io/component: media
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: livekit
+        app.kubernetes.io/component: media
+    spec:
+      # OVERLAY: For media option (b), uncomment hostNetwork and dnsPolicy, or
+      # use the commented hostPort fields below. Do not use both.
+      # hostNetwork: true
+      # dnsPolicy: ClusterFirstWithHostNet
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 300
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      # OVERLAY: Pin option (b) to the public-IP node, for example:
+      # nodeSelector:
+      #   klisi.livekit/public: "true"
+      containers:
+        - name: livekit
+          image: livekit/livekit-server:v1.13.4 # OVERLAY: Pin a tested LiveKit release.
+          imagePullPolicy: IfNotPresent
+          args:
+            - --config
+            - /etc/livekit/livekit.yaml
+            # OVERLAY: Options (a) and (b) must advertise the selected public
+            # IPv4 address. Add: --node-ip, then the address as the next item.
+          env:
+            - name: LIVEKIT_KEYS
+              valueFrom:
+                secretKeyRef:
+                  name: livekit-secrets
+                  key: keys
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: signal
+              containerPort: 7880
+              protocol: TCP
+            - name: ice-tcp
+              containerPort: 7881
+              # OVERLAY: Media option (b): uncomment hostPort: 7881.
+              # hostPort: 7881
+              protocol: TCP
+            - name: ice-udp
+              containerPort: 7882
+              # OVERLAY: Media option (b): uncomment hostPort: 7882.
+              # hostPort: 7882
+              protocol: UDP
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          readinessProbe:
+            httpGet:
+              path: /
+              port: signal
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /
+              port: signal
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          volumeMounts:
+            - name: config
+              mountPath: /etc/livekit/livekit.yaml
+              subPath: livekit.yaml
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: livekit-config
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: livekit
+  labels:
+    app.kubernetes.io/name: livekit
+    app.kubernetes.io/component: media
+spec:
+  selector:
+    app.kubernetes.io/name: livekit
+    app.kubernetes.io/component: media
+  ports:
+    - name: signal
+      port: 7880
+      targetPort: signal
+      protocol: TCP
+
+# OVERLAY: Media option (a). Copy this resource into an overlay and patch the
+# provider-specific static address/annotations. Advertise its IPv4 address with
+# --node-ip. The signaling Service above remains separate.
+# ---
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: livekit-media
+#   annotations:
+#     example.com/static-address: replace-me # OVERLAY: Use the provider's static-address annotation.
+# spec:
+#   type: LoadBalancer
+#   externalTrafficPolicy: Local
+#   selector:
+#     app.kubernetes.io/name: livekit
+#     app.kubernetes.io/component: media
+#   ports:
+#     - name: ice-udp
+#       port: 7882
+#       targetPort: ice-udp
+#       protocol: UDP
