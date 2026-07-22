@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"klisi/internal/api"
 	"klisi/internal/auth"
@@ -23,10 +25,13 @@ type Handler struct {
 	store   *store.Store
 	service *Service
 	objects objectStore
+	live    LiveRoomSource
 }
 
-func NewHandler(roomStore *store.Store, objects objectStore) *Handler {
-	return &Handler{store: roomStore, service: NewService(roomStore), objects: objects}
+// NewHandler builds the rooms handler. live may be nil (e.g. in tests or when
+// no SFU is reachable); the list then reports every room as inactive.
+func NewHandler(roomStore *store.Store, objects objectStore, live LiveRoomSource) *Handler {
+	return &Handler{store: roomStore, service: NewService(roomStore), objects: objects, live: live}
 }
 
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
@@ -64,9 +69,31 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not load rooms. Try again.")
 		return
 	}
+	// Live state is best-effort: if the SFU is unreachable the dashboard still
+	// renders with rooms shown as inactive rather than erroring.
+	var liveRooms map[string]LiveRoom
+	if h.live != nil {
+		if live, liveErr := h.live.ActiveRooms(r.Context()); liveErr != nil {
+			log.Printf("rooms: live state unavailable: %v", liveErr)
+		} else {
+			liveRooms = live
+		}
+	}
+	now := time.Now().Unix()
 	response := make([]api.RoomInfo, 0, len(owned))
 	for _, room := range owned {
-		response = append(response, roomInfo(room))
+		info := roomInfo(room)
+		if live, ok := liveRooms[room.Slug]; ok && live.NumParticipants > 0 {
+			info.Active = true
+			info.NumParticipants = live.NumParticipants
+			info.Recording = live.Recording
+			// A currently-live room is active now, even if the join webhook
+			// that persists last_active_at was lost.
+			if info.LastActiveAt == nil || *info.LastActiveAt < now {
+				info.LastActiveAt = &now
+			}
+		}
+		response = append(response, info)
 	}
 	httpx.WriteJSON(w, http.StatusOK, response)
 }
@@ -191,5 +218,6 @@ func roomInfo(room store.Room) api.RoomInfo {
 	return api.RoomInfo{
 		ID: room.ID, Slug: room.Slug, Name: room.Name,
 		LobbyEnabled: room.LobbyEnabled, CreatedAt: room.CreatedAt,
+		LastActiveAt: room.LastActiveAt,
 	}
 }

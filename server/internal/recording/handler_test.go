@@ -2,13 +2,16 @@ package recording
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	protocol "github.com/livekit/protocol/livekit"
 
+	"klisi/internal/api"
 	"klisi/internal/auth"
 	"klisi/internal/store"
 )
@@ -154,6 +157,71 @@ func TestStartStopAuthorizationAndDoubleStart(t *testing.T) {
 		}
 		if len(rooms.updates) != 2 || rooms.updates[0].Metadata != `{"recording":true}` || rooms.updates[1].Metadata != `{"recording":false}` {
 			t.Fatalf("metadata updates = %#v", rooms.updates)
+		}
+	})
+}
+
+func TestStartRecordingModes(t *testing.T) {
+	startWithBody := func(t *testing.T, body string) (*httptest.ResponseRecorder, *fakeEgressClient) {
+		t.Helper()
+		handler, egress, _, room := recordingTestHandler(t)
+		request := httptest.NewRequest(http.MethodPost, "/recording", strings.NewReader(body))
+		if body == "" {
+			request = httptest.NewRequest(http.MethodPost, "/recording", nil)
+		}
+		request.SetPathValue("slug", room.Slug)
+		request = request.WithContext(auth.WithSession(request.Context(), auth.Session{Sub: "owner"}))
+		response := httptest.NewRecorder()
+		handler.Start(response, request)
+		return response, egress
+	}
+
+	decodeInfo := func(t *testing.T, response *httptest.ResponseRecorder) api.RecordingInfo {
+		t.Helper()
+		var info api.RecordingInfo
+		if err := json.NewDecoder(response.Body).Decode(&info); err != nil {
+			t.Fatal(err)
+		}
+		return info
+	}
+
+	t.Run("empty body defaults to audio-only", func(t *testing.T) {
+		response, egress := startWithBody(t, "")
+		if response.Code != http.StatusCreated || len(egress.starts) != 1 {
+			t.Fatalf("status = %d, starts = %d, body = %s", response.Code, len(egress.starts), response.Body.String())
+		}
+		if !egress.starts[0].AudioOnly {
+			t.Fatalf("egress request AudioOnly = false, want true")
+		}
+		if info := decodeInfo(t, response); !info.AudioOnly {
+			t.Fatalf("response audio_only = false, want true")
+		}
+	})
+
+	t.Run("explicit video opts out of audio-only", func(t *testing.T) {
+		response, egress := startWithBody(t, `{"video":true}`)
+		if response.Code != http.StatusCreated || len(egress.starts) != 1 {
+			t.Fatalf("status = %d, starts = %d, body = %s", response.Code, len(egress.starts), response.Body.String())
+		}
+		if egress.starts[0].AudioOnly {
+			t.Fatalf("egress request AudioOnly = true, want false")
+		}
+		if info := decodeInfo(t, response); info.AudioOnly {
+			t.Fatalf("response audio_only = true, want false")
+		}
+	})
+
+	t.Run("explicit false stays audio-only", func(t *testing.T) {
+		response, egress := startWithBody(t, `{"video":false}`)
+		if response.Code != http.StatusCreated || len(egress.starts) != 1 || !egress.starts[0].AudioOnly {
+			t.Fatalf("status = %d, request = %#v", response.Code, egress.starts)
+		}
+	})
+
+	t.Run("invalid body rejected", func(t *testing.T) {
+		response, egress := startWithBody(t, `{"video":`)
+		if response.Code != http.StatusBadRequest || len(egress.starts) != 0 {
+			t.Fatalf("status = %d, starts = %d", response.Code, len(egress.starts))
 		}
 	})
 }

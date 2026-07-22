@@ -24,8 +24,12 @@ test('capture dashboard and lobby states', async () => {
   await page.screenshot({ path: 'shots/dashboard.png' });
 
   const guest = await browser.newContext({ viewport: { width: 1280, height: 800 } });
-  const slugChip = page.locator('[data-testid="room-slug"], .slug').first();
-  const slug = (await slugChip.textContent())?.trim();
+  // The redesigned room card carries the slug only in its Join link href.
+  const joinLink = page.locator('[data-testid="room-card"]').getByRole('link', { name: 'Join' });
+  const slug =
+    (await joinLink.count()) > 0
+      ? (await joinLink.first().getAttribute('href'))?.replace('/m/', '').trim()
+      : undefined;
   if (slug) {
     const gp = await guest.newPage();
     await gp.goto(`/m/${slug}`);

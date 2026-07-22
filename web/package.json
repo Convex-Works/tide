@@ -11,6 +11,7 @@
     "format": "prettier --write ."
   },
   "dependencies": {
+    "bits-ui": "^2.18.1",
     "cuelume": "file:vendor/cuelume-0.1.2-14a71236.tgz",
     "livekit-client": "^2.15.0",
     "phosphor-svelte": "^3.0.1"
@@ -22,10 +23,12 @@
     "@sveltejs/adapter-static": "^3.0.8",
     "@sveltejs/kit": "^2.20.0",
     "@sveltejs/vite-plugin-svelte": "^5.0.3",
+    "@tailwindcss/vite": "^4.3.3",
     "prettier": "^3.5.3",
     "prettier-plugin-svelte": "^3.3.3",
     "svelte": "^5.25.0",
     "svelte-check": "^4.1.4",
+    "tailwindcss": "^4.3.3",
     "typescript": "^5.7.3",
     "vite": "^6.2.0"
   }

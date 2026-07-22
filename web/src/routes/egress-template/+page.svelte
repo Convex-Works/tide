@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { Room, RoomEvent, Track, type RemoteParticipant } from 'livekit-client';
+  import ParticipantTile from '$lib/rtc/ParticipantTile.svelte';
 
   interface CompositeParticipant {
     identity: string;
@@ -85,10 +86,6 @@
     console.log('END_RECORDING');
   }
 
-  function initial(name: string): string {
-    return name.slice(0, 1).toUpperCase() || '?';
-  }
-
   onMount(() => {
     const query = new URLSearchParams(window.location.search);
     const url = query.get('url') ?? '';
@@ -160,25 +157,9 @@
       </article>
       <div class="camera-rail">
         {#each participants as participant (participant.identity)}
-          <article class="tile">
-            {#if participant.cameraTrack}
-              <!-- svelte-ignore a11y_media_has_caption -->
-              <video
-                use:attachTrack={participant.cameraTrack}
-                autoplay
-                playsinline
-                aria-label={`${participant.name}'s video`}
-              ></video>
-            {:else}
-              <div class="placeholder">{initial(participant.name)}</div>
-            {/if}
-            {#each participant.audioTracks as track}
-              <!-- svelte-ignore a11y_media_has_caption -->
-              <audio use:attachTrack={track} autoplay aria-label={`${participant.name}'s audio`}
-              ></audio>
-            {/each}
-            <div class="label">{participant.name}</div>
-          </article>
+          <!-- No waveforms in the recording: the audio itself is the artifact,
+               and animated bars burn egress-worker CPU for no information. -->
+          <ParticipantTile {participant} fit="width" waveform={false} />
         {/each}
       </div>
     </section>
@@ -190,25 +171,7 @@
       aria-label="Recording participants"
     >
       {#each participants as participant (participant.identity)}
-        <article class="tile">
-          {#if participant.cameraTrack}
-            <!-- svelte-ignore a11y_media_has_caption -->
-            <video
-              use:attachTrack={participant.cameraTrack}
-              autoplay
-              playsinline
-              aria-label={`${participant.name}'s video`}
-            ></video>
-          {:else}
-            <div class="placeholder">{initial(participant.name)}</div>
-          {/if}
-          {#each participant.audioTracks as track}
-            <!-- svelte-ignore a11y_media_has_caption -->
-            <audio use:attachTrack={track} autoplay aria-label={`${participant.name}'s audio`}
-            ></audio>
-          {/each}
-          <div class="label">{participant.name}</div>
-        </article>
+        <ParticipantTile {participant} fit="contain" waveform={false} />
       {/each}
     </section>
   {/if}
@@ -243,7 +206,6 @@
     margin-inline: auto;
   }
 
-  .tile,
   .focus-pane {
     position: relative;
     display: grid;
@@ -253,24 +215,6 @@
     background: var(--panel-2);
     border: 1px solid var(--border-d);
     border-radius: var(--radius-tile);
-  }
-
-  .tile video,
-  .placeholder {
-    grid-area: 1 / 1;
-    width: 100%;
-    height: 100%;
-  }
-
-  .tile video {
-    object-fit: cover;
-  }
-
-  .placeholder {
-    display: grid;
-    place-items: center;
-    color: var(--text-2);
-    font-size: 24px;
   }
 
   .label {
@@ -315,7 +259,7 @@
   .camera-rail {
     display: grid;
     min-height: 0;
-    grid-auto-rows: minmax(120px, 1fr);
+    grid-auto-rows: max-content;
     gap: 8px;
     overflow: hidden;
   }

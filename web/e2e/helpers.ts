@@ -48,9 +48,11 @@ export async function createRoomAndGetSlug(
 ): Promise<string> {
   await page.fill('input[name="room-name"]', roomName);
   await page.getByRole('button', { name: 'New room' }).click();
-  const roomRow = page.locator('article.room-row').filter({ hasText: roomName });
+  const roomRow = page.locator('[data-testid="room-card"]').filter({ hasText: roomName });
   await expect(roomRow).toBeVisible();
-  const slug = (await roomRow.locator('.slug').textContent())?.trim();
+  // The redesigned card has no visible slug text; the Join link carries it.
+  const joinHref = await roomRow.getByRole('link', { name: 'Join' }).getAttribute('href');
+  const slug = joinHref?.replace('/m/', '').trim();
   expect(slug).toBeTruthy();
   return slug!;
 }

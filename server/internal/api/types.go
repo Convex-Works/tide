@@ -12,6 +12,7 @@ const (
 	RoomLobbyPath         = "/api/rooms/{slug}/lobby"
 	KickPath              = "/api/rooms/{slug}/participants/{identity}/kick"
 	MutePath              = "/api/rooms/{slug}/participants/{identity}/mute"
+	MeetingEndPath        = "/api/rooms/{slug}/meeting/end"
 	LobbyWaitPath         = "/api/lobby/{id}/wait"
 	LobbyApprovePath      = "/api/lobby/{id}/approve"
 	LobbyDenyPath         = "/api/lobby/{id}/deny"
@@ -44,6 +45,15 @@ type RoomInfo struct {
 	Name         string `json:"name"`
 	LobbyEnabled bool   `json:"lobby_enabled"`
 	CreatedAt    int64  `json:"created_at"`
+	// Live state from LiveKit, populated only on the list path (the create,
+	// update, and single-room paths do not query the SFU, so these stay zero
+	// there). Active is true when the room currently has participants.
+	Active          bool `json:"active"`
+	NumParticipants int  `json:"num_participants"`
+	Recording       bool `json:"recording"`
+	// LastActiveAt is Unix seconds of the most recent participant join, or null
+	// if the room has never been used.
+	LastActiveAt *int64 `json:"last_active_at"`
 }
 
 type PublicRoomInfo struct {
@@ -96,6 +106,13 @@ type LobbyPendingSSE struct {
 	Requests []LobbyRequestInfo `json:"requests"`
 }
 
+// RecordingStartRequest selects the recording mode. Recordings are
+// audio-only by default; Video opts into the full composite. The body is
+// optional — an empty request means the defaults.
+type RecordingStartRequest struct {
+	Video bool `json:"video"`
+}
+
 type RecordingInfo struct {
 	ID        string  `json:"id"`
 	RoomSlug  string  `json:"room_slug"`
@@ -103,6 +120,7 @@ type RecordingInfo struct {
 	Status    string  `json:"status"`
 	StartedBy string  `json:"started_by"`
 	StartedAt int64   `json:"started_at"`
+	AudioOnly bool    `json:"audio_only"`
 	EndedAt   *int64  `json:"ended_at"`
 	DurationS *int64  `json:"duration_s"`
 	S3Key     *string `json:"s3_key"`

@@ -1,3 +1,47 @@
+/* Tailwind v4: theme + utilities only. Preflight (the global reset) is
+   deliberately omitted so the existing scoped component styles keep their own
+   resets. New markup can use utilities; old components are untouched. */
+@layer theme, base, components, utilities;
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/utilities.css' layer(utilities);
+
+/* Map the design tokens (single source, defined in :root below) onto Tailwind's
+   utility namespaces. Colors reference the :root vars so there is one source of
+   truth; radii/fonts are set here directly (their names collide with Tailwind
+   namespaces, so a var() alias would be self-referential). Spacing is left as
+   Tailwind's default 4px base, which already matches our scale (p-1=4…p-6=24). */
+@theme {
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-border: var(--border);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+
+  --color-stage: var(--stage);
+  --color-panel: var(--panel);
+  --color-panel-2: var(--panel-2);
+  --color-border-d: var(--border-d);
+  --color-text: var(--text);
+  --color-text-2: var(--text-2);
+  --color-accent-d: var(--accent-d);
+
+  --color-rec: var(--rec);
+  --color-ok: var(--ok);
+  --color-warn: var(--warn);
+
+  --radius-control: 4px;
+  --radius-card: 6px;
+  --radius-tile: 8px;
+
+  --font-ui:
+    'Inter Variable', Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    sans-serif;
+  --font-mono: 'Geist Mono', 'SFMono-Regular', Consolas, monospace;
+}
+
 :root {
   font-family: var(--font-ui);
   font-size: 13px;
@@ -33,15 +77,10 @@
   --space-3: 12px;
   --space-4: 16px;
   --space-6: 24px;
-  --radius-control: 4px;
-  --radius-card: 6px;
-  --radius-tile: 8px;
   --control-height: 28px;
   --motion-fast: 120ms ease-out;
-  --font-ui:
-    'Inter Variable', Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI',
-    sans-serif;
-  --font-mono: 'Geist Mono', 'SFMono-Regular', Consolas, monospace;
+  /* --radius-* and --font-* now come from the @theme block above (single
+     source; also generates rounded-card / font-mono utilities). */
 }
 
 * {

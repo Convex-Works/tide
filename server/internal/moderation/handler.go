@@ -2,11 +2,13 @@ package moderation
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"strings"
 
 	protocol "github.com/livekit/protocol/livekit"
+	"github.com/twitchtv/twirp"
 
 	"klisi/internal/httpx"
 	"klisi/internal/store"
@@ -23,6 +25,7 @@ type RoomService interface {
 	ListParticipants(context.Context, *protocol.ListParticipantsRequest) (*protocol.ListParticipantsResponse, error)
 	RemoveParticipant(context.Context, *protocol.RoomParticipantIdentity) (*protocol.RemoveParticipantResponse, error)
 	MutePublishedTrack(context.Context, *protocol.MuteRoomTrackRequest) (*protocol.MuteRoomTrackResponse, error)
+	DeleteRoom(context.Context, *protocol.DeleteRoomRequest) (*protocol.DeleteRoomResponse, error)
 }
 
 type Handler struct {
@@ -101,6 +104,31 @@ func (h *Handler) Mute(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// EndMeeting disconnects every participant by deleting the live LiveKit room.
+// The persistent room row (and its URL) is untouched — the next join simply
+// starts a fresh meeting. Any active egress ends with the room; the webhook
+// and reconciler finalize its recording row as usual.
+func (h *Handler) EndMeeting(w http.ResponseWriter, r *http.Request) {
+	room, ok := h.requireOwner(w, r)
+	if !ok {
+		return
+	}
+	if _, err := h.service.DeleteRoom(r.Context(), &protocol.DeleteRoomRequest{
+		Room: room.Slug,
+	}); err != nil && !isNotFound(err) {
+		httpx.WriteError(w, http.StatusBadGateway, "LiveKit could not end the meeting. Try again.")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// isNotFound reports a twirp not_found from LiveKit — the room has no live
+// session, so the meeting is already over and ending it is a success.
+func isNotFound(err error) bool {
+	var twirpError twirp.Error
+	return errors.As(err, &twirpError) && twirpError.Code() == twirp.NotFound
 }
 
 // isOwnerIdentity matches the owner's LiveKit identities: "host:<sub>" plus

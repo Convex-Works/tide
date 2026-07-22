@@ -7,6 +7,7 @@ require (
 	github.com/livekit/protocol v1.39.3
 	github.com/livekit/server-sdk-go/v2 v2.6.0
 	github.com/minio/minio-go/v7 v7.0.95
+	github.com/twitchtv/twirp v8.1.3+incompatible
 	golang.org/x/oauth2 v0.30.0
 	modernc.org/sqlite v1.37.1
 )
@@ -81,7 +82,6 @@ require (
 	github.com/rs/xid v1.6.0 // indirect
 	github.com/stoewer/go-strcase v1.3.0 // indirect
 	github.com/tinylib/msgp v1.3.0 // indirect
-	github.com/twitchtv/twirp v8.1.3+incompatible // indirect
 	github.com/wlynxg/anet v0.0.5 // indirect
 	github.com/zeebo/xxh3 v1.0.2 // indirect
 	go.uber.org/atomic v1.11.0 // indirect

@@ -20,6 +20,12 @@ test('microphone control updates UI and the local publication', async () => {
     const microphone = page.getByRole('button', { name: 'Mute microphone' });
     await expect(microphone).toBeVisible({ timeout: 20_000 });
     await expect(microphone).toHaveAttribute('aria-pressed', 'true');
+
+    // A local microphone must never be attached to a playback element. LiveKit
+    // unmutes audio elements while attaching tracks, which can otherwise play
+    // the participant's own microphone briefly during room entry.
+    await expect(page.locator(`audio[aria-label="alice's audio"]`)).toHaveCount(0);
+
     await microphone.click();
     await expect(page.getByRole('button', { name: 'Unmute microphone' })).toHaveAttribute(
       'aria-pressed',

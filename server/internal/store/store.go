@@ -23,6 +23,9 @@ type Room struct {
 	OwnerSub     string
 	LobbyEnabled bool
 	CreatedAt    int64
+	// LastActiveAt is Unix seconds of the most recent participant join, or nil
+	// if the room has never been used.
+	LastActiveAt *int64
 }
 
 type Recording struct {
@@ -33,6 +36,7 @@ type Recording struct {
 	Status    string
 	StartedBy string
 	StartedAt int64
+	AudioOnly bool
 	EndedAt   *int64
 	DurationS *int64
 	S3Key     *string
@@ -84,7 +88,67 @@ func Open(path string) (*Store, error) {
 			return nil, fmt.Errorf("initialize sqlite: %w", err)
 		}
 	}
+	// Additive column migrations for databases created before the column
+	// existed. schema.sql's CREATE TABLE IF NOT EXISTS never alters an existing
+	// table, so new nullable columns are added here idempotently.
+	added, err := ensureColumn(db, "rooms", "last_active_at", "INTEGER")
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("migrate rooms: %w", err)
+	}
+	if added {
+		// Rooms that predate activity tracking would otherwise all read "new".
+		// We have no real history, so seed last_active_at from created_at as a
+		// reasonable baseline; genuine joins advance it afterward. Runs only on
+		// the one-time column add, so freshly created rooms still start NULL.
+		if _, err := db.Exec(
+			`UPDATE rooms SET last_active_at = created_at WHERE last_active_at IS NULL`); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("backfill rooms.last_active_at: %w", err)
+		}
+	}
+	// Recordings that predate the audio-only mode were all video composites,
+	// which the DEFAULT 0 already states — no backfill needed.
+	if _, err := ensureColumn(db, "recordings", "audio_only", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("migrate recordings: %w", err)
+	}
 	return &Store{db: db}, nil
+}
+
+// ensureColumn adds a column to an existing table if it is not already present,
+// reporting whether it performed the ALTER. SQLite has no ADD COLUMN IF NOT
+// EXISTS, so existence is checked first. The caller holds the only connection
+// (MaxOpenConns(1)); the pragma rows are closed before the ALTER so the single
+// connection is free.
+func ensureColumn(db *sql.DB, table, column, decl string) (bool, error) {
+	rows, err := db.Query("SELECT name FROM pragma_table_info(?)", table)
+	if err != nil {
+		return false, err
+	}
+	exists := false
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			_ = rows.Close()
+			return false, err
+		}
+		if name == column {
+			exists = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return false, err
+	}
+	_ = rows.Close()
+	if exists {
+		return false, nil
+	}
+	if _, err := db.Exec(fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, column, decl)); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (s *Store) Close() error {
@@ -100,19 +164,32 @@ func (s *Store) CreateRoom(ctx context.Context, room Room) error {
 	return err
 }
 
-func (s *Store) RoomBySlug(ctx context.Context, slug string) (Room, error) {
+const roomColumns = `id, slug, name, owner_sub, lobby_enabled, created_at, last_active_at`
+
+func scanRoom(scanner interface{ Scan(...any) error }) (Room, error) {
 	var room Room
-	err := s.db.QueryRowContext(ctx, `
-		SELECT id, slug, name, owner_sub, lobby_enabled, created_at
-		FROM rooms WHERE slug = ?`, slug,
-	).Scan(&room.ID, &room.Slug, &room.Name, &room.OwnerSub, &room.LobbyEnabled, &room.CreatedAt)
-	return room, err
+	var lastActiveAt sql.NullInt64
+	err := scanner.Scan(
+		&room.ID, &room.Slug, &room.Name, &room.OwnerSub,
+		&room.LobbyEnabled, &room.CreatedAt, &lastActiveAt,
+	)
+	if err != nil {
+		return Room{}, err
+	}
+	if lastActiveAt.Valid {
+		room.LastActiveAt = &lastActiveAt.Int64
+	}
+	return room, nil
+}
+
+func (s *Store) RoomBySlug(ctx context.Context, slug string) (Room, error) {
+	return scanRoom(s.db.QueryRowContext(ctx,
+		`SELECT `+roomColumns+` FROM rooms WHERE slug = ?`, slug))
 }
 
 func (s *Store) RoomsByOwner(ctx context.Context, ownerSub string) ([]Room, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, slug, name, owner_sub, lobby_enabled, created_at
-		FROM rooms WHERE owner_sub = ? ORDER BY created_at DESC, slug`, ownerSub)
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT `+roomColumns+` FROM rooms WHERE owner_sub = ? ORDER BY created_at DESC, slug`, ownerSub)
 	if err != nil {
 		return nil, err
 	}
@@ -120,13 +197,23 @@ func (s *Store) RoomsByOwner(ctx context.Context, ownerSub string) ([]Room, erro
 
 	rooms := make([]Room, 0)
 	for rows.Next() {
-		var room Room
-		if err := rows.Scan(&room.ID, &room.Slug, &room.Name, &room.OwnerSub, &room.LobbyEnabled, &room.CreatedAt); err != nil {
+		room, err := scanRoom(rows)
+		if err != nil {
 			return nil, err
 		}
 		rooms = append(rooms, room)
 	}
 	return rooms, rows.Err()
+}
+
+// TouchRoomActive records that a room saw activity at ts (Unix seconds),
+// advancing last_active_at monotonically so out-of-order webhook delivery can
+// never move the timestamp backwards.
+func (s *Store) TouchRoomActive(ctx context.Context, slug string, ts int64) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE rooms SET last_active_at = ? WHERE slug = ? AND COALESCE(last_active_at, 0) < ?`,
+		ts, slug, ts)
+	return err
 }
 
 func (s *Store) UpdateRoom(ctx context.Context, room Room) error {
@@ -152,11 +239,11 @@ func (s *Store) InsertRecording(ctx context.Context, recording Recording) error 
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO recordings (
 			id, room_id, room_slug, egress_id, status, started_by, started_at,
-			ended_at, duration_s, s3_key, size_bytes
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			audio_only, ended_at, duration_s, s3_key, size_bytes
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		recording.ID, recording.RoomID, recording.RoomSlug, recording.EgressID,
 		recording.Status, recording.StartedBy, recording.StartedAt,
-		recording.EndedAt, recording.DurationS, recording.S3Key, recording.SizeBytes,
+		recording.AudioOnly, recording.EndedAt, recording.DurationS, recording.S3Key, recording.SizeBytes,
 	)
 	return err
 }
@@ -214,7 +301,7 @@ func (s *Store) UpdateRecordingByEgress(ctx context.Context, egressID string, up
 func (s *Store) ListActiveRecordings(ctx context.Context) ([]Recording, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, room_id, room_slug, egress_id, status, started_by, started_at,
-		       ended_at, duration_s, s3_key, size_bytes
+		       audio_only, ended_at, duration_s, s3_key, size_bytes
 		FROM recordings WHERE status IN ('starting', 'recording', 'finalizing')
 		ORDER BY started_at ASC, id ASC`)
 	if err != nil {
@@ -236,7 +323,7 @@ func (s *Store) ListActiveRecordings(ctx context.Context) ([]Recording, error) {
 func (s *Store) RecordingsByRoomSlug(ctx context.Context, slug string) ([]Recording, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, room_id, room_slug, egress_id, status, started_by, started_at,
-		       ended_at, duration_s, s3_key, size_bytes
+		       audio_only, ended_at, duration_s, s3_key, size_bytes
 		FROM recordings WHERE room_slug = ?
 		ORDER BY started_at DESC, id DESC`, slug)
 	if err != nil {
@@ -258,21 +345,21 @@ func (s *Store) RecordingsByRoomSlug(ctx context.Context, slug string) ([]Record
 func (s *Store) RecordingByID(ctx context.Context, id string) (Recording, error) {
 	return scanRecording(s.db.QueryRowContext(ctx, `
 		SELECT id, room_id, room_slug, egress_id, status, started_by, started_at,
-		       ended_at, duration_s, s3_key, size_bytes
+		       audio_only, ended_at, duration_s, s3_key, size_bytes
 		FROM recordings WHERE id = ?`, id))
 }
 
 func (s *Store) RecordingByEgressID(ctx context.Context, egressID string) (Recording, error) {
 	return scanRecording(s.db.QueryRowContext(ctx, `
 		SELECT id, room_id, room_slug, egress_id, status, started_by, started_at,
-		       ended_at, duration_s, s3_key, size_bytes
+		       audio_only, ended_at, duration_s, s3_key, size_bytes
 		FROM recordings WHERE egress_id = ?`, egressID))
 }
 
 func (s *Store) ActiveRecordingByRoomID(ctx context.Context, roomID string) (Recording, error) {
 	return scanRecording(s.db.QueryRowContext(ctx, `
 		SELECT id, room_id, room_slug, egress_id, status, started_by, started_at,
-		       ended_at, duration_s, s3_key, size_bytes
+		       audio_only, ended_at, duration_s, s3_key, size_bytes
 		FROM recordings
 		WHERE room_id = ? AND status IN ('starting', 'recording', 'finalizing')
 		ORDER BY started_at DESC LIMIT 1`, roomID))
@@ -297,7 +384,7 @@ func scanRecording(scanner recordingScanner) (Recording, error) {
 	err := scanner.Scan(
 		&recording.ID, &recording.RoomID, &recording.RoomSlug, &recording.EgressID,
 		&recording.Status, &recording.StartedBy, &recording.StartedAt,
-		&endedAt, &durationS, &s3Key, &sizeBytes,
+		&recording.AudioOnly, &endedAt, &durationS, &s3Key, &sizeBytes,
 	)
 	if err != nil {
 		return Recording{}, err

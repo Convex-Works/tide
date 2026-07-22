@@ -4,7 +4,11 @@ CREATE TABLE IF NOT EXISTS rooms (
     name TEXT NOT NULL,
     owner_sub TEXT NOT NULL,
     lobby_enabled INTEGER NOT NULL DEFAULT 1,
-    created_at INTEGER NOT NULL
+    created_at INTEGER NOT NULL,
+    -- Unix seconds of the most recent participant join; NULL until first use.
+    -- Powers the dashboard's "idle · 4d ago" state. Fresh DBs get it here;
+    -- existing DBs get it via the ensureColumn migration in Open().
+    last_active_at INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS rooms_owner_created_idx
@@ -24,6 +28,10 @@ CREATE TABLE IF NOT EXISTS recordings (
     duration_s INTEGER NULL,
     s3_key TEXT NULL,
     size_bytes INTEGER NULL,
+    -- 1 for audio-only recordings (the default mode). Both modes produce an
+    -- .mp4 key, so the mode is stored rather than inferred from the filename.
+    -- Existing DBs get it via the ensureColumn migration in Open().
+    audio_only INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (room_id) REFERENCES rooms (id) ON DELETE CASCADE
 );
 

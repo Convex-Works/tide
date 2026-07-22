@@ -51,9 +51,11 @@ export interface ParticipantView {
   cameraTrack?: Track;
   screenShareTrack?: Track;
   audioTracks: Track[];
+  // The microphone specifically (undefined while muted) — tile waveforms
+  // meter this, never screenshare audio.
+  micTrack?: Track;
   micMuted: boolean;
   camMuted: boolean;
-  isSpeaking: boolean;
 }
 
 export interface ChatMessage {
@@ -138,9 +140,11 @@ export class RoomState {
           if (topic === 'chat') this.receiveChat(payload, participant);
         }
       )
+      // Speaker changes fire continuously during speech; they must NOT rebuild
+      // the participants array (that churns every tile's media element).
+      // Tiles derive their speaking highlight from activeSpeakerIdentities.
       .on(RoomEvent.ActiveSpeakersChanged, (speakers: Participant[]) => {
         this.activeSpeakerIdentities = speakers.map((speaker) => speaker.identity);
-        this.syncParticipants();
       })
       .on(RoomEvent.MediaDevicesChanged, () => {
         void this.refreshDevices().catch(() => undefined);
@@ -281,9 +285,9 @@ export class RoomState {
             ? [track]
             : [];
         }),
+        micTrack: microphone && !microphone.isMuted ? microphone.track : undefined,
         micMuted: !microphone || microphone.isMuted,
-        camMuted: !camera || camera.isMuted,
-        isSpeaking: this.activeSpeakerIdentities.includes(participant.identity)
+        camMuted: !camera || camera.isMuted
       };
     });
   }

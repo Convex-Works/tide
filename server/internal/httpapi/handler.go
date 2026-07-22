@@ -2,7 +2,9 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"io/fs"
+	"log"
 	"net/http"
 	"path"
 	"strings"
@@ -47,12 +49,19 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store) (http.Handler, *r
 	denylist := moderation.NewDenylist(lobby.TokenTTL)
 	moderationHandler := moderation.NewHandler(roomStore, moderation.NewRoomService(cfg), denylist)
 	recordingHandler := recording.New(cfg, roomStore)
-	recordingHandler.SetParticipantJoinedHook(moderationHandler.EnforceOnJoin)
+	// A participant joining both enforces bans (moderation) and marks the room
+	// active so the dashboard can show "idle · Nd ago" once it empties.
+	recordingHandler.SetParticipantJoinedHook(func(ctx context.Context, roomName, identity string) {
+		moderationHandler.EnforceOnJoin(ctx, roomName, identity)
+		if err := roomStore.TouchRoomActive(ctx, roomName, time.Now().Unix()); err != nil {
+			log.Printf("rooms: touch active for %q: %v", roomName, err)
+		}
+	})
 	handler := &Handler{
 		web:        web,
 		sessions:   sessions,
 		oidc:       auth.NewOIDC(cfg, sessions),
-		rooms:      rooms.NewHandler(roomStore, recording.NewMinIOStore(cfg)),
+		rooms:      rooms.NewHandler(roomStore, recording.NewMinIOStore(cfg), rooms.NewLiveKitSource(cfg)),
 		lobby:      lobby.NewHandler(roomStore, registry, minter),
 		moderation: moderationHandler,
 		recording:  recordingHandler,
@@ -76,6 +85,7 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store) (http.Handler, *r
 	mux.Handle("DELETE "+api.RoomPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.rooms.Delete))))
 	mux.Handle("POST "+api.KickPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.moderation.Kick))))
 	mux.Handle("POST "+api.MutePath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.moderation.Mute))))
+	mux.Handle("POST "+api.MeetingEndPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.moderation.EndMeeting))))
 	mux.Handle("POST "+api.RecordingStartPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.recording.Start))))
 	mux.Handle("POST "+api.RecordingStopPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.recording.Stop))))
 	mux.Handle("GET "+api.RoomRecordingsPath, handler.requireAuth(http.HandlerFunc(handler.recording.List)))
@@ -108,6 +118,7 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store) (http.Handler, *r
 	registerMethodFallback(mux, api.RoomJoinPath, http.MethodPost)
 	registerMethodFallback(mux, api.KickPath, http.MethodPost)
 	registerMethodFallback(mux, api.MutePath, http.MethodPost)
+	registerMethodFallback(mux, api.MeetingEndPath, http.MethodPost)
 	registerMethodFallback(mux, api.RecordingStartPath, http.MethodPost)
 	registerMethodFallback(mux, api.RecordingStopPath, http.MethodPost)
 	registerMethodFallback(mux, api.RoomRecordingsPath, http.MethodGet)

@@ -14,6 +14,7 @@ export const RoomJoinPath = "/api/rooms/{slug}/join";
 export const RoomLobbyPath = "/api/rooms/{slug}/lobby";
 export const KickPath = "/api/rooms/{slug}/participants/{identity}/kick";
 export const MutePath = "/api/rooms/{slug}/participants/{identity}/mute";
+export const MeetingEndPath = "/api/rooms/{slug}/meeting/end";
 export const LobbyWaitPath = "/api/lobby/{id}/wait";
 export const LobbyApprovePath = "/api/lobby/{id}/approve";
 export const LobbyDenyPath = "/api/lobby/{id}/deny";
@@ -41,6 +42,19 @@ export interface RoomInfo {
   name: string;
   lobby_enabled: boolean;
   created_at: number /* int64 */;
+  /**
+   * Live state from LiveKit, populated only on the list path (the create,
+   * update, and single-room paths do not query the SFU, so these stay zero
+   * there). Active is true when the room currently has participants.
+   */
+  active: boolean;
+  num_participants: number /* int */;
+  recording: boolean;
+  /**
+   * LastActiveAt is Unix seconds of the most recent participant join, or null
+   * if the room has never been used.
+   */
+  last_active_at?: number /* int64 */;
 }
 export interface PublicRoomInfo {
   slug: string;
@@ -85,6 +99,14 @@ export interface LobbyDeniedSSE {
 export interface LobbyPendingSSE {
   requests: LobbyRequestInfo[];
 }
+/**
+ * RecordingStartRequest selects the recording mode. Recordings are
+ * audio-only by default; Video opts into the full composite. The body is
+ * optional — an empty request means the defaults.
+ */
+export interface RecordingStartRequest {
+  video: boolean;
+}
 export interface RecordingInfo {
   id: string;
   room_slug: string;
@@ -92,6 +114,7 @@ export interface RecordingInfo {
   status: string;
   started_by: string;
   started_at: number /* int64 */;
+  audio_only: boolean;
   ended_at?: number /* int64 */;
   duration_s?: number /* int64 */;
   s3_key?: string;

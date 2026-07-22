@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -87,6 +88,13 @@ func (h *Handler) Start(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// The body is optional: no body means the defaults (audio-only).
+	var request api.RecordingStartRequest
+	if err := httpx.DecodeJSON(w, r, &request); err != nil && !errors.Is(err, io.EOF) {
+		httpx.WriteError(w, http.StatusBadRequest, "Invalid recording options.")
+		return
+	}
+	audioOnly := !request.Video
 	if _, err := h.store.ActiveRecordingByRoomID(r.Context(), room.ID); err == nil {
 		httpx.WriteError(w, http.StatusConflict, activeRecordingMessage)
 		return
@@ -96,11 +104,14 @@ func (h *Handler) Start(w http.ResponseWriter, r *http.Request) {
 	}
 
 	startedAt := h.now().Unix()
+	// Audio-only stays MP4 (AAC): it plays everywhere, including iOS Safari,
+	// and egress normalizes filepath extensions to the file type anyway.
 	key := fmt.Sprintf("recordings/%s/%d.mp4", room.Slug, startedAt)
 	info, err := h.egress.StartRoomCompositeEgress(r.Context(), &protocol.RoomCompositeEgressRequest{
 		RoomName:      room.Slug,
 		Layout:        "grid",
 		CustomBaseUrl: h.templateURL,
+		AudioOnly:     audioOnly,
 		FileOutputs: []*protocol.EncodedFileOutput{{
 			FileType: protocol.EncodedFileType_MP4,
 			Filepath: key,
@@ -120,6 +131,7 @@ func (h *Handler) Start(w http.ResponseWriter, r *http.Request) {
 	recording := store.Recording{
 		ID: id, RoomID: room.ID, RoomSlug: room.Slug, EgressID: info.EgressId,
 		Status: "starting", StartedBy: session.Sub, StartedAt: startedAt,
+		AudioOnly: audioOnly,
 	}
 	if err := h.store.InsertRecording(r.Context(), recording); err != nil {
 		_, _ = h.egress.StopEgress(r.Context(), &protocol.StopEgressRequest{EgressId: info.EgressId})
@@ -280,7 +292,7 @@ func recordingInfo(recording store.Recording) api.RecordingInfo {
 	return api.RecordingInfo{
 		ID: recording.ID, RoomSlug: recording.RoomSlug, EgressID: recording.EgressID,
 		Status: recording.Status, StartedBy: recording.StartedBy, StartedAt: recording.StartedAt,
-		EndedAt: recording.EndedAt, DurationS: recording.DurationS,
+		AudioOnly: recording.AudioOnly, EndedAt: recording.EndedAt, DurationS: recording.DurationS,
 		S3Key: recording.S3Key, SizeBytes: recording.SizeBytes,
 	}
 }

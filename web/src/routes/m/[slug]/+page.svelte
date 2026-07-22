@@ -31,6 +31,7 @@
     | 'connected'
     | 'removed'
     | 'disconnected'
+    | 'ended'
     | 'left';
 
   const rtc = new RoomState();
@@ -52,6 +53,16 @@
     if (meetingState !== 'connected') return;
     if (rtc.wasRemoved) {
       handleRemoved();
+      return;
+    }
+    // The host ended the meeting for everyone: a calm terminal state, not an
+    // error, and no rejoin prompt.
+    if (
+      rtc.connectionState === ConnectionState.Disconnected &&
+      rtc.disconnectReason === DisconnectReason.ROOM_DELETED
+    ) {
+      leaveMeetingChrome();
+      meetingState = 'ended';
       return;
     }
     // Any other terminal disconnect (server shutdown, room closed, duplicate
@@ -280,6 +291,11 @@
   <main class="meeting-state">
     <p class="state-message">You left the meeting.</p>
     <button class="state-action" type="button" onclick={rejoin}>Rejoin</button>
+  </main>
+{:else if meetingState === 'ended'}
+  <main class="meeting-state">
+    <p class="state-message">The meeting ended.</p>
+    <a class="state-action" href="/">Go to dashboard</a>
   </main>
 {:else if meetingState === 'removed'}
   <main class="meeting-state">

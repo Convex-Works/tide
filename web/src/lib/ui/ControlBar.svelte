@@ -3,17 +3,21 @@
     CaretUp,
     ChatTeardropText,
     Check,
+    GridFour,
     Microphone,
     MicrophoneSlash,
     PhoneDisconnect,
+    Power,
     Record,
     Screencast,
+    SignOut,
+    UserRectangle,
     UsersThree,
     VideoCamera,
     VideoCameraSlash
   } from 'phosphor-svelte';
   import type { RoomState } from '$lib/rtc/room.svelte';
-  import { startRecording, stopRecording } from '$lib/api/client';
+  import { endMeeting, startRecording, stopRecording } from '$lib/api/client';
 
   let {
     rtc,
@@ -23,8 +27,10 @@
     unreadChat = 0,
     isOwner = false,
     roomSlug = '',
+    view = 'grid',
     ontogglepeople = () => undefined,
-    ontogglechat = () => undefined
+    ontogglechat = () => undefined,
+    ontoggleview = () => undefined
   }: {
     rtc: RoomState;
     onleave: () => void;
@@ -33,8 +39,10 @@
     unreadChat?: number;
     isOwner?: boolean;
     roomSlug?: string;
+    view?: 'grid' | 'speaker';
     ontogglepeople?: () => void;
     ontogglechat?: () => void;
+    ontoggleview?: () => void;
   } = $props();
 
   type DeviceMenuKind = 'audioinput' | 'videoinput';
@@ -42,6 +50,10 @@
   let recordingConfirm = $state(false);
   let recordingBusy = $state(false);
   let recordingError = $state('');
+  let recordVideo = $state(false);
+  let leaveConfirm = $state(false);
+  let endBusy = $state(false);
+  let endError = $state('');
   let deviceMenu = $state<DeviceMenuKind | ''>('');
 
   async function toggleDeviceMenu(kind: DeviceMenuKind): Promise<void> {
@@ -75,6 +87,7 @@
     if (recordingBusy || !roomSlug) return;
     if (!rtc.isRecording && !recordingConfirm) {
       recordingConfirm = true;
+      recordVideo = false;
       return;
     }
     recordingBusy = true;
@@ -84,12 +97,28 @@
       if (rtc.isRecording) {
         await stopRecording(roomSlug);
       } else {
-        await startRecording(roomSlug);
+        await startRecording(roomSlug, { video: recordVideo });
       }
     } catch (cause) {
       recordingError = cause instanceof Error ? cause.message : 'Could not change recording.';
     } finally {
       recordingBusy = false;
+    }
+  }
+
+  async function endForAll(): Promise<void> {
+    if (endBusy || !roomSlug) return;
+    endBusy = true;
+    endError = '';
+    try {
+      await endMeeting(roomSlug);
+      leaveConfirm = false;
+      // No local teardown: the server disconnects this client too, and the
+      // meeting page renders the shared "meeting ended" state for everyone.
+    } catch (cause) {
+      endError = cause instanceof Error ? cause.message : 'Could not end the meeting.';
+    } finally {
+      endBusy = false;
     }
   }
 </script>
@@ -124,9 +153,17 @@
 {/snippet}
 
 <svelte:window
-  onclick={() => (deviceMenu = '')}
+  onclick={() => {
+    deviceMenu = '';
+    recordingConfirm = false;
+    leaveConfirm = false;
+  }}
   onkeydown={(event) => {
-    if (event.key === 'Escape') deviceMenu = '';
+    if (event.key === 'Escape') {
+      deviceMenu = '';
+      recordingConfirm = false;
+      leaveConfirm = false;
+    }
   }}
 />
 
@@ -167,24 +204,35 @@
   </div>
 
   {#if isOwner}
-    <button
-      type="button"
-      class="record-control"
-      class:recording={rtc.isRecording}
-      class:confirm={recordingConfirm}
-      disabled={recordingBusy}
-      aria-label={rtc.isRecording
-        ? 'Stop recording'
-        : recordingConfirm
-          ? 'Record?'
-          : 'Start recording'}
-      aria-pressed={rtc.isRecording}
-      title={rtc.isRecording ? 'Stop recording' : 'Start recording'}
-      onclick={() => void toggleRecording()}
-    >
-      <Record size={16} weight="regular" aria-hidden="true" />
-      {#if recordingConfirm}<span>Record?</span>{/if}
-    </button>
+    <!-- The stopPropagation shield keeps the window click-away handler from
+         collapsing the confirm state; interaction lives on the controls. -->
+    <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+    <div class="record-group" onclick={(event) => event.stopPropagation()}>
+      <button
+        type="button"
+        class="record-control"
+        class:recording={rtc.isRecording}
+        class:confirm={recordingConfirm}
+        disabled={recordingBusy}
+        aria-label={rtc.isRecording
+          ? 'Stop recording'
+          : recordingConfirm
+            ? 'Record?'
+            : 'Start recording'}
+        aria-pressed={rtc.isRecording}
+        title={rtc.isRecording ? 'Stop recording' : 'Start recording'}
+        onclick={() => void toggleRecording()}
+      >
+        <Record size={16} weight="regular" aria-hidden="true" />
+        {#if recordingConfirm}<span>Record?</span>{/if}
+      </button>
+      {#if recordingConfirm}
+        <label class="record-video">
+          <input type="checkbox" bind:checked={recordVideo} />
+          Also record video
+        </label>
+      {/if}
+    </div>
   {/if}
 
   <div class="control-group">
@@ -235,6 +283,20 @@
 
   <button
     type="button"
+    aria-label={view === 'grid' ? 'Speaker view' : 'Grid view'}
+    aria-pressed={view === 'speaker'}
+    title={view === 'grid' ? 'Speaker view' : 'Grid view'}
+    onclick={ontoggleview}
+  >
+    {#if view === 'grid'}
+      <UserRectangle size={16} weight="regular" aria-hidden="true" />
+    {:else}
+      <GridFour size={16} weight="regular" aria-hidden="true" />
+    {/if}
+  </button>
+
+  <button
+    type="button"
     class="panel-control"
     class:active={peopleOpen}
     aria-label={peopleOpen ? 'Close people' : 'Open people'}
@@ -261,17 +323,58 @@
 
   <span class="separator" aria-hidden="true"></span>
 
-  {#if recordingError}<span class="recording-error" role="alert">{recordingError}</span>{/if}
+  {#if recordingError || endError}
+    <span class="recording-error" role="alert">{recordingError || endError}</span>
+  {/if}
 
-  <button
-    type="button"
-    class="leave"
-    aria-label="Leave room"
-    title="Leave room"
-    onclick={() => void leave()}
-  >
-    <PhoneDisconnect size={16} weight="regular" aria-hidden="true" />
-  </button>
+  {#if isOwner}
+    <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+    <div class="leave-group" onclick={(event) => event.stopPropagation()}>
+      {#if leaveConfirm}
+        <button
+          type="button"
+          class="leave expanded"
+          aria-label="Leave room"
+          title="Leave room"
+          onclick={() => void leave()}
+        >
+          <SignOut size={16} weight="regular" aria-hidden="true" />
+          <span>Leave</span>
+        </button>
+        <button
+          type="button"
+          class="end-all"
+          disabled={endBusy}
+          aria-label="End meeting for all"
+          title="End meeting for all"
+          onclick={() => void endForAll()}
+        >
+          <Power size={16} weight="regular" aria-hidden="true" />
+          <span>End for all</span>
+        </button>
+      {:else}
+        <button
+          type="button"
+          class="leave"
+          aria-label="Leave or end meeting"
+          title="Leave"
+          onclick={() => (leaveConfirm = true)}
+        >
+          <PhoneDisconnect size={16} weight="regular" aria-hidden="true" />
+        </button>
+      {/if}
+    </div>
+  {:else}
+    <button
+      type="button"
+      class="leave"
+      aria-label="Leave room"
+      title="Leave room"
+      onclick={() => void leave()}
+    >
+      <PhoneDisconnect size={16} weight="regular" aria-hidden="true" />
+    </button>
+  {/if}
 </nav>
 
 <style>
@@ -343,6 +446,47 @@
   button:disabled {
     cursor: wait;
     opacity: 0.6;
+  }
+
+  .record-group,
+  .leave-group {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+  }
+
+  .record-video {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    color: var(--text-2);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .record-video input {
+    margin: 0;
+    accent-color: var(--accent-d);
+  }
+
+  button.leave.expanded,
+  button.end-all {
+    display: flex;
+    width: auto;
+    gap: 4px;
+    padding: 0 7px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  button.end-all {
+    color: white;
+    background: var(--rec);
+    border-color: var(--rec);
+  }
+
+  button.end-all:hover {
+    background: color-mix(in srgb, var(--rec) 85%, black);
   }
 
   .recording-error {

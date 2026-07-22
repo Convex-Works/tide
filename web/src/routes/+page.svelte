@@ -1,19 +1,10 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import { CaretDown, Copy, DownloadSimple, Trash } from 'phosphor-svelte';
-  import {
-    AuthRequiredError,
-    createRoom,
-    deleteRecording,
-    deleteRoom,
-    listRecordings,
-    listRooms,
-    logout,
-    me,
-    recordingDownloadURL,
-    updateRoom
-  } from '$lib/api/client';
-  import { AuthLoginPath, type Me, type RecordingInfo, type RoomInfo } from '$lib/api/types.gen';
+  import { ArrowRight, Check, Copy } from 'phosphor-svelte';
+  import { AuthRequiredError, createRoom, listRooms, logout, me } from '$lib/api/client';
+  import { AuthLoginPath, type Me, type RoomInfo } from '$lib/api/types.gen';
+  import { compactAgo } from '$lib/format';
+  import StateTile from '$lib/ui/StateTile.svelte';
 
   type DashboardState = 'loading' | 'signed-out' | 'ready' | 'error';
 
@@ -23,18 +14,15 @@
   let roomName = $state('');
   let error = $state('');
   let creating = $state(false);
-  let changingSlug = $state('');
-  let deleteConfirmSlug = $state('');
   let copiedSlug = $state('');
-  let expandedRecordingsSlug = $state('');
-  let loadingRecordingsSlug = $state('');
-  let recordingsByRoom = $state<Record<string, RecordingInfo[]>>({});
-  let deleteConfirmRecordingID = $state('');
   let copyTimer: ReturnType<typeof setTimeout> | undefined;
-  let recordingPoll: ReturnType<typeof setTimeout> | undefined;
-  // Guards in-flight listRecordings resolutions from rescheduling the poll
-  // after the dashboard is gone (review finding #15).
-  let destroyed = false;
+  let refreshTimer: ReturnType<typeof setInterval> | undefined;
+  let refreshing = false;
+
+  // How often the dashboard re-fetches live room state (participant counts,
+  // recording, active). LiveKit's ListRooms lags a join by a few seconds, so a
+  // short poll keeps the tiles current without a manual reload.
+  const refreshIntervalMs = 5000;
 
   async function loadDashboard(): Promise<void> {
     dashboardState = 'loading';
@@ -85,38 +73,6 @@
     }
   }
 
-  async function toggleLobby(room: RoomInfo, enabled: boolean): Promise<void> {
-    if (changingSlug) return;
-    changingSlug = room.slug;
-    error = '';
-    try {
-      const updated = await updateRoom(room.slug, { lobby_enabled: enabled });
-      rooms = rooms.map((item) => (item.slug === updated.slug ? updated : item));
-    } catch (cause) {
-      error = cause instanceof Error ? cause.message : 'Could not change the lobby. Try again.';
-    } finally {
-      changingSlug = '';
-    }
-  }
-
-  async function removeRoom(room: RoomInfo): Promise<void> {
-    if (deleteConfirmSlug !== room.slug) {
-      deleteConfirmSlug = room.slug;
-      return;
-    }
-    changingSlug = room.slug;
-    error = '';
-    try {
-      await deleteRoom(room.slug);
-      rooms = rooms.filter((item) => item.slug !== room.slug);
-      deleteConfirmSlug = '';
-    } catch (cause) {
-      error = cause instanceof Error ? cause.message : 'Could not delete the room. Try again.';
-    } finally {
-      changingSlug = '';
-    }
-  }
-
   async function copyLink(slug: string): Promise<void> {
     error = '';
     try {
@@ -129,93 +85,37 @@
     }
   }
 
-  async function toggleRecordings(slug: string): Promise<void> {
-    if (expandedRecordingsSlug === slug) {
-      expandedRecordingsSlug = '';
-      if (recordingPoll) clearTimeout(recordingPoll);
-      recordingPoll = undefined;
-      return;
+  function stateMeta(room: RoomInfo): string {
+    if (room.active && room.num_participants > 0) {
+      return `${room.num_participants} ${room.num_participants === 1 ? 'person' : 'people'} in the room now`;
     }
-    expandedRecordingsSlug = slug;
-    deleteConfirmRecordingID = '';
-    await loadRoomRecordings(slug);
+    if (room.last_active_at != null) return `Last active ${compactAgo(room.last_active_at)}`;
+    return 'Not used yet';
   }
 
-  async function loadRoomRecordings(slug: string): Promise<void> {
-    if (destroyed || expandedRecordingsSlug !== slug) return;
-    loadingRecordingsSlug = slug;
+  // Silent background refresh — updates the live state in place without ever
+  // flipping the view back into a loading/error state, and keeps the last good
+  // list on a transient failure.
+  async function refreshRooms(): Promise<void> {
+    if (refreshing || dashboardState !== 'ready') return;
+    if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+    refreshing = true;
     try {
-      const recordings = await listRecordings(slug);
-      // The await may resolve after teardown or after the user collapsed or
-      // switched rooms — never store results or reschedule in that case.
-      if (destroyed || expandedRecordingsSlug !== slug) return;
-      recordingsByRoom = { ...recordingsByRoom, [slug]: recordings };
-      if (
-        recordings.some((recording) =>
-          ['starting', 'recording', 'finalizing'].includes(recording.status)
-        )
-      ) {
-        if (recordingPoll) clearTimeout(recordingPoll);
-        recordingPoll = setTimeout(() => void loadRoomRecordings(slug), 3_000);
-      }
-    } catch (cause) {
-      if (destroyed) return;
-      error = cause instanceof Error ? cause.message : 'Could not load recordings. Try again.';
+      rooms = await listRooms();
+    } catch {
+      // Keep the current list; the next tick retries.
     } finally {
-      loadingRecordingsSlug = '';
+      refreshing = false;
     }
   }
 
-  async function removeRecording(slug: string, id: string): Promise<void> {
-    if (deleteConfirmRecordingID !== id) {
-      deleteConfirmRecordingID = id;
-      return;
-    }
-    changingSlug = slug;
-    error = '';
-    try {
-      await deleteRecording(id);
-      recordingsByRoom = {
-        ...recordingsByRoom,
-        [slug]: (recordingsByRoom[slug] ?? []).filter((recording) => recording.id !== id)
-      };
-      deleteConfirmRecordingID = '';
-    } catch (cause) {
-      error = cause instanceof Error ? cause.message : 'Could not delete the recording. Try again.';
-    } finally {
-      changingSlug = '';
-    }
-  }
-
-  function relativeDate(timestamp: number): string {
-    const seconds = Math.round(timestamp - Date.now() / 1000);
-    const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
-    if (Math.abs(seconds) < 60) return formatter.format(seconds, 'second');
-    const minutes = Math.round(seconds / 60);
-    if (Math.abs(minutes) < 60) return formatter.format(minutes, 'minute');
-    const hours = Math.round(minutes / 60);
-    if (Math.abs(hours) < 24) return formatter.format(hours, 'hour');
-    return formatter.format(Math.round(hours / 24), 'day');
-  }
-
-  function durationLabel(seconds?: number | null): string {
-    if (seconds == null) return '—';
-    const minutes = Math.floor(seconds / 60);
-    const remainder = seconds % 60;
-    return `${minutes}:${remainder.toString().padStart(2, '0')}`;
-  }
-
-  function sizeLabel(bytes?: number | null): string {
-    if (bytes == null) return '—';
-    if (bytes < 1_000_000) return `${Math.max(1, Math.round(bytes / 1_000))} KB`;
-    return `${(bytes / 1_000_000).toFixed(1)} MB`;
-  }
-
-  onMount(() => void loadDashboard());
+  onMount(() => {
+    void loadDashboard();
+    refreshTimer = setInterval(() => void refreshRooms(), refreshIntervalMs);
+  });
   onDestroy(() => {
-    destroyed = true;
     if (copyTimer) clearTimeout(copyTimer);
-    if (recordingPoll) clearTimeout(recordingPoll);
+    if (refreshTimer) clearInterval(refreshTimer);
   });
 </script>
 
@@ -252,7 +152,7 @@
       </div>
     </header>
 
-    <main class="dashboard">
+    <main class="container mx-auto mt-10">
       <section aria-labelledby="rooms-heading">
         <div class="section-heading">
           <h1 id="rooms-heading">Rooms</h1>
@@ -275,128 +175,63 @@
         {#if rooms.length === 0}
           <div class="empty-state">Create your first room to get a reusable meeting link.</div>
         {:else}
-          <div class="room-list">
+          <ul class="m-0 list-none gap-2 p-0 grid lg:grid-cols-3 grid-cols-1">
             {#each rooms as room (room.id)}
-              <div class="room-entry">
-                <article class="room-row">
-                  <a class="room-link" href={`/m/${room.slug}`}>
-                    <strong>{room.name}</strong>
-                    <span class="slug mono">{room.slug}</span>
-                  </a>
-                  <div class="row-actions">
-                    <button
-                      class="icon-button recordings-toggle"
-                      class:expanded={expandedRecordingsSlug === room.slug}
-                      type="button"
-                      aria-expanded={expandedRecordingsSlug === room.slug}
-                      aria-label={`${expandedRecordingsSlug === room.slug ? 'Hide' : 'Show'} recordings for ${room.name}`}
-                      title="Recordings"
-                      onclick={() => void toggleRecordings(room.slug)}
+              <li class="">
+                <article
+                  data-testid="room-card"
+                  data-slug={room.slug}
+                  class="group relative flex items-center gap-8 rounded-card p-2.5 bg-stone-300/20"
+                >
+                  <!-- Stretched link: the whole card opens the detail page, while
+                       the Copy/Join controls sit above it (z-10) so they act on
+                       their own. -->
+                  <a
+                    href={`/rooms/${room.slug}`}
+                    class="absolute inset-0 z-0 rounded-card"
+                    aria-label={`Open ${room.name}`}
+                  ></a>
+
+                  <div class="w-38 shrink-0">
+                    <StateTile {room} />
+                  </div>
+
+                  <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-2">
+                      <strong
+                        class="truncate text-xl transition-colors group-hover:text-accent font-normal"
+                      >
+                        {room.name}
+                      </strong>
+                    </div>
+
+                    <div
+                      class="relative z-10 flex shrink-0 items-center gap-1 opacity-100 transition-opacity focus-within:opacity-100 group-hover:opacity-100 mt-10"
                     >
-                      <CaretDown size={16} weight="regular" aria-hidden="true" />
-                    </button>
-                    <button
-                      class="icon-button copy"
-                      type="button"
-                      aria-label={`Copy link for ${room.name}`}
-                      title="Copy meeting link"
-                      onclick={() => void copyLink(room.slug)}
-                    >
-                      <Copy size={16} weight="regular" aria-hidden="true" />
-                      {#if copiedSlug === room.slug}<span class="copied">Copied</span>{/if}
-                    </button>
-                    <button
-                      class="lobby-toggle"
-                      class:on={room.lobby_enabled}
-                      type="button"
-                      role="switch"
-                      aria-checked={room.lobby_enabled}
-                      aria-label="Lobby"
-                      disabled={changingSlug === room.slug}
-                      onclick={() => void toggleLobby(room, !room.lobby_enabled)}
-                    >
-                      <span class="switch-track" aria-hidden="true"><span></span></span>
-                      <span>Lobby</span>
-                    </button>
-                    <button
-                      class:confirm-delete={deleteConfirmSlug === room.slug}
-                      class="delete-button"
-                      type="button"
-                      disabled={changingSlug === room.slug}
-                      aria-label={deleteConfirmSlug === room.slug
-                        ? `Confirm delete ${room.name}`
-                        : `Delete ${room.name}`}
-                      onclick={() => void removeRoom(room)}
-                    >
-                      {#if deleteConfirmSlug === room.slug}
-                        Delete?
-                      {:else}
-                        <Trash size={16} weight="regular" aria-hidden="true" />
-                      {/if}
-                    </button>
+                      <button
+                        type="button"
+                        class="inline-flex h-10 items-center gap-1 rounded-full bg-paper border border-border px-5.5 text-base font-medium text-ink-2 no-underline transition-colors hover:bg-stone-200 hover:text-ink"
+                        onclick={() => void copyLink(room.slug)}
+                        aria-label={`Copy link for ${room.name}`}
+                      >
+                        {#if copiedSlug === room.slug}
+                          <Check size={16} weight="regular" aria-hidden="true" /> Copied
+                        {:else}
+                          <Copy size={16} weight="regular" aria-hidden="true" /> Copy
+                        {/if}
+                      </button>
+                      <a
+                        href={`/m/${room.slug}`}
+                        class="inline-flex h-10 items-center gap-1 rounded-full bg-paper border border-border px-5.5 text-base font-medium text-ink-2 no-underline transition-colors hover:bg-stone-200 hover:text-ink"
+                      >
+                        Join <ArrowRight size={14} weight="bold" aria-hidden="true" />
+                      </a>
+                    </div>
                   </div>
                 </article>
-                {#if expandedRecordingsSlug === room.slug}
-                  <section class="recordings" aria-label={`Recordings for ${room.name}`}>
-                    {#if loadingRecordingsSlug === room.slug && !recordingsByRoom[room.slug]}
-                      <p class="recordings-state">Loading recordings…</p>
-                    {:else if (recordingsByRoom[room.slug] ?? []).length === 0}
-                      <p class="recordings-state">No recordings yet.</p>
-                    {:else}
-                      {#each recordingsByRoom[room.slug] ?? [] as recording (recording.id)}
-                        <div class="recording-row" data-recording-id={recording.id}>
-                          <span
-                            class:pending={['starting', 'recording', 'finalizing'].includes(
-                              recording.status
-                            )}
-                            class:completed={recording.status === 'completed'}
-                            class:failed={recording.status === 'failed'}
-                            class="recording-status mono"
-                          >
-                            {recording.status}
-                          </span>
-                          <time
-                            class="mono"
-                            datetime={new Date(recording.started_at * 1000).toISOString()}
-                          >
-                            {relativeDate(recording.started_at)}
-                          </time>
-                          <span class="mono">{durationLabel(recording.duration_s)}</span>
-                          <span class="mono">{sizeLabel(recording.size_bytes)}</span>
-                          <div class="recording-actions">
-                            {#if recording.status === 'completed'}
-                              <a
-                                class="download-button"
-                                href={recordingDownloadURL(recording.id)}
-                                target="_blank"
-                                rel="noreferrer"
-                              >
-                                <DownloadSimple size={16} weight="regular" aria-hidden="true" />
-                                Download
-                              </a>
-                            {/if}
-                            <button
-                              class:confirm-delete={deleteConfirmRecordingID === recording.id}
-                              class="recording-delete"
-                              type="button"
-                              disabled={changingSlug === room.slug ||
-                                ['starting', 'recording', 'finalizing'].includes(recording.status)}
-                              aria-label={deleteConfirmRecordingID === recording.id
-                                ? 'Delete recording?'
-                                : 'Delete recording'}
-                              onclick={() => void removeRecording(room.slug, recording.id)}
-                            >
-                              {deleteConfirmRecordingID === recording.id ? 'Delete?' : 'Delete'}
-                            </button>
-                          </div>
-                        </div>
-                      {/each}
-                    {/if}
-                  </section>
-                {/if}
-              </div>
+              </li>
             {/each}
-          </div>
+          </ul>
         {/if}
         {#if error}<p class="error" role="alert">{error}</p>{/if}
       </section>
@@ -440,36 +275,27 @@
     text-decoration: none;
   }
 
-  button,
-  input {
+  .sign-in-card button {
     height: var(--control-height);
+    padding: 3px 8px;
+    color: var(--ink);
+    background: var(--paper);
     border: 1px solid var(--border);
     border-radius: var(--radius-control);
   }
 
-  button {
-    padding: 3px 8px;
-    color: var(--ink);
-    background: var(--paper);
-  }
-
-  button:hover:not(:disabled) {
+  .sign-in-card button:hover:not(:disabled) {
     background: var(--surface-2);
   }
 
-  button:disabled {
-    cursor: wait;
-    opacity: 0.6;
-  }
-
-  button.primary {
+  .sign-in-card button.primary {
     color: white;
     font-weight: 550;
     background: var(--accent);
     border-color: var(--accent);
   }
 
-  button.primary:hover:not(:disabled) {
+  .sign-in-card button.primary:hover:not(:disabled) {
     background: var(--accent-hover);
     border-color: var(--accent-hover);
   }
@@ -493,6 +319,19 @@
     gap: 8px;
     color: var(--ink-2);
     font-size: 12px;
+  }
+
+  .account button {
+    height: var(--control-height);
+    padding: 3px 8px;
+    color: var(--ink);
+    background: var(--paper);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-control);
+  }
+
+  .account button:hover {
+    background: var(--surface-2);
   }
 
   .dashboard {
@@ -524,288 +363,32 @@
   .new-room input {
     width: 200px;
     min-width: 0;
-    padding: 3px 7px;
-    color: var(--ink);
-    background: var(--surface);
-  }
-
-  .room-list {
-    overflow: visible;
-    border: 1px solid var(--border);
-    border-radius: var(--radius-card);
-  }
-
-  .room-row {
-    display: flex;
-    min-height: 52px;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    padding: 8px 10px;
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-    transition: background var(--motion-fast);
-  }
-
-  .room-row:hover,
-  .room-row:focus-within {
-    background: var(--surface-2);
-  }
-
-  .room-entry {
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-  }
-
-  .room-entry:last-child {
-    border-bottom: 0;
-    border-radius: 0 0 var(--radius-card) var(--radius-card);
-  }
-
-  .room-entry:only-child {
-    border-radius: var(--radius-card);
-  }
-
-  .room-entry .room-row {
-    border-bottom: 0;
-    border-radius: 0;
-  }
-
-  .room-row:first-child {
-    border-radius: var(--radius-card) var(--radius-card) 0 0;
-  }
-
-  .room-row:last-child {
-    border-bottom: 0;
-    border-radius: 0 0 var(--radius-card) var(--radius-card);
-  }
-
-  .room-row:only-child {
-    border-radius: var(--radius-card);
-  }
-
-  .room-link {
-    display: flex;
-    min-width: 0;
-    flex: 1;
-    align-items: center;
-    gap: 10px;
-    color: var(--ink);
-    text-decoration: none;
-  }
-
-  .room-link:hover strong {
-    color: var(--accent);
-  }
-
-  .room-link strong {
-    overflow: hidden;
-    font-weight: 550;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    transition: color var(--motion-fast);
-  }
-
-  .slug {
-    flex: none;
-    padding: 1px 7px;
-    color: var(--ink-2);
-    font-size: 11px;
-    line-height: 18px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
-  }
-
-  .row-actions {
-    display: flex;
-    flex: none;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .icon-button,
-  .delete-button {
-    display: grid;
-    min-width: 30px;
-    padding: 0 6px;
-    place-items: center;
-  }
-
-  .recordings-toggle svg {
-    transition: transform var(--motion-fast);
-  }
-
-  .recordings-toggle.expanded svg {
-    transform: rotate(180deg);
-  }
-
-  .recordings {
-    padding: 0 10px 8px;
-  }
-
-  .recordings-state {
-    margin: 0;
-    padding: 10px;
-    color: var(--ink-2);
-    font-size: 12px;
-    background: var(--paper);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-control);
-  }
-
-  .recording-row {
-    display: grid;
-    min-height: 38px;
-    grid-template-columns: 82px minmax(100px, 1fr) 58px 72px auto;
-    align-items: center;
-    gap: 8px;
-    padding: 5px 7px;
-    color: var(--ink-2);
-    font-size: 11px;
-    background: var(--paper);
-    border: 1px solid var(--border);
-    border-bottom: 0;
-  }
-
-  .recording-row:first-child {
-    border-radius: var(--radius-control) var(--radius-control) 0 0;
-  }
-
-  .recording-row:last-child {
-    border-bottom: 1px solid var(--border);
-    border-radius: 0 0 var(--radius-control) var(--radius-control);
-  }
-
-  .recording-row:only-child {
-    border-radius: var(--radius-control);
-  }
-
-  .recording-status {
-    width: max-content;
-    padding: 0 5px;
-    color: var(--ink-2);
-    font-size: 10px;
-    line-height: 18px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    text-transform: uppercase;
-  }
-
-  .recording-status.pending {
-    color: color-mix(in srgb, var(--warn) 76%, var(--ink));
-    background: color-mix(in srgb, var(--warn) 12%, var(--paper));
-    border-color: color-mix(in srgb, var(--warn) 35%, var(--border));
-  }
-
-  .recording-status.completed {
-    color: var(--ok);
-    background: color-mix(in srgb, var(--ok) 10%, var(--paper));
-    border-color: color-mix(in srgb, var(--ok) 30%, var(--border));
-  }
-
-  .recording-status.failed {
-    color: var(--rec);
-    background: color-mix(in srgb, var(--rec) 9%, var(--paper));
-    border-color: color-mix(in srgb, var(--rec) 28%, var(--border));
-  }
-
-  .recording-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 4px;
-  }
-
-  .download-button,
-  .recording-delete {
-    display: inline-flex;
-    height: 24px;
-    align-items: center;
-    gap: 4px;
-    padding: 1px 6px;
-    color: var(--ink);
-    font-size: 11px;
-    line-height: 20px;
-    text-decoration: none;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-control);
-  }
-
-  .recording-delete {
-    color: var(--ink-2);
-  }
-
-  .recording-delete.confirm-delete {
-    color: white;
-    background: var(--rec);
-    border-color: var(--rec);
-  }
-
-  .copy {
-    position: relative;
-  }
-
-  .copied {
-    position: absolute;
-    right: 0;
-    bottom: calc(100% + 4px);
-    padding: 1px 5px;
-    color: var(--text);
-    font-size: 11px;
-    background: var(--panel);
-    border-radius: var(--radius-control);
-  }
-
-  .lobby-toggle {
-    display: flex;
     height: var(--control-height);
-    align-items: center;
-    gap: 5px;
     padding: 3px 7px;
-    color: var(--ink-2);
-    background: var(--paper);
-    font-size: 12px;
+    color: var(--ink);
+    background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius-control);
   }
 
-  .switch-track {
-    display: flex;
-    width: 22px;
-    height: 12px;
-    align-items: center;
-    padding: 1px;
-    background: var(--border);
-    border-radius: 999px;
-    transition: background var(--motion-fast);
-  }
-
-  .switch-track span {
-    width: 8px;
-    height: 8px;
-    background: var(--paper);
-    border-radius: 999px;
-    transition: transform var(--motion-fast);
-  }
-
-  .lobby-toggle.on .switch-track {
-    background: var(--accent);
-  }
-
-  .lobby-toggle.on .switch-track span {
-    transform: translateX(10px);
-  }
-
-  .delete-button {
-    color: var(--ink-2);
-  }
-
-  .delete-button.confirm-delete {
-    display: block;
+  .new-room button.primary {
+    height: var(--control-height);
+    padding: 3px 8px;
     color: white;
-    background: var(--rec);
-    border-color: var(--rec);
+    font-weight: 550;
+    background: var(--accent);
+    border: 1px solid var(--accent);
+    border-radius: var(--radius-control);
+  }
+
+  .new-room button.primary:hover:not(:disabled) {
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
+  }
+
+  .new-room button.primary:disabled {
+    cursor: wait;
+    opacity: 0.6;
   }
 
   .empty-state {
@@ -835,19 +418,9 @@
   }
 
   @media (max-width: 640px) {
-    .section-heading,
-    .room-row,
-    .room-link {
-      align-items: stretch;
-    }
-
-    .section-heading,
-    .room-row {
+    .section-heading {
       flex-direction: column;
-    }
-
-    .new-room input {
-      width: 100%;
+      align-items: stretch;
     }
 
     .new-room {
@@ -856,24 +429,7 @@
 
     .new-room input {
       flex: 1;
-    }
-
-    .room-link {
-      flex-direction: column;
-      gap: 4px;
-    }
-
-    .row-actions {
-      justify-content: flex-end;
-    }
-
-    .recording-row {
-      grid-template-columns: 1fr 1fr;
-    }
-
-    .recording-actions {
-      grid-column: 1 / -1;
-      justify-content: flex-start;
+      width: 100%;
     }
   }
 </style>

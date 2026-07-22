@@ -10,6 +10,7 @@ import (
 	"time"
 
 	protocol "github.com/livekit/protocol/livekit"
+	"github.com/twitchtv/twirp"
 
 	"klisi/internal/auth"
 	"klisi/internal/store"
@@ -29,9 +30,11 @@ type fakeRoomService struct {
 	listErr      error
 	removeErr    error
 	muteErr      error
+	deleteErr    error
 	listed       int
 	removed      *protocol.RoomParticipantIdentity
 	muted        *protocol.MuteRoomTrackRequest
+	deleted      *protocol.DeleteRoomRequest
 }
 
 func (f *fakeRoomService) ListParticipants(context.Context, *protocol.ListParticipantsRequest) (*protocol.ListParticipantsResponse, error) {
@@ -47,6 +50,11 @@ func (f *fakeRoomService) RemoveParticipant(_ context.Context, request *protocol
 func (f *fakeRoomService) MutePublishedTrack(_ context.Context, request *protocol.MuteRoomTrackRequest) (*protocol.MuteRoomTrackResponse, error) {
 	f.muted = request
 	return &protocol.MuteRoomTrackResponse{}, f.muteErr
+}
+
+func (f *fakeRoomService) DeleteRoom(_ context.Context, request *protocol.DeleteRoomRequest) (*protocol.DeleteRoomResponse, error) {
+	f.deleted = request
+	return &protocol.DeleteRoomResponse{}, f.deleteErr
 }
 
 func TestModerationOwnershipMatrix(t *testing.T) {
@@ -173,6 +181,63 @@ func TestModerationParticipantAndLiveKitFailures(t *testing.T) {
 		recorder := httptest.NewRecorder()
 		handler.Mute(recorder, request("guest:1234"))
 		if recorder.Code != http.StatusBadGateway {
+			t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+		}
+	})
+}
+
+func TestEndMeeting(t *testing.T) {
+	room := store.Room{Slug: "calm-otter-412", OwnerSub: "owner"}
+	request := func(sub string) *http.Request {
+		r := httptest.NewRequest(http.MethodPost, "/end", nil)
+		r.SetPathValue("slug", room.Slug)
+		if sub != "" {
+			r = r.WithContext(auth.WithSession(r.Context(), auth.Session{Sub: sub}))
+		}
+		return r
+	}
+
+	t.Run("owner ends the meeting", func(t *testing.T) {
+		service := &fakeRoomService{}
+		handler := NewHandler(fakeRoomStore{room: room}, service, NewDenylist(time.Minute))
+		recorder := httptest.NewRecorder()
+		handler.EndMeeting(recorder, request("owner"))
+		if recorder.Code != http.StatusNoContent {
+			t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+		}
+		if service.deleted == nil || service.deleted.Room != room.Slug {
+			t.Fatalf("DeleteRoom request = %#v", service.deleted)
+		}
+	})
+
+	t.Run("non-owner forbidden", func(t *testing.T) {
+		service := &fakeRoomService{}
+		handler := NewHandler(fakeRoomStore{room: room}, service, NewDenylist(time.Minute))
+		recorder := httptest.NewRecorder()
+		handler.EndMeeting(recorder, request("someone-else"))
+		if recorder.Code != http.StatusForbidden || service.deleted != nil {
+			t.Fatalf("status = %d, DeleteRoom request = %#v", recorder.Code, service.deleted)
+		}
+	})
+
+	t.Run("LiveKit rejection", func(t *testing.T) {
+		service := &fakeRoomService{deleteErr: errors.New("rejected")}
+		handler := NewHandler(fakeRoomStore{room: room}, service, NewDenylist(time.Minute))
+		recorder := httptest.NewRecorder()
+		handler.EndMeeting(recorder, request("owner"))
+		if recorder.Code != http.StatusBadGateway {
+			t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+		}
+	})
+
+	t.Run("no live session is success", func(t *testing.T) {
+		// LiveKit reports not_found when the room has no live session — the
+		// meeting is already over, so ending it succeeds.
+		service := &fakeRoomService{deleteErr: twirp.NotFoundError("room not found")}
+		handler := NewHandler(fakeRoomStore{room: room}, service, NewDenylist(time.Minute))
+		recorder := httptest.NewRecorder()
+		handler.EndMeeting(recorder, request("owner"))
+		if recorder.Code != http.StatusNoContent {
 			t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
 		}
 	})

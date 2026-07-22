@@ -299,11 +299,16 @@ All server config via `KLISI_*` env vars (12-factor, `.env` in dev):
 ```
 KLISI_ADDR=:8080                 KLISI_BASE_URL=http://localhost:8080
 KLISI_SESSION_SECRET=…           KLISI_DB_PATH=./data/klisi.db
-KLISI_LIVEKIT_URL=ws://…:7880    KLISI_LIVEKIT_API_KEY / _API_SECRET
+KLISI_LIVEKIT_URL=ws://…:7880    KLISI_LIVEKIT_PUBLIC_URL=wss://…
+KLISI_LIVEKIT_API_KEY=…          KLISI_LIVEKIT_API_SECRET=…
 KLISI_OIDC_ISSUER=…              KLISI_OIDC_CLIENT_ID / _CLIENT_SECRET
 KLISI_S3_ENDPOINT=…              KLISI_S3_PUBLIC_ENDPOINT=…
 KLISI_S3_EGRESS_ENDPOINT=…       KLISI_S3_BUCKET / _ACCESS_KEY / _SECRET_KEY
+KLISI_S3_REGION=…                KLISI_EGRESS_TEMPLATE_URL=…
+KLISI_TRUSTED_PROXIES=…          KLISI_DEV_MODE=false
 ```
+
+Per-variable reference, defaults, and production rules: `docs/DEPLOYMENT.md`.
 
 ## 13. Development environment
 

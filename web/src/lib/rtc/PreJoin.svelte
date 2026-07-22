@@ -9,6 +9,8 @@
     type LocalVideoTrack
   } from 'livekit-client';
   import type { PreJoinOptions } from './room.svelte';
+  import { clampAspect, observeAspect } from './aspect';
+  import Button from '$lib/ui/Button.svelte';
 
   let {
     room = $bindable(),
@@ -33,6 +35,7 @@
   let camEnabled = $state(true);
   let micEnabled = $state(true);
   let cameraTrack = $state<LocalVideoTrack>();
+  let previewAspect = $state(clampAspect(0, 0));
   let audioTrack: LocalAudioTrack | undefined;
   let micLevel = $state(0);
   let previewBusy = $state(true);
@@ -80,6 +83,7 @@
     cameraTrack?.detach();
     cameraTrack?.stop();
     cameraTrack = undefined;
+    previewAspect = clampAspect(0, 0);
   }
 
   async function startCamera(): Promise<void> {
@@ -230,12 +234,22 @@
 
 <main class="prejoin-shell">
   <form class="prejoin-card" onsubmit={submit}>
-    <div class="preview-well">
+    <div class="preview-well" class:live={cameraTrack && camEnabled}>
       {#if cameraTrack && camEnabled}
-        <!-- Local preview video does not have a caption track. -->
-        <!-- svelte-ignore a11y_media_has_caption -->
-        <video use:attachTrack={cameraTrack} autoplay playsinline muted aria-label="Camera preview"
-        ></video>
+        <!-- The preview box takes the broadcast frame's clamped aspect, so
+             what you see here is exactly what remote tiles render. -->
+        <div class="video-box" style:--va={previewAspect}>
+          <!-- Local preview video does not have a caption track. -->
+          <!-- svelte-ignore a11y_media_has_caption -->
+          <video
+            use:attachTrack={cameraTrack}
+            use:observeAspect={(next) => (previewAspect = next)}
+            autoplay
+            playsinline
+            muted
+            aria-label="Camera preview"
+          ></video>
+        </div>
       {:else}
         <div class="preview-placeholder" aria-label="Camera off">
           <VideoCameraSlash size={20} weight="regular" aria-hidden="true" />
@@ -337,10 +351,10 @@
         <p class="error" role="alert">{error || previewError}</p>
       {/if}
 
-      <button class="join" type="submit" disabled={previewBusy}>
+      <Button type="submit" variant="accent" class="mt-3 w-full" disabled={previewBusy}>
         <VideoCamera size={16} weight="regular" aria-hidden="true" />
         {previewBusy ? 'Preparing…' : 'Join room'}
-      </button>
+      </Button>
     </div>
   </form>
 </main>
@@ -372,6 +386,22 @@
     overflow: hidden;
     background: var(--surface-2);
     border-right: 1px solid var(--border);
+    /* Size containment gives the video box exact cqh units to contain-fit
+       its clamped aspect (same mechanism as in-room tiles). */
+    container-type: size;
+  }
+
+  .video-box {
+    overflow: hidden;
+    aspect-ratio: var(--va);
+    width: clamp(min(140px, 100%), calc(100cqh * var(--va)), 100%);
+    max-height: 100%;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-tile);
+    transition:
+      width var(--motion-fast),
+      aspect-ratio var(--motion-fast);
   }
 
   video,
@@ -383,6 +413,12 @@
   video {
     object-fit: cover;
     transform: scaleX(-1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .video-box {
+      transition: none;
+    }
   }
 
   .preview-placeholder {
@@ -523,35 +559,6 @@
     transition: width 60ms linear;
   }
 
-  .join {
-    display: flex;
-    width: 100%;
-    height: var(--control-height);
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
-    margin-top: 12px;
-    padding: 3px 8px;
-    color: white;
-    font-weight: 550;
-    background: var(--accent);
-    border: 1px solid var(--accent);
-    border-radius: var(--radius-control);
-    transition:
-      background var(--motion-fast),
-      border-color var(--motion-fast);
-  }
-
-  .join:hover:not(:disabled) {
-    background: var(--accent-hover);
-    border-color: var(--accent-hover);
-  }
-
-  .join:disabled {
-    cursor: wait;
-    opacity: 0.65;
-  }
-
   .error {
     margin: 8px 0 0;
     color: var(--rec);
@@ -565,9 +572,20 @@
 
     .preview-well {
       min-height: auto;
-      aspect-ratio: 16 / 9;
       border-right: 0;
       border-bottom: 1px solid var(--border);
+      container-type: normal;
+    }
+
+    /* Camera off: keep a landscape well for the placeholder. Live video is
+       width-driven at its own clamped aspect (portrait phones stay portrait). */
+    .preview-well:not(.live) {
+      aspect-ratio: 16 / 9;
+    }
+
+    .video-box {
+      width: 100%;
+      max-height: 65dvh;
     }
   }
 </style>

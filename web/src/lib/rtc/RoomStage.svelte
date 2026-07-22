@@ -1,11 +1,11 @@
 <script lang="ts">
   import type { Track } from 'livekit-client';
-  import { MicrophoneSlash } from 'phosphor-svelte';
   import type { LobbyRequestInfo } from '$lib/api/types.gen';
   import ChatPanel from '$lib/ui/ChatPanel.svelte';
   import ControlBar from '$lib/ui/ControlBar.svelte';
   import ParticipantPanel from '$lib/ui/ParticipantPanel.svelte';
-  import type { ParticipantView, RoomState } from './room.svelte';
+  import ParticipantTile from './ParticipantTile.svelte';
+  import type { RoomState } from './room.svelte';
 
   let {
     rtc,
@@ -31,6 +31,26 @@
 
   let focusParticipant = $derived(
     rtc.participants.find((participant) => participant.screenShareTrack)
+  );
+  let view = $state<'grid' | 'speaker'>('grid');
+  let lastSpeakerIdentity = $state<string>();
+
+  // Speaker view promotes the most recent remote active speaker; sticky
+  // through silence so the pane doesn't flicker between turns. The local
+  // participant never self-promotes — you stay in the rail.
+  $effect(() => {
+    const speaking = rtc.activeSpeakerIdentities.find((identity) =>
+      rtc.participants.some(
+        (participant) => participant.identity === identity && !participant.isLocal
+      )
+    );
+    if (speaking) lastSpeakerIdentity = speaking;
+  });
+
+  let promoted = $derived(
+    rtc.participants.find((participant) => participant.identity === lastSpeakerIdentity) ??
+      rtc.participants.find((participant) => !participant.isLocal) ??
+      rtc.participants.at(0)
   );
   let gridColumns = $derived(
     Math.min(3, Math.max(1, Math.ceil(Math.sqrt(rtc.participants.length))))
@@ -78,6 +98,10 @@
 
     return {
       update(next: Track) {
+        // Svelte re-fires action updates whenever the participants array is
+        // rebuilt; re-attaching the already-attached track resets the media
+        // element (black frame, audio dropout), so only swap real changes.
+        if (next === attached) return;
         attached.detach(node);
         attached = next;
         attached.attach(node);
@@ -87,56 +111,7 @@
       }
     };
   }
-
-  function initialFor(participant: ParticipantView): string {
-    return participant.name.slice(0, 1).toUpperCase() || '?';
-  }
 </script>
-
-{#snippet participantTile(participant: ParticipantView)}
-  <article
-    class:speaking={participant.isSpeaking}
-    class="tile"
-    data-testid="participant-tile"
-    data-identity={participant.identity}
-  >
-    {#if participant.cameraTrack}
-      <!-- Live meeting video does not have a caption track. -->
-      <!-- svelte-ignore a11y_media_has_caption -->
-      <!-- Always muted: audio plays through the per-track <audio> elements,
-           and an unmuted <video> can be blocked from autoplaying. -->
-      <video
-        use:attachTrack={participant.cameraTrack}
-        autoplay
-        playsinline
-        muted
-        class:mirrored={participant.isLocal}
-        aria-label={`${participant.name}'s video`}
-      ></video>
-    {:else}
-      <div class="placeholder" aria-hidden="true">{initialFor(participant)}</div>
-    {/if}
-
-    {#each participant.audioTracks as track}
-      <!-- Live meeting audio does not have a caption track. -->
-      <!-- svelte-ignore a11y_media_has_caption -->
-      <audio
-        use:attachTrack={track}
-        autoplay
-        muted={participant.isLocal}
-        aria-label={`${participant.name}'s audio`}
-      ></audio>
-    {/each}
-
-    <div class="name-label">
-      <span>{participant.name}</span>
-      {#if participant.isLocal}<span class="you mono">You</span>{/if}
-      {#if participant.micMuted}
-        <MicrophoneSlash size={16} weight="regular" aria-label="Microphone muted" />
-      {/if}
-    </div>
-  </article>
-{/snippet}
 
 <main class="stage">
   <header class="stage-header">
@@ -175,7 +150,32 @@
 
       <div class="camera-rail" aria-label="Participant cameras">
         {#each rtc.participants as participant (participant.identity)}
-          {@render participantTile(participant)}
+          <ParticipantTile
+            {participant}
+            fit="width"
+            speaking={rtc.activeSpeakerIdentities.includes(participant.identity)}
+          />
+        {/each}
+      </div>
+    </section>
+  {:else if view === 'speaker' && promoted && rtc.participants.length > 1}
+    <section class="focus-layout" aria-label="Meeting participants">
+      <div class="speaker-pane" data-testid="speaker-pane">
+        <ParticipantTile
+          participant={promoted}
+          fit="contain"
+          speaking={rtc.activeSpeakerIdentities.includes(promoted.identity)}
+        />
+      </div>
+      <div class="camera-rail" aria-label="Participant cameras">
+        <!-- The promoted participant renders only in the pane: their audio
+             elements live on the tile, so a rail copy would double audio. -->
+        {#each rtc.participants.filter((p) => p.identity !== promoted.identity) as participant (participant.identity)}
+          <ParticipantTile
+            {participant}
+            fit="width"
+            speaking={rtc.activeSpeakerIdentities.includes(participant.identity)}
+          />
         {/each}
       </div>
     </section>
@@ -187,7 +187,11 @@
       style={`--grid-columns: ${gridColumns}; --grid-rows: ${gridRows}`}
     >
       {#each rtc.participants as participant (participant.identity)}
-        {@render participantTile(participant)}
+        <ParticipantTile
+          {participant}
+          fit="contain"
+          speaking={rtc.activeSpeakerIdentities.includes(participant.identity)}
+        />
       {/each}
     </section>
   {/if}
@@ -199,9 +203,11 @@
     {chatOpen}
     {unreadChat}
     {isOwner}
+    {view}
     roomSlug={roomName}
     ontogglepeople={togglePeople}
     ontogglechat={toggleChat}
+    ontoggleview={() => (view = view === 'grid' ? 'speaker' : 'grid')}
   />
 </main>
 
@@ -267,44 +273,6 @@
     margin-inline: auto;
   }
 
-  .tile {
-    position: relative;
-    display: grid;
-    min-height: 0;
-    overflow: hidden;
-    background: var(--panel-2);
-    border: 1px solid var(--border-d);
-    border-radius: var(--radius-tile);
-    transition: border-color var(--motion-fast);
-  }
-
-  .tile.speaking {
-    border-color: var(--accent-d);
-  }
-
-  .tile video,
-  .placeholder {
-    grid-area: 1 / 1;
-    width: 100%;
-    height: 100%;
-  }
-
-  .tile video {
-    object-fit: cover;
-  }
-
-  .tile video.mirrored {
-    transform: scaleX(-1);
-  }
-
-  .placeholder {
-    display: grid;
-    place-items: center;
-    color: var(--text-2);
-    font-size: 18px;
-  }
-
-  .name-label,
   .focus-label {
     position: absolute;
     bottom: 8px;
@@ -319,16 +287,6 @@
     border: 1px solid var(--border-d);
     border-radius: var(--radius-control);
     transition: color var(--motion-fast);
-  }
-
-  .speaking .name-label {
-    color: var(--text);
-  }
-
-  .you {
-    color: var(--text-2);
-    font-size: 10px;
-    text-transform: uppercase;
   }
 
   .focus-layout {
@@ -347,6 +305,12 @@
     background: var(--stage);
     border: 1px solid var(--border-d);
     border-radius: var(--radius-tile);
+  }
+
+  .speaker-pane {
+    display: grid;
+    min-width: 0;
+    min-height: 0;
   }
 
   .focus-pane video {
@@ -373,21 +337,12 @@
     overflow-y: auto;
   }
 
-  .camera-rail .tile {
-    min-height: 90px;
-    aspect-ratio: 16 / 9;
-  }
-
   @media (max-width: 720px) {
     .grid {
       height: auto;
       grid-template-columns: 1fr;
       grid-template-rows: none;
-      grid-auto-rows: minmax(180px, auto);
-    }
-
-    .grid .tile {
-      aspect-ratio: 16 / 9;
+      grid-auto-rows: auto;
     }
 
     .focus-layout {

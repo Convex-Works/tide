@@ -5,6 +5,7 @@ import {
   LobbyApprovePath,
   LobbyDenyPath,
   LobbyWaitPath,
+  MeetingEndPath,
   MePath,
   MutePath,
   RecordingDownloadPath,
@@ -27,6 +28,7 @@ import {
   type Me,
   type PublicRoomInfo,
   type RecordingInfo,
+  type RecordingStartRequest,
   type RoomInfo,
   type TokenResponse,
   type UpdateRoomRequest
@@ -126,11 +128,21 @@ export function muteParticipant(slug: string, identity: string): Promise<void> {
   });
 }
 
-export function startRecording(slug: string): Promise<RecordingInfo> {
-  return requestJSON<RecordingInfo>(pathWith(RecordingStartPath, 'slug', slug), {
+export function endMeeting(slug: string): Promise<void> {
+  return requestEmpty(pathWith(MeetingEndPath, 'slug', slug), {
     method: 'POST',
     headers: csrfHeaders
   });
+}
+
+export function startRecording(
+  slug: string,
+  options: RecordingStartRequest
+): Promise<RecordingInfo> {
+  return requestJSON<RecordingInfo>(
+    pathWith(RecordingStartPath, 'slug', slug),
+    jsonRequest('POST', options)
+  );
 }
 
 export function stopRecording(slug: string): Promise<RecordingInfo> {

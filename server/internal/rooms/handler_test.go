@@ -3,14 +3,25 @@ package rooms
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"klisi/internal/api"
 	"klisi/internal/auth"
 	"klisi/internal/store"
 )
+
+type fakeLiveSource struct {
+	rooms map[string]LiveRoom
+	err   error
+}
+
+func (f *fakeLiveSource) ActiveRooms(context.Context) (map[string]LiveRoom, error) {
+	return f.rooms, f.err
+}
 
 type fakeObjectStore struct {
 	removed   []string
@@ -40,7 +51,52 @@ func deleteTestHandler(t *testing.T) (*Handler, *fakeObjectStore, *store.Store, 
 		t.Fatal(err)
 	}
 	objects := &fakeObjectStore{}
-	return NewHandler(db, objects), objects, db, room
+	return NewHandler(db, objects, nil), objects, db, room
+}
+
+func TestListEnrichesLiveState(t *testing.T) {
+	db, err := store.Open("file::memory:?cache=shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	ctx := context.Background()
+	const owner = "list-owner"
+	if err := db.CreateRoom(ctx, store.Room{ID: "r-live", Slug: "live-one", Name: "Live", OwnerSub: owner, CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateRoom(ctx, store.Room{ID: "r-idle", Slug: "idle-one", Name: "Idle", OwnerSub: owner, CreatedAt: 2}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.TouchRoomActive(ctx, "idle-one", 1000); err != nil {
+		t.Fatal(err)
+	}
+
+	live := &fakeLiveSource{rooms: map[string]LiveRoom{"live-one": {NumParticipants: 2, Recording: true}}}
+	handler := NewHandler(db, &fakeObjectStore{}, live)
+
+	request := httptest.NewRequest(http.MethodGet, "/api/rooms", nil)
+	request = request.WithContext(auth.WithSession(request.Context(), auth.Session{Sub: owner}))
+	recorder := httptest.NewRecorder()
+	handler.List(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", recorder.Code, recorder.Body.String())
+	}
+	var listed []api.RoomInfo
+	if err := json.Unmarshal(recorder.Body.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+	bySlug := make(map[string]api.RoomInfo, len(listed))
+	for _, room := range listed {
+		bySlug[room.Slug] = room
+	}
+	if got := bySlug["live-one"]; !got.Active || got.NumParticipants != 2 || !got.Recording {
+		t.Errorf("live-one not enriched: %+v", got)
+	}
+	if got := bySlug["idle-one"]; got.Active || got.LastActiveAt == nil || *got.LastActiveAt != 1000 {
+		t.Errorf("idle-one wrong: %+v", got)
+	}
 }
 
 func deleteRequest(slug, sessionSub string) *http.Request {
