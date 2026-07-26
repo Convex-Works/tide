@@ -14,6 +14,8 @@ jobs:
   media-fuzz:
     runs-on: docker
     timeout-minutes: 45
+    container:
+      image: ghcr.io/catthehacker/ubuntu:act-22.04@sha256:b40b8af93baee90b83f29c834440873300c8478809535786dbf79fa836c086ac
     steps:
       - uses: actions/checkout@v4
       - name: Seeded browser fuzzing and Chromium network chaos

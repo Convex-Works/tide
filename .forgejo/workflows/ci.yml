@@ -69,6 +69,8 @@ jobs:
     runs-on: docker
     needs: [server, web, typesync]
     timeout-minutes: 10
+    container:
+      image: ghcr.io/catthehacker/ubuntu:act-22.04@sha256:b40b8af93baee90b83f29c834440873300c8478809535786dbf79fa836c086ac
     steps:
       - uses: actions/checkout@v4
       - name: Deterministic real-SFU media suite
@@ -113,6 +115,8 @@ jobs:
   docker:
     runs-on: docker
     needs: [server, web, typesync, media-e2e]
+    container:
+      image: ghcr.io/catthehacker/ubuntu:act-22.04@sha256:b40b8af93baee90b83f29c834440873300c8478809535786dbf79fa836c086ac
     steps:
       - uses: actions/checkout@v4
       - name: Build image

@@ -13,7 +13,10 @@ bin
 data
 artifacts
 docs
-deploy
+deploy/*
+!deploy/media-test/
+deploy/media-test/*
+!deploy/media-test/livekit.yaml
 go.work
 go.work.sum
 

@@ -17,6 +17,10 @@ compose() {
 }
 
 cleanup() {
+  runner_id="$(compose ps --all --quiet runner 2>/dev/null || true)"
+  if [ -n "${runner_id}" ]; then
+    docker cp "${runner_id}:/artifacts/." "${artifact_dir}/" 2>/dev/null || true
+  fi
   compose logs --no-color livekit klisi >"${artifact_dir}/stack.log" 2>&1 || true
   compose down --volumes --remove-orphans >/dev/null 2>&1 || true
 }
