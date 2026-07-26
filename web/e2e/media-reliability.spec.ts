@@ -85,6 +85,12 @@ test('media ownership converges across the deterministic lifecycle corpus', asyn
       await expect(page.getByTestId('focus-pane')).toBeHidden({ timeout: 10_000 });
       await expectMediaInvariant(page);
       await expectMediaElementTags(page, persistentTags);
+      if (cycle === 0) {
+        // Give WebKit's receiver transport time to finish renegotiating before
+        // the next synthetic capture starts. The lifecycle assertions above
+        // still require the first publication to disappear promptly.
+        await page.waitForTimeout(750);
+      }
     }
 
     // Repair both halves of the attachment invariant: DOM srcObject and the

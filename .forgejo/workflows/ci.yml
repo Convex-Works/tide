@@ -5,37 +5,30 @@ on:
   pull_request:
 
 jobs:
-  server:
+  checks:
     runs-on: docker
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
-          cache-dependency-path: server/go.sum
-      - name: Vet
-        working-directory: server
-        run: go vet ./...
-      - name: Test
-        working-directory: server
-        run: go test ./...
-
-  web:
-    runs-on: docker
-    steps:
-      - uses: actions/checkout@v4
+          go-version: "1.24"
+          cache: false
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - name: Install
+          node-version: "22"
+      - name: Server vet
+        working-directory: server
+        run: go vet ./...
+      - name: Server tests
+        working-directory: server
+        run: go test ./...
+      - name: Install web dependencies
         working-directory: web
         run: npm ci
-      - name: Check
+      - name: Web checks
         working-directory: web
         run: npm run check
-      - name: Prettier
+      - name: Web formatting
         working-directory: web
         run: npx prettier --check .
       - name: Build SPA
@@ -48,18 +41,6 @@ jobs:
             echo "Production build contains media test instrumentation."
             exit 1
           fi
-
-  typesync:
-    runs-on: docker
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.24'
-          cache-dependency-path: server/go.sum
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
       - name: Generate API types
         run: make gen
       - name: Check generated type drift
@@ -67,7 +48,7 @@ jobs:
 
   media-e2e:
     runs-on: docker
-    needs: [server, web, typesync]
+    needs: [checks]
     timeout-minutes: 10
     container:
       image: ghcr.io/catthehacker/ubuntu:act-22.04@sha256:b40b8af93baee90b83f29c834440873300c8478809535786dbf79fa836c086ac
@@ -89,18 +70,16 @@ jobs:
 
   build:
     runs-on: docker
-    needs: [server, web, typesync, media-e2e]
+    needs: [docker]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
-          cache-dependency-path: server/go.sum
+          go-version: "1.24"
+          cache: false
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          cache: npm
-          cache-dependency-path: web/package-lock.json
+          node-version: "22"
       - name: Install web dependencies
         working-directory: web
         run: npm ci
@@ -114,7 +93,7 @@ jobs:
 
   docker:
     runs-on: docker
-    needs: [server, web, typesync, media-e2e]
+    needs: [checks, media-e2e]
     container:
       image: ghcr.io/catthehacker/ubuntu:act-22.04@sha256:b40b8af93baee90b83f29c834440873300c8478809535786dbf79fa836c086ac
     steps:

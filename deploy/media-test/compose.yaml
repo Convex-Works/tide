@@ -11,13 +11,13 @@ services:
       retries: 30
     networks:
       media:
-        ipv4_address: 192.168.96.2
+        ipv4_address: 10.253.0.2
 
   livekit:
     build:
       context: ../..
       dockerfile: deploy/media-test/livekit.Dockerfile
-    command: --config /etc/livekit.yaml --node-ip 192.168.96.3
+    command: --config /etc/livekit.yaml --node-ip 10.253.0.3
     depends_on:
       redis:
         condition: service_healthy
@@ -28,7 +28,7 @@ services:
       retries: 30
     networks:
       media:
-        ipv4_address: 192.168.96.3
+        ipv4_address: 10.253.0.3
 
   klisi:
     build:
@@ -52,7 +52,7 @@ services:
       - /data:mode=1777
     networks:
       media:
-        ipv4_address: 192.168.96.4
+        ipv4_address: 10.253.0.4
 
   runner:
     build:
@@ -80,14 +80,14 @@ services:
     shm_size: 1gb
     networks:
       media:
-        ipv4_address: 192.168.96.5
+        ipv4_address: 10.253.0.5
 
 networks:
   media:
     driver: bridge
     ipam:
       config:
-        - subnet: 192.168.96.0/24
+        - subnet: 10.253.0.0/24
 
 volumes:
   media-artifacts:

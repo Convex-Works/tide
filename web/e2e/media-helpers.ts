@@ -80,7 +80,7 @@ type MediaTestWindow = Window &
         >;
         publishTrack(
           track: MediaStreamTrack,
-          options: { source: string; name: string }
+          options: { source: string; name: string; simulcast?: boolean }
         ): Promise<{ trackSid: string }>;
         unpublishTrack(track: unknown, stopOnUnpublish?: boolean): Promise<unknown>;
       };
@@ -224,7 +224,8 @@ export async function publishSyntheticScreen(
     resources.push(track);
     const screen = await room.localParticipant.publishTrack(track, {
       source: 'screen_share',
-      name: `synthetic-screen-${Date.now()}`
+      name: `synthetic-screen-${Date.now()}`,
+      simulcast: false
     });
 
     let audioSid: string | undefined;
