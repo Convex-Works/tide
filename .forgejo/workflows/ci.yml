@@ -62,7 +62,7 @@ jobs:
         run: ./scripts/run-media-tests.sh
       - name: Preserve media diagnostics
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: https://code.forgejo.org/forgejo/upload-artifact@v4
         with:
           name: media-e2e-${{ github.run_id }}
           path: artifacts/media
@@ -85,7 +85,7 @@ jobs:
         run: npm ci
       - name: Build binary
         run: make build
-      - uses: actions/upload-artifact@v4
+      - uses: https://code.forgejo.org/forgejo/upload-artifact@v4
         with:
           name: klisi
           path: bin/klisi
