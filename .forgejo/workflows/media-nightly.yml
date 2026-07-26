@@ -1,0 +1,35 @@
+name: Nightly media fuzzing
+
+on:
+  schedule:
+    - cron: "23 1 * * *"
+  workflow_dispatch:
+    inputs:
+      seed:
+        description: Optional fast-check seed
+        required: false
+        type: string
+
+jobs:
+  media-fuzz:
+    runs-on: docker
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Seeded browser fuzzing and Chromium network chaos
+        env:
+          CI_RUN_ID: ${{ github.run_id }}
+          CI_JOB_ID: ${{ github.job }}
+          KLISI_MEDIA_SUITE: nightly
+          KLISI_NETWORK_CHAOS: "true"
+          FC_SEED: ${{ inputs.seed }}
+          FC_COMMANDS: "100"
+          FC_RUNS: "1"
+        run: ./scripts/run-media-tests.sh
+      - name: Preserve media diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-media-${{ github.run_id }}
+          path: artifacts/media
+          if-no-files-found: error

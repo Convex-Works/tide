@@ -11,6 +11,7 @@
 
 bin
 data
+artifacts
 docs
 deploy
 go.work

@@ -4,8 +4,6 @@ on:
   push:
   pull_request:
 
-# Browser e2e is intentionally outside CI: it needs the Docker Compose stack,
-# LiveKit Egress, MinIO, Dex, and Chromium fake-media devices.
 jobs:
   server:
     runs-on: docker
@@ -43,6 +41,13 @@ jobs:
       - name: Build SPA
         working-directory: web
         run: npx vite build
+      - name: Prove test hooks are absent
+        working-directory: web
+        run: |
+          if grep -R -E "__klisiMediaTest|__klisiRoom|Playback blocked by Klisi test hook" build; then
+            echo "Production build contains media test instrumentation."
+            exit 1
+          fi
 
   typesync:
     runs-on: docker
@@ -60,9 +65,29 @@ jobs:
       - name: Check generated type drift
         run: git diff --exit-code -- web/src/lib/api/types.gen.ts
 
-  build:
+  media-e2e:
     runs-on: docker
     needs: [server, web, typesync]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deterministic real-SFU media suite
+        env:
+          CI_RUN_ID: ${{ github.run_id }}
+          CI_JOB_ID: ${{ github.job }}
+          KLISI_MEDIA_SUITE: deterministic
+        run: ./scripts/run-media-tests.sh
+      - name: Preserve media diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: media-e2e-${{ github.run_id }}
+          path: artifacts/media
+          if-no-files-found: error
+
+  build:
+    runs-on: docker
+    needs: [server, web, typesync, media-e2e]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -87,7 +112,7 @@ jobs:
 
   docker:
     runs-on: docker
-    needs: [server, web, typesync]
+    needs: [server, web, typesync, media-e2e]
     steps:
       - uses: actions/checkout@v4
       - name: Build image

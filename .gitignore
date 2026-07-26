@@ -26,3 +26,4 @@ server/web/build/
 # tests
 web/test-results/
 web/playwright-report/
+/artifacts/media/

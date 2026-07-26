@@ -2,6 +2,8 @@
 
 FROM node:22.17.0-alpine3.22 AS web-builder
 WORKDIR /src/web
+ARG VITE_KLISI_TEST=false
+ENV VITE_KLISI_TEST=${VITE_KLISI_TEST}
 
 # The vendored cuelume tarball is a package.json file dependency, so npm ci
 # needs it at the same relative path as the lockfile records.

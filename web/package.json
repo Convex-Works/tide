@@ -8,7 +8,9 @@
     "build": "vite build",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "lint": "prettier --check .",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "media:e2e": "playwright test media-reliability.spec.ts --config=playwright.media.config.ts --project=chromium --project=webkit",
+    "media:fuzz": "playwright test media-fuzz.spec.ts --config=playwright.media.config.ts"
   },
   "dependencies": {
     "bits-ui": "^2.18.1",
@@ -24,6 +26,7 @@
     "@sveltejs/kit": "^2.20.0",
     "@sveltejs/vite-plugin-svelte": "^5.0.3",
     "@tailwindcss/vite": "^4.3.3",
+    "fast-check": "^4.9.0",
     "prettier": "^3.5.3",
     "prettier-plugin-svelte": "^3.3.3",
     "svelte": "^5.25.0",

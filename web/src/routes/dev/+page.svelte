@@ -49,7 +49,7 @@
   <meta name="description" content="Lean self-hosted video meetings" />
 </svelte:head>
 
-{#if !import.meta.env.DEV}
+{#if !import.meta.env.DEV && import.meta.env.VITE_KLISI_TEST !== 'true'}
   <main class="unavailable">Not available.</main>
 {:else if meetingState === 'stage'}
   <RoomStage {rtc} roomName={room} onleave={returnToPrejoin} />

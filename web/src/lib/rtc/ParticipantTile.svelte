@@ -1,57 +1,34 @@
 <script lang="ts">
-  import type { Track } from 'livekit-client';
   import { MicrophoneSlash } from 'phosphor-svelte';
   import Waveform from '$lib/ui/Waveform.svelte';
   import { clampAspect, observeAspect } from './aspect';
-
-  interface TileParticipant {
-    identity: string;
-    name: string;
-    isLocal?: boolean;
-    cameraTrack?: Track;
-    audioTracks: Track[];
-    micTrack?: Track;
-    micMuted?: boolean;
-  }
+  import type { ParticipantView } from './media';
+  import { attachMediaTrack } from './mediaElement';
 
   let {
     participant,
     speaking = false,
     fit = 'contain',
-    waveform = true
+    waveform = true,
+    promoted = false,
+    rail = false,
+    railRow = 1
   }: {
-    participant: TileParticipant;
+    participant: ParticipantView;
     speaking?: boolean;
     fit?: 'contain' | 'width';
     waveform?: boolean;
+    promoted?: boolean;
+    rail?: boolean;
+    railRow?: number;
   } = $props();
 
   let aspect = $state(clampAspect(0, 0));
 
   $effect(() => {
     // Camera gone (or not yet up): placeholder tiles rest at 16:9.
-    if (!participant.cameraTrack) aspect = clampAspect(0, 0);
+    if (!participant.camera) aspect = clampAspect(0, 0);
   });
-
-  function attachTrack(node: HTMLMediaElement, track: Track) {
-    let attached = track;
-    attached.attach(node);
-
-    return {
-      update(next: Track) {
-        // Svelte re-fires action updates whenever the participants array is
-        // rebuilt; re-attaching the already-attached track resets the media
-        // element (black frame, audio dropout), so only swap real changes.
-        if (next === attached) return;
-        attached.detach(node);
-        attached = next;
-        attached.attach(node);
-      },
-      destroy() {
-        attached.detach(node);
-      }
-    };
-  }
 
   function initialFor(name: string): string {
     return name.slice(0, 1).toUpperCase() || '?';
@@ -61,17 +38,19 @@
 <article
   class="cell"
   class:fit-width={fit === 'width'}
+  class:promoted
+  class:rail
+  style:--tile-row={railRow}
   data-testid="participant-tile"
   data-identity={participant.identity}
 >
   <div class="video-box" class:speaking style:--va={aspect}>
-    {#if participant.cameraTrack}
+    {#if participant.camera}
       <!-- Live meeting video does not have a caption track. -->
-      <!-- svelte-ignore a11y_media_has_caption -->
-      <!-- Always muted: audio plays through the per-track <audio> elements,
+      <!-- Always muted: audio plays through the persistent remote renderer,
            and an unmuted <video> can be blocked from autoplaying. -->
       <video
-        use:attachTrack={participant.cameraTrack}
+        use:attachMediaTrack={participant.camera}
         use:observeAspect={(next) => (aspect = next)}
         autoplay
         playsinline
@@ -83,14 +62,6 @@
       <div class="placeholder" aria-hidden="true">{initialFor(participant.name)}</div>
     {/if}
 
-    {#if !participant.isLocal}
-      {#each participant.audioTracks as track}
-        <!-- Live meeting audio does not have a caption track. -->
-        <!-- svelte-ignore a11y_media_has_caption -->
-        <audio use:attachTrack={track} autoplay aria-label={`${participant.name}'s audio`}></audio>
-      {/each}
-    {/if}
-
     <div class="name-label">
       <span>{participant.name}</span>
       {#if participant.isLocal}<span class="you mono">You</span>{/if}
@@ -100,7 +71,11 @@
     </div>
 
     {#if waveform}
-      <Waveform track={participant.micTrack} />
+      <Waveform
+        track={participant.microphone && !participant.microphone.muted
+          ? participant.microphone.track
+          : undefined}
+      />
     {/if}
   </div>
 </article>
@@ -146,6 +121,16 @@
   .cell.fit-width .video-box {
     width: 100%;
     max-height: 65dvh;
+  }
+
+  .cell.promoted {
+    grid-row: 1 / -1;
+    grid-column: 1;
+  }
+
+  .cell.rail {
+    grid-row: var(--tile-row);
+    grid-column: 2;
   }
 
   video,

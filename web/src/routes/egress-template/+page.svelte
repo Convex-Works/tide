@@ -1,76 +1,59 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import { Room, RoomEvent, Track, type RemoteParticipant } from 'livekit-client';
+  import { Room, RoomEvent } from 'livekit-client';
   import ParticipantTile from '$lib/rtc/ParticipantTile.svelte';
-
-  interface CompositeParticipant {
-    identity: string;
-    name: string;
-    cameraTrack?: Track;
-    screenShareTrack?: Track;
-    audioTracks: Track[];
-  }
+  import RemoteAudioRenderer from '$lib/rtc/RemoteAudioRenderer.svelte';
+  import { projectParticipants, type ParticipantView } from '$lib/rtc/media';
+  import { attachMediaTrack } from '$lib/rtc/mediaElement';
 
   const rtc = new Room({ adaptiveStream: false, dynacast: false });
-  let participants = $state<CompositeParticipant[]>([]);
+  let participants = $state<ParticipantView[]>([]);
   let layout = $state('grid');
   let error = $state('');
   let connected = false;
   let trackSubscribed = false;
   let recordingStarted = false;
   let recordingEnded = false;
+  let mediaFatal = false;
+  let readinessTimer: ReturnType<typeof setTimeout> | undefined;
   let fallbackTimer: ReturnType<typeof setTimeout> | undefined;
 
-  let focusParticipant = $derived(participants.find((participant) => participant.screenShareTrack));
+  let focusParticipant = $derived(participants.find((participant) => participant.screenShare));
   let gridColumns = $derived(Math.min(3, Math.max(1, Math.ceil(Math.sqrt(participants.length)))));
   let gridRows = $derived(Math.max(1, Math.ceil(participants.length / gridColumns)));
 
   function syncParticipants(): void {
-    participants = [...rtc.remoteParticipants.values()].map(participantView);
+    participants = projectParticipants([...rtc.remoteParticipants.values()]);
   }
 
-  function participantView(participant: RemoteParticipant): CompositeParticipant {
-    const publications = [...participant.trackPublications.values()];
-    const camera = publications.find(
-      (publication) => publication.source === Track.Source.Camera && !publication.isMuted
+  function fatalMedia(reason: string, details: Record<string, unknown> = {}): void {
+    mediaFatal = true;
+    error = 'Recording media could not start.';
+    console.error(
+      `KLISI_MEDIA_FATAL ${JSON.stringify({
+        event: 'egress_media_fatal',
+        reason,
+        playback: {
+          audio: rtc.canPlaybackAudio,
+          video: rtc.canPlaybackVideo
+        },
+        ...details
+      })}`
     );
-    const screenShare = publications.find(
-      (publication) => publication.source === Track.Source.ScreenShare && !publication.isMuted
-    );
-    return {
-      identity: participant.identity,
-      name: participant.name || participant.identity,
-      cameraTrack: camera?.track,
-      screenShareTrack: screenShare?.track,
-      audioTracks: publications.flatMap((publication) => {
-        const track = publication.track;
-        return publication.kind === Track.Kind.Audio && track && !publication.isMuted
-          ? [track]
-          : [];
-      })
-    };
-  }
-
-  function attachTrack(node: HTMLMediaElement, track: Track) {
-    let attached = track;
-    attached.attach(node);
-    return {
-      update(next: Track) {
-        attached.detach(node);
-        attached = next;
-        attached.attach(node);
-      },
-      destroy() {
-        attached.detach(node);
-      }
-    };
   }
 
   function maybeStartRecording(): void {
-    if (!connected || !trackSubscribed || recordingStarted) return;
-    recordingStarted = true;
-    if (fallbackTimer) clearTimeout(fallbackTimer);
-    console.log('START_RECORDING');
+    if (!connected || !trackSubscribed || recordingStarted || mediaFatal) return;
+    if (readinessTimer) clearTimeout(readinessTimer);
+    readinessTimer = setTimeout(() => {
+      if (recordingStarted || mediaFatal || !rtc.canPlaybackAudio || !rtc.canPlaybackVideo) {
+        if (!mediaFatal) fatalMedia('playback_not_ready');
+        return;
+      }
+      recordingStarted = true;
+      if (fallbackTimer) clearTimeout(fallbackTimer);
+      console.log('START_RECORDING');
+    }, 250);
   }
 
   function startFallback(): void {
@@ -99,12 +82,32 @@
       .on(RoomEvent.TrackUnpublished, syncParticipants)
       .on(RoomEvent.TrackMuted, syncParticipants)
       .on(RoomEvent.TrackUnmuted, syncParticipants)
+      .on(RoomEvent.TrackStreamStateChanged, syncParticipants)
+      .on(RoomEvent.TrackSubscriptionStatusChanged, syncParticipants)
+      .on(RoomEvent.TrackSubscriptionPermissionChanged, syncParticipants)
       .on(RoomEvent.TrackSubscribed, () => {
         trackSubscribed = true;
         syncParticipants();
         maybeStartRecording();
       })
       .on(RoomEvent.TrackUnsubscribed, syncParticipants)
+      .on(RoomEvent.TrackSubscriptionFailed, (publicationSid, participant, reason) => {
+        fatalMedia('subscription_failed', {
+          publicationSid,
+          participantIdentity: participant.identity,
+          subscriptionError: reason
+        });
+      })
+      .on(RoomEvent.Reconnected, () => {
+        syncParticipants();
+        maybeStartRecording();
+      })
+      .on(RoomEvent.AudioPlaybackStatusChanged, (playing) => {
+        if (!playing) fatalMedia('audio_playback_blocked');
+      })
+      .on(RoomEvent.VideoPlaybackStatusChanged, (playing) => {
+        if (!playing) fatalMedia('video_playback_blocked');
+      })
       .on(RoomEvent.Disconnected, endRecording);
 
     if (!url || !token) {
@@ -126,6 +129,7 @@
   });
 
   onDestroy(() => {
+    if (readinessTimer) clearTimeout(readinessTimer);
     if (fallbackTimer) clearTimeout(fallbackTimer);
     void rtc.disconnect();
   });
@@ -139,41 +143,48 @@
 <main class="composite" data-layout={layout}>
   {#if error}
     <div class="error">{error}</div>
-  {:else if focusParticipant && focusParticipant.screenShareTrack}
-    <section class="focus-layout" aria-label="Recording participants">
-      <article class="focus-pane">
-        <!-- The recording composite captures live media without captions. -->
-        <!-- svelte-ignore a11y_media_has_caption -->
-        <video
-          use:attachTrack={focusParticipant.screenShareTrack}
-          autoplay
-          playsinline
-          aria-label={`${focusParticipant.name}'s screen share`}
-        ></video>
-        <div class="label">
-          <span>{focusParticipant.name}</span>
-          <span class="mono secondary">Screen</span>
-        </div>
-      </article>
-      <div class="camera-rail">
+  {:else}
+    <section
+      class="media-layout"
+      class:screen-mode={Boolean(focusParticipant?.screenShare)}
+      class:grid-mode={!focusParticipant?.screenShare}
+      aria-label="Recording participants"
+    >
+      {#if focusParticipant?.screenShare}
+        <article class="focus-pane">
+          {#key focusParticipant.screenShare.publicationSid}
+            <!-- The recording composite captures live media without captions. -->
+            <video
+              use:attachMediaTrack={focusParticipant.screenShare}
+              autoplay
+              playsinline
+              muted
+              aria-label={`${focusParticipant.name}'s screen share`}
+            ></video>
+          {/key}
+          <div class="label">
+            <span>{focusParticipant.name}</span>
+            <span class="mono secondary">Screen</span>
+          </div>
+        </article>
+      {/if}
+      <div
+        class="participant-list"
+        data-count={participants.length}
+        style={`--grid-columns: ${gridColumns}; --grid-rows: ${gridRows}`}
+      >
         {#each participants as participant (participant.identity)}
           <!-- No waveforms in the recording: the audio itself is the artifact,
                and animated bars burn egress-worker CPU for no information. -->
-          <ParticipantTile {participant} fit="width" waveform={false} />
+          <ParticipantTile
+            {participant}
+            fit={focusParticipant?.screenShare ? 'width' : 'contain'}
+            waveform={false}
+          />
         {/each}
       </div>
     </section>
-  {:else}
-    <section
-      class="grid"
-      data-count={participants.length}
-      style={`--grid-columns: ${gridColumns}; --grid-rows: ${gridRows}`}
-      aria-label="Recording participants"
-    >
-      {#each participants as participant (participant.identity)}
-        <ParticipantTile {participant} fit="contain" waveform={false} />
-      {/each}
-    </section>
+    <RemoteAudioRenderer {participants} />
   {/if}
 </main>
 
@@ -192,7 +203,18 @@
     background: var(--stage);
   }
 
-  .grid {
+  .media-layout {
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+  }
+
+  .participant-list {
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .grid-mode .participant-list {
     display: grid;
     width: 100%;
     height: 100%;
@@ -201,9 +223,25 @@
     gap: 8px;
   }
 
-  .grid[data-count='1'] {
+  .grid-mode .participant-list[data-count='1'] {
     width: min(100%, 1280px);
     margin-inline: auto;
+  }
+
+  .screen-mode {
+    display: grid;
+    grid-template-areas: 'focus rail';
+    grid-template-columns: minmax(0, 1fr) 220px;
+    gap: 8px;
+  }
+
+  .screen-mode .participant-list {
+    display: grid;
+    min-height: 0;
+    grid-area: rail;
+    grid-auto-rows: max-content;
+    gap: 8px;
+    overflow: hidden;
   }
 
   .focus-pane {
@@ -215,6 +253,7 @@
     background: var(--panel-2);
     border: 1px solid var(--border-d);
     border-radius: var(--radius-tile);
+    grid-area: focus;
   }
 
   .label {
@@ -238,14 +277,6 @@
     text-transform: uppercase;
   }
 
-  .focus-layout {
-    display: grid;
-    width: 100%;
-    height: 100%;
-    grid-template-columns: minmax(0, 1fr) 220px;
-    gap: 8px;
-  }
-
   .focus-pane {
     background: var(--stage);
   }
@@ -254,14 +285,6 @@
     width: 100%;
     height: 100%;
     object-fit: contain;
-  }
-
-  .camera-rail {
-    display: grid;
-    min-height: 0;
-    grid-auto-rows: max-content;
-    gap: 8px;
-    overflow: hidden;
   }
 
   .error {

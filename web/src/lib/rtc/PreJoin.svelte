@@ -10,6 +10,7 @@
   } from 'livekit-client';
   import type { PreJoinOptions } from './room.svelte';
   import { clampAspect, observeAspect } from './aspect';
+  import { attachMediaTrack } from './mediaElement';
   import Button from '$lib/ui/Button.svelte';
 
   let {
@@ -48,22 +49,6 @@
   let cameraRequest = 0;
   let audioRequest = 0;
   let disposed = false;
-
-  function attachTrack(node: HTMLVideoElement, track: LocalVideoTrack) {
-    let attached = track;
-    attached.attach(node);
-
-    return {
-      update(next: LocalVideoTrack) {
-        attached.detach(node);
-        attached = next;
-        attached.attach(node);
-      },
-      destroy() {
-        attached.detach(node);
-      }
-    };
-  }
 
   async function refreshDevices(requestPermissions = false): Promise<void> {
     const devices = await Room.getLocalDevices(undefined, requestPermissions);
@@ -240,9 +225,8 @@
              what you see here is exactly what remote tiles render. -->
         <div class="video-box" style:--va={previewAspect}>
           <!-- Local preview video does not have a caption track. -->
-          <!-- svelte-ignore a11y_media_has_caption -->
           <video
-            use:attachTrack={cameraTrack}
+            use:attachMediaTrack={cameraTrack}
             use:observeAspect={(next) => (previewAspect = next)}
             autoplay
             playsinline

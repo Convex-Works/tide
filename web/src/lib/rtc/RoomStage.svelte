@@ -1,10 +1,11 @@
 <script lang="ts">
-  import type { Track } from 'livekit-client';
   import type { LobbyRequestInfo } from '$lib/api/types.gen';
   import ChatPanel from '$lib/ui/ChatPanel.svelte';
   import ControlBar from '$lib/ui/ControlBar.svelte';
   import ParticipantPanel from '$lib/ui/ParticipantPanel.svelte';
   import ParticipantTile from './ParticipantTile.svelte';
+  import RemoteAudioRenderer from './RemoteAudioRenderer.svelte';
+  import { attachMediaTrack } from './mediaElement';
   import type { RoomState } from './room.svelte';
 
   let {
@@ -29,9 +30,7 @@
     ondeny?: (id: string) => void | Promise<void>;
   } = $props();
 
-  let focusParticipant = $derived(
-    rtc.participants.find((participant) => participant.screenShareTrack)
-  );
+  let focusParticipant = $derived(rtc.participants.find((participant) => participant.screenShare));
   let view = $state<'grid' | 'speaker'>('grid');
   let lastSpeakerIdentity = $state<string>();
 
@@ -56,6 +55,24 @@
     Math.min(3, Math.max(1, Math.ceil(Math.sqrt(rtc.participants.length))))
   );
   let gridRows = $derived(Math.max(1, Math.ceil(rtc.participants.length / gridColumns)));
+  let layoutMode = $derived(
+    focusParticipant
+      ? 'screen'
+      : view === 'speaker' && rtc.participants.length > 1
+        ? 'speaker'
+        : 'grid'
+  );
+  let speakerRailCount = $derived(
+    Math.max(1, rtc.participants.filter((participant) => participant !== promoted).length)
+  );
+  let exhaustedSubscription = $derived(
+    Object.values(rtc.subscriptionFailures).find(
+      (failure) => failure.recoverable && failure.exhausted
+    )
+  );
+  let mediaNeedsRecovery = $derived(
+    !rtc.canPlaybackAudio || !rtc.canPlaybackVideo || Boolean(exhaustedSubscription)
+  );
   let previousPendingCount = 0;
   let chatOpen = $state(false);
   let unreadChat = $state(0);
@@ -92,24 +109,12 @@
     }
   }
 
-  function attachTrack(node: HTMLMediaElement, track: Track) {
-    let attached = track;
-    attached.attach(node);
-
-    return {
-      update(next: Track) {
-        // Svelte re-fires action updates whenever the participants array is
-        // rebuilt; re-attaching the already-attached track resets the media
-        // element (black frame, audio dropout), so only swap real changes.
-        if (next === attached) return;
-        attached.detach(node);
-        attached = next;
-        attached.attach(node);
-      },
-      destroy() {
-        attached.detach(node);
-      }
-    };
+  function railRow(identity: string): number {
+    return (
+      rtc.participants
+        .filter((participant) => participant.identity !== promoted?.identity)
+        .findIndex((participant) => participant.identity === identity) + 1
+    );
   }
 </script>
 
@@ -130,71 +135,76 @@
     <ChatPanel {rtc} />
   {/if}
 
-  {#if focusParticipant && focusParticipant.screenShareTrack}
-    <section class="focus-layout" aria-label="Meeting participants">
+  {#if mediaNeedsRecovery}
+    <div class="media-recovery" role="alert" aria-live="polite" data-testid="media-recovery">
+      <span>Media paused</span>
+      <button
+        type="button"
+        disabled={rtc.mediaResumePending}
+        onclick={() => void rtc.resumeMedia()}
+      >
+        {rtc.mediaResumePending ? 'Resuming…' : 'Resume'}
+      </button>
+      {#if rtc.mediaPlaybackError}
+        <span class="media-error">{rtc.mediaPlaybackError}</span>
+      {:else if exhaustedSubscription}
+        <span class="media-error">{exhaustedSubscription.message}</span>
+      {/if}
+    </div>
+  {/if}
+
+  <section
+    class="media-layout"
+    class:grid-mode={layoutMode === 'grid'}
+    class:speaker-mode={layoutMode === 'speaker'}
+    class:screen-mode={layoutMode === 'screen'}
+    aria-label="Meeting participants"
+    data-layout={layoutMode}
+  >
+    {#if focusParticipant?.screenShare}
       <article class="focus-pane" data-testid="focus-pane">
-        <!-- Live screen share does not have a caption track. -->
-        <!-- svelte-ignore a11y_media_has_caption -->
-        <video
-          use:attachTrack={focusParticipant.screenShareTrack}
-          autoplay
-          playsinline
-          muted
-          aria-label={`${focusParticipant.name}'s screen share`}
-        ></video>
+        {#key focusParticipant.screenShare.publicationSid}
+          <!-- Live screen share does not have a caption track. -->
+          <video
+            use:attachMediaTrack={focusParticipant.screenShare}
+            autoplay
+            playsinline
+            muted
+            aria-label={`${focusParticipant.name}'s screen share`}
+          ></video>
+        {/key}
         <div class="focus-label">
           <span>{focusParticipant.name}</span>
           <span class="mono">Screen</span>
         </div>
       </article>
+    {/if}
 
-      <div class="camera-rail" aria-label="Participant cameras">
-        {#each rtc.participants as participant (participant.identity)}
-          <ParticipantTile
-            {participant}
-            fit="width"
-            speaking={rtc.activeSpeakerIdentities.includes(participant.identity)}
-          />
-        {/each}
-      </div>
-    </section>
-  {:else if view === 'speaker' && promoted && rtc.participants.length > 1}
-    <section class="focus-layout" aria-label="Meeting participants">
-      <div class="speaker-pane" data-testid="speaker-pane">
-        <ParticipantTile
-          participant={promoted}
-          fit="contain"
-          speaking={rtc.activeSpeakerIdentities.includes(promoted.identity)}
-        />
-      </div>
-      <div class="camera-rail" aria-label="Participant cameras">
-        <!-- The promoted participant renders only in the pane: their audio
-             elements live on the tile, so a rail copy would double audio. -->
-        {#each rtc.participants.filter((p) => p.identity !== promoted.identity) as participant (participant.identity)}
-          <ParticipantTile
-            {participant}
-            fit="width"
-            speaking={rtc.activeSpeakerIdentities.includes(participant.identity)}
-          />
-        {/each}
-      </div>
-    </section>
-  {:else}
-    <section
-      class="grid"
-      aria-label="Meeting participants"
+    <div
+      class="participant-list"
+      aria-label="Participant cameras"
       data-count={rtc.participants.length}
-      style={`--grid-columns: ${gridColumns}; --grid-rows: ${gridRows}`}
+      data-testid={layoutMode === 'speaker' ? 'speaker-pane' : undefined}
+      style={`--grid-columns: ${gridColumns}; --grid-rows: ${gridRows}; --speaker-rows: ${speakerRailCount}`}
     >
       {#each rtc.participants as participant (participant.identity)}
+        {@const isPromoted =
+          layoutMode === 'speaker' &&
+          rtc.participants.length > 1 &&
+          participant.identity === promoted?.identity}
         <ParticipantTile
           {participant}
-          fit="contain"
+          fit={layoutMode === 'grid' || isPromoted ? 'contain' : 'width'}
           speaking={rtc.activeSpeakerIdentities.includes(participant.identity)}
+          promoted={isPromoted}
+          rail={layoutMode === 'speaker' && !isPromoted}
+          railRow={railRow(participant.identity)}
         />
       {/each}
-    </section>
-  {/if}
+    </div>
+  </section>
+
+  <RemoteAudioRenderer participants={rtc.participants} />
 
   <ControlBar
     {rtc}
@@ -260,17 +270,51 @@
     text-transform: lowercase;
   }
 
-  .grid {
-    display: grid;
+  .media-layout {
     height: calc(100dvh - 128px);
+    min-height: 0;
+  }
+
+  .participant-list {
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .grid-mode .participant-list {
+    display: grid;
+    height: 100%;
     grid-template-columns: repeat(var(--grid-columns), minmax(0, 1fr));
     grid-template-rows: repeat(var(--grid-rows), minmax(0, 1fr));
     gap: 8px;
   }
 
-  .grid[data-count='1'] {
+  .grid-mode .participant-list[data-count='1'] {
     width: min(100%, 960px);
     margin-inline: auto;
+  }
+
+  .screen-mode {
+    display: grid;
+    grid-template-areas: 'focus rail';
+    grid-template-columns: minmax(0, 1fr) 160px;
+    gap: 8px;
+  }
+
+  .screen-mode .participant-list {
+    display: grid;
+    min-height: 0;
+    grid-area: rail;
+    grid-auto-rows: max-content;
+    gap: 8px;
+    overflow-y: auto;
+  }
+
+  .speaker-mode .participant-list {
+    display: grid;
+    height: 100%;
+    grid-template-columns: minmax(0, 1fr) 160px;
+    grid-template-rows: repeat(var(--speaker-rows), minmax(0, 1fr));
+    gap: 8px;
   }
 
   .focus-label {
@@ -289,13 +333,6 @@
     transition: color var(--motion-fast);
   }
 
-  .focus-layout {
-    display: grid;
-    height: calc(100dvh - 128px);
-    grid-template-columns: minmax(0, 1fr) 160px;
-    gap: 8px;
-  }
-
   .focus-pane {
     position: relative;
     display: grid;
@@ -305,12 +342,7 @@
     background: var(--stage);
     border: 1px solid var(--border-d);
     border-radius: var(--radius-tile);
-  }
-
-  .speaker-pane {
-    display: grid;
-    min-width: 0;
-    min-height: 0;
+    grid-area: focus;
   }
 
   .focus-pane video {
@@ -329,34 +361,76 @@
     text-transform: uppercase;
   }
 
-  .camera-rail {
-    display: grid;
-    min-height: 0;
-    grid-auto-rows: max-content;
-    gap: 8px;
-    overflow-y: auto;
+  .media-recovery {
+    position: fixed;
+    z-index: 20;
+    top: 48px;
+    left: 50%;
+    display: flex;
+    max-width: min(560px, calc(100vw - 24px));
+    align-items: center;
+    gap: 7px;
+    padding: 5px 8px;
+    color: var(--text);
+    font-size: 12px;
+    background: color-mix(in srgb, var(--panel-2) 94%, transparent);
+    border: 1px solid var(--border-d);
+    border-radius: var(--radius-control);
+    box-shadow: 0 6px 24px rgb(0 0 0 / 22%);
+    transform: translateX(-50%);
+  }
+
+  .media-recovery button {
+    padding: 2px 6px;
+    color: white;
+    font: inherit;
+    background: var(--accent-d);
+    border: 0;
+    border-radius: var(--radius-control);
+    cursor: pointer;
+  }
+
+  .media-recovery button:disabled {
+    cursor: wait;
+    opacity: 0.7;
+  }
+
+  .media-error {
+    color: var(--rec);
   }
 
   @media (max-width: 720px) {
-    .grid {
+    .media-layout {
       height: auto;
+    }
+
+    .grid-mode .participant-list,
+    .speaker-mode .participant-list,
+    .screen-mode .participant-list {
       grid-template-columns: 1fr;
       grid-template-rows: none;
       grid-auto-rows: auto;
     }
 
-    .focus-layout {
-      height: auto;
+    .screen-mode {
       grid-template-columns: 1fr;
+      grid-template-areas:
+        'focus'
+        'rail';
     }
 
     .focus-pane {
       min-height: 50dvh;
     }
 
-    .camera-rail {
+    .screen-mode .participant-list {
       grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
       overflow: visible;
+    }
+
+    :global(.speaker-mode .cell) {
+      grid-row: auto;
+      grid-column: 1;
     }
   }
 </style>

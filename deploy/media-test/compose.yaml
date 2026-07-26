@@ -1,0 +1,90 @@
+name: klisi-media-test
+
+services:
+  redis:
+    image: redis:7.4.5-alpine
+    command: redis-server --save "" --appendonly no --loglevel warning
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    networks:
+      media:
+        ipv4_address: 172.30.0.2
+
+  livekit:
+    image: livekit/livekit-server:v1.13.4
+    command: --config /etc/livekit.yaml --node-ip 172.30.0.3
+    volumes:
+      - ./livekit.yaml:/etc/livekit.yaml:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:7880/ || exit 1"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    networks:
+      media:
+        ipv4_address: 172.30.0.3
+
+  klisi:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+      args:
+        VITE_KLISI_TEST: "true"
+    environment:
+      KLISI_ADDR: :8080
+      KLISI_BASE_URL: http://klisi:8080
+      KLISI_DB_PATH: /data/klisi.db
+      KLISI_DEV_MODE: "true"
+      KLISI_LIVEKIT_URL: ws://livekit:7880
+      KLISI_LIVEKIT_PUBLIC_URL: ws://livekit:7880
+      KLISI_LIVEKIT_API_KEY: devkey
+      KLISI_LIVEKIT_API_SECRET: klisi-dev-secret-please-change-0000000000
+    depends_on:
+      livekit:
+        condition: service_healthy
+    tmpfs:
+      - /data:mode=1777
+    networks:
+      media:
+        ipv4_address: 172.30.0.4
+
+  runner:
+    build:
+      context: ../..
+      dockerfile: deploy/media-test/runner.Dockerfile
+    environment:
+      CI: "true"
+      KLISI_MEDIA_BASE_URL: http://klisi:8080
+      KLISI_MEDIA_ARTIFACTS: /artifacts
+      KLISI_MEDIA_SUITE: ${KLISI_MEDIA_SUITE:-deterministic}
+      KLISI_NETWORK_CHAOS: ${KLISI_NETWORK_CHAOS:-false}
+      FC_SEED: ${FC_SEED:-}
+      FC_COMMANDS: ${FC_COMMANDS:-75}
+      FC_RUNS: ${FC_RUNS:-1}
+    volumes:
+      - ${KLISI_MEDIA_ARTIFACT_DIR:?set KLISI_MEDIA_ARTIFACT_DIR}:/artifacts
+    depends_on:
+      livekit:
+        condition: service_healthy
+      klisi:
+        condition: service_started
+    cap_add:
+      - NET_ADMIN
+    init: true
+    shm_size: 1gb
+    networks:
+      media:
+        ipv4_address: 172.30.0.5
+
+networks:
+  media:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
