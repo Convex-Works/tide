@@ -13,7 +13,8 @@ func clearKlisiEnv(t *testing.T) {
 		"KLISI_ADDR", "KLISI_BASE_URL", "KLISI_SESSION_SECRET", "KLISI_DB_PATH",
 		"KLISI_LIVEKIT_URL", "KLISI_LIVEKIT_PUBLIC_URL", "KLISI_LIVEKIT_API_KEY",
 		"KLISI_LIVEKIT_API_SECRET", "KLISI_OIDC_ISSUER", "KLISI_OIDC_CLIENT_ID",
-		"KLISI_OIDC_CLIENT_SECRET", "KLISI_S3_ENDPOINT", "KLISI_S3_PUBLIC_ENDPOINT",
+		"KLISI_OIDC_CLIENT_SECRET", "KLISI_USER_GROUPS", "KLISI_ADMIN_GROUPS",
+		"KLISI_S3_ENDPOINT", "KLISI_S3_PUBLIC_ENDPOINT",
 		"KLISI_S3_EGRESS_ENDPOINT", "KLISI_S3_BUCKET", "KLISI_S3_ACCESS_KEY",
 		"KLISI_S3_SECRET_KEY", "KLISI_S3_REGION", "KLISI_EGRESS_TEMPLATE_URL",
 		"KLISI_DEV_MODE",
@@ -97,5 +98,23 @@ func TestLoadDevModeAppliesDevDefaults(t *testing.T) {
 	}
 	if cfg.SessionSecret != devSessionSecret {
 		t.Fatalf("expected dev session secret fallback, got %q", cfg.SessionSecret)
+	}
+}
+
+func TestLoadParsesOIDCGroups(t *testing.T) {
+	clearKlisiEnv(t)
+	t.Setenv("KLISI_DEV_MODE", "true")
+	t.Setenv("KLISI_USER_GROUPS", " klisi-users,staff,klisi-users ")
+	t.Setenv("KLISI_ADMIN_GROUPS", "admins, klisi-admins")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(cfg.UserGroups, ","); got != "klisi-users,staff" {
+		t.Fatalf("UserGroups = %q", got)
+	}
+	if got := strings.Join(cfg.AdminGroups, ","); got != "admins,klisi-admins" {
+		t.Fatalf("AdminGroups = %q", got)
 	}
 }

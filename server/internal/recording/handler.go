@@ -84,7 +84,7 @@ func NewHandler(
 }
 
 func (h *Handler) Start(w http.ResponseWriter, r *http.Request) {
-	room, session, ok := h.requireOwnerBySlug(w, r, "Only the room owner can start recording.")
+	room, session, ok := h.requireManagerBySlug(w, r, "Only a room administrator can start recording.")
 	if !ok {
 		return
 	}
@@ -152,7 +152,7 @@ func (h *Handler) Start(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Stop(w http.ResponseWriter, r *http.Request) {
-	room, _, ok := h.requireOwnerBySlug(w, r, "Only the room owner can stop recording.")
+	room, _, ok := h.requireManagerBySlug(w, r, "Only a room administrator can stop recording.")
 	if !ok {
 		return
 	}
@@ -195,7 +195,7 @@ func (h *Handler) Stop(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
-	room, _, ok := h.requireOwnerBySlug(w, r, "Only the room owner can view recordings.")
+	room, _, ok := h.requireManagerBySlug(w, r, "Only a room administrator can view recordings.")
 	if !ok {
 		return
 	}
@@ -212,7 +212,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
-	recording, ok := h.requireOwnerByRecording(w, r)
+	recording, ok := h.requireManagerByRecording(w, r)
 	if !ok {
 		return
 	}
@@ -234,7 +234,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Download(w http.ResponseWriter, r *http.Request) {
-	recording, ok := h.requireOwnerByRecording(w, r)
+	recording, ok := h.requireManagerByRecording(w, r)
 	if !ok {
 		return
 	}
@@ -250,11 +250,11 @@ func (h *Handler) Download(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, location, http.StatusFound)
 }
 
-func (h *Handler) requireOwnerBySlug(w http.ResponseWriter, r *http.Request, forbidden string) (store.Room, auth.Session, bool) {
-	return httpx.RequireRoomOwner(w, r, h.store, r.PathValue("slug"), forbidden)
+func (h *Handler) requireManagerBySlug(w http.ResponseWriter, r *http.Request, forbidden string) (store.Room, auth.Session, bool) {
+	return httpx.RequireRoomManager(w, r, h.store, r.PathValue("slug"), forbidden)
 }
 
-func (h *Handler) requireOwnerByRecording(w http.ResponseWriter, r *http.Request) (store.Recording, bool) {
+func (h *Handler) requireManagerByRecording(w http.ResponseWriter, r *http.Request) (store.Recording, bool) {
 	_, ok := auth.SessionFromContext(r.Context())
 	if !ok {
 		httpx.WriteError(w, http.StatusUnauthorized, "Authentication required.")
@@ -269,8 +269,8 @@ func (h *Handler) requireOwnerByRecording(w http.ResponseWriter, r *http.Request
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not load the recording. Try again.")
 		return store.Recording{}, false
 	}
-	if _, _, ok := httpx.RequireRoomOwner(
-		w, r, h.store, recording.RoomSlug, "Only the room owner can manage recordings.",
+	if _, _, ok := httpx.RequireRoomManager(
+		w, r, h.store, recording.RoomSlug, "Only a room administrator can manage recordings.",
 	); !ok {
 		return store.Recording{}, false
 	}

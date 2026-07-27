@@ -38,6 +38,8 @@ type OIDC struct {
 	clientSecret string
 	redirectURL  string
 	sessions     *Sessions
+	userGroups   []string
+	adminGroups  []string
 
 	mu       sync.Mutex
 	provider *oidc.Provider
@@ -50,6 +52,8 @@ func NewOIDC(cfg config.Config, sessions *Sessions) *OIDC {
 		clientSecret: cfg.OIDCClientSecret,
 		redirectURL:  strings.TrimRight(cfg.BaseURL, "/") + api.AuthCallbackPath,
 		sessions:     sessions,
+		userGroups:   cfg.UserGroups,
+		adminGroups:  cfg.AdminGroups,
 	}
 }
 
@@ -131,9 +135,10 @@ func (o *OIDC) Callback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var claims struct {
-		Sub   string `json:"sub"`
-		Email string `json:"email"`
-		Name  string `json:"name"`
+		Sub    string   `json:"sub"`
+		Email  string   `json:"email"`
+		Name   string   `json:"name"`
+		Groups []string `json:"groups"`
 	}
 	if err := idToken.Claims(&claims); err != nil || strings.TrimSpace(claims.Sub) == "" {
 		httpx.WriteError(w, http.StatusUnauthorized, "The identity token is missing required claims.")
@@ -142,7 +147,14 @@ func (o *OIDC) Callback(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(claims.Name) == "" {
 		claims.Name = claims.Email
 	}
-	if err := o.sessions.Set(w, Session{Sub: claims.Sub, Email: claims.Email, Name: claims.Name}); err != nil {
+	allowed, isAdmin := groupAccess(claims.Groups, o.userGroups, o.adminGroups)
+	if !allowed {
+		httpx.WriteError(w, http.StatusForbidden, "Your account is not allowed to access Klisi.")
+		return
+	}
+	if err := o.sessions.Set(w, Session{
+		Sub: claims.Sub, Email: claims.Email, Name: claims.Name, IsAdmin: isAdmin,
+	}); err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not create a session. Try again.")
 		return
 	}
@@ -187,8 +199,34 @@ func (o *OIDC) getProvider(ctx context.Context) (*oidc.Provider, error) {
 func (o *OIDC) oauthConfig(provider *oidc.Provider) *oauth2.Config {
 	return &oauth2.Config{
 		ClientID: o.clientID, ClientSecret: o.clientSecret, RedirectURL: o.redirectURL,
-		Endpoint: provider.Endpoint(), Scopes: []string{oidc.ScopeOpenID, "profile", "email"},
+		Endpoint: provider.Endpoint(), Scopes: oidcScopes(),
 	}
+}
+
+func oidcScopes() []string {
+	return []string{oidc.ScopeOpenID, "profile", "email", "groups"}
+}
+
+func groupAccess(groups, userGroups, adminGroups []string) (allowed, isAdmin bool) {
+	memberships := make(map[string]bool, len(groups))
+	for _, group := range groups {
+		memberships[group] = true
+	}
+	for _, group := range adminGroups {
+		if memberships[group] {
+			isAdmin = true
+			break
+		}
+	}
+	if isAdmin || len(userGroups) == 0 {
+		return true, isAdmin
+	}
+	for _, group := range userGroups {
+		if memberships[group] {
+			return true, false
+		}
+	}
+	return false, false
 }
 
 func (o *OIDC) clearState(w http.ResponseWriter) {

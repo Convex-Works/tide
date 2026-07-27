@@ -33,6 +33,8 @@ type Config struct {
 	OIDCIssuer        string
 	OIDCClientID      string
 	OIDCClientSecret  string
+	UserGroups        []string
+	AdminGroups       []string
 	S3Endpoint        string
 	S3PublicEndpoint  string
 	S3EgressEndpoint  string
@@ -74,6 +76,8 @@ func Load() (Config, error) {
 		OIDCIssuer:        env("KLISI_OIDC_ISSUER", "http://localhost:5556/dex"),
 		OIDCClientID:      env("KLISI_OIDC_CLIENT_ID", "klisi"),
 		OIDCClientSecret:  secret("KLISI_OIDC_CLIENT_SECRET", devOIDCSecret),
+		UserGroups:        parseList(env("KLISI_USER_GROUPS", "")),
+		AdminGroups:       parseList(env("KLISI_ADMIN_GROUPS", "")),
 		S3Endpoint:        env("KLISI_S3_ENDPOINT", "http://localhost:9000"),
 		S3PublicEndpoint:  env("KLISI_S3_PUBLIC_ENDPOINT", "http://localhost:9000"),
 		S3EgressEndpoint:  env("KLISI_S3_EGRESS_ENDPOINT", "http://minio:9000"),
@@ -95,6 +99,22 @@ func Load() (Config, error) {
 		}
 	}
 	return cfg, nil
+}
+
+// parseList returns a stable, deduplicated comma-separated configuration list.
+// OIDC group names are case-sensitive, so values are trimmed but not folded.
+func parseList(raw string) []string {
+	seen := make(map[string]bool)
+	values := make([]string, 0)
+	for _, entry := range strings.Split(raw, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" || seen[entry] {
+			continue
+		}
+		seen[entry] = true
+		values = append(values, entry)
+	}
+	return values
 }
 
 // validateProduction rejects any secret that is missing, a shipped dev

@@ -39,7 +39,7 @@ func NewHandler(rooms roomStore, service RoomService, denylist *Denylist) *Handl
 }
 
 func (h *Handler) Kick(w http.ResponseWriter, r *http.Request) {
-	room, ok := h.requireOwner(w, r)
+	room, ok := h.requireManager(w, r)
 	if !ok {
 		return
 	}
@@ -77,7 +77,7 @@ func (h *Handler) EnforceOnJoin(ctx context.Context, room, identity string) {
 }
 
 func (h *Handler) Mute(w http.ResponseWriter, r *http.Request) {
-	room, ok := h.requireOwner(w, r)
+	room, ok := h.requireManager(w, r)
 	if !ok {
 		return
 	}
@@ -111,7 +111,7 @@ func (h *Handler) Mute(w http.ResponseWriter, r *http.Request) {
 // starts a fresh meeting. Any active egress ends with the room; the webhook
 // and reconciler finalize its recording row as usual.
 func (h *Handler) EndMeeting(w http.ResponseWriter, r *http.Request) {
-	room, ok := h.requireOwner(w, r)
+	room, ok := h.requireManager(w, r)
 	if !ok {
 		return
 	}
@@ -138,9 +138,9 @@ func isOwnerIdentity(identity, ownerSub string) bool {
 	return identity == prefix || strings.HasPrefix(identity, prefix+":")
 }
 
-func (h *Handler) requireOwner(w http.ResponseWriter, r *http.Request) (store.Room, bool) {
-	room, _, ok := httpx.RequireRoomOwner(
-		w, r, h.store, r.PathValue("slug"), "Only the room owner can moderate participants.",
+func (h *Handler) requireManager(w http.ResponseWriter, r *http.Request) (store.Room, bool) {
+	room, _, ok := httpx.RequireRoomManager(
+		w, r, h.store, r.PathValue("slug"), "Only a room administrator can moderate participants.",
 	)
 	if !ok {
 		return store.Room{}, false

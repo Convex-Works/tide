@@ -40,7 +40,7 @@
   let details = $state<PublicRoomInfo>();
   let name = $state('');
   let error = $state('');
-  let isOwner = $state(false);
+  let canManage = $state(false);
   let pending = $state<LobbyRequestInfo[]>([]);
   let peopleOpen = $state(false);
   let lobbyError = $state('');
@@ -91,7 +91,7 @@
       return;
     }
 
-    isOwner = details.is_owner;
+    canManage = details.can_manage;
     try {
       const user = await me();
       name = user.name;
@@ -108,7 +108,7 @@
     try {
       await rtc.connect(admission.ws_url, admission.token, options);
       meetingState = 'connected';
-      if (isOwner) subscribeToHostLobby();
+      if (canManage) subscribeToHostLobby();
     } catch {
       error = 'Could not connect to the meeting. Check your connection and try again.';
       setConnectionChrome('connected');
@@ -241,9 +241,9 @@
 {#if meetingState === 'connected'}
   <RoomStage
     {rtc}
-    roomName={slug}
+    roomSlug={slug}
     onleave={leaveMeeting}
-    {isOwner}
+    {canManage}
     {pending}
     bind:peopleOpen
     {lobbyError}
@@ -268,14 +268,14 @@
   </main>
 {:else if meetingState === 'joining'}
   <main class="meeting-state" aria-live="polite">
-    <span class="slug mono">{slug}</span>
+    <span class="room-name">{details?.name ?? 'Room'}</span>
     <p>Joining…</p>
   </main>
 {:else if meetingState === 'waiting'}
   <main class="meeting-state" aria-live="polite">
     <span class="waiting-dot" aria-hidden="true"></span>
     <h1>Waiting for the host to let you in.</h1>
-    <span class="slug mono">{slug}</span>
+    <span class="room-name">{details?.name ?? 'Room'}</span>
   </main>
 {:else if meetingState === 'denied'}
   <main class="meeting-state">
@@ -343,7 +343,7 @@
     font-size: 12px;
   }
 
-  .slug {
+  .room-name {
     padding: 2px 7px;
     color: var(--ink-2);
     font-size: 11px;

@@ -76,6 +76,10 @@ spec:
                 secretKeyRef:
                   name: klisi-secrets
                   key: oidc-client-secret
+            - name: KLISI_USER_GROUPS
+              value: "" # OVERLAY: Optional comma-separated OIDC groups allowed to sign in.
+            - name: KLISI_ADMIN_GROUPS
+              value: "" # OVERLAY: Optional comma-separated OIDC groups that administer every room.
             - name: KLISI_S3_ENDPOINT
               value: http://s3.storage.svc.cluster.local:9000 # OVERLAY: Set the klisi-server view of S3.
             - name: KLISI_S3_PUBLIC_ENDPOINT

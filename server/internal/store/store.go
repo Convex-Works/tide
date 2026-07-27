@@ -206,6 +206,25 @@ func (s *Store) RoomsByOwner(ctx context.Context, ownerSub string) ([]Room, erro
 	return rooms, rows.Err()
 }
 
+func (s *Store) Rooms(ctx context.Context) ([]Room, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT `+roomColumns+` FROM rooms ORDER BY created_at DESC, slug`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	rooms := make([]Room, 0)
+	for rows.Next() {
+		room, err := scanRoom(rows)
+		if err != nil {
+			return nil, err
+		}
+		rooms = append(rooms, room)
+	}
+	return rooms, rows.Err()
+}
+
 // TouchRoomActive records that a room saw activity at ts (Unix seconds),
 // advancing last_active_at monotonically so out-of-order webhook delivery can
 // never move the timestamp backwards.
@@ -217,14 +236,30 @@ func (s *Store) TouchRoomActive(ctx context.Context, slug string, ts int64) erro
 }
 
 func (s *Store) UpdateRoom(ctx context.Context, room Room) error {
-	result, err := s.db.ExecContext(ctx, `
-		UPDATE rooms SET name = ?, lobby_enabled = ? WHERE id = ?`,
-		room.Name, room.LobbyEnabled, room.ID,
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	result, err := tx.ExecContext(ctx, `
+		UPDATE rooms SET slug = ?, name = ?, lobby_enabled = ? WHERE id = ?`,
+		room.Slug, room.Name, room.LobbyEnabled, room.ID,
 	)
 	if err != nil {
 		return err
 	}
-	return requireChanged(result)
+	if err := requireChanged(result); err != nil {
+		return err
+	}
+	// Recordings are addressed through their room's current slug. Keep the
+	// denormalized value aligned so lists, authorization, and deletion continue
+	// to work after the owner changes the meeting URL.
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE recordings SET room_slug = ? WHERE room_id = ?`, room.Slug, room.ID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (s *Store) DeleteRoom(ctx context.Context, id string) error {

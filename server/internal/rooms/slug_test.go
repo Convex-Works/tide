@@ -1,6 +1,7 @@
 package rooms
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"regexp"
@@ -15,8 +16,36 @@ func TestSlugFormat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !regexp.MustCompile(`^[a-z]+-[a-z]+-[1-9][0-9]{2}$`).MatchString(slug) {
+	if !regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`).MatchString(slug) {
 		t.Fatalf("GenerateSlug() = %q", slug)
+	}
+}
+
+func TestGenerateSlugSetsUUIDVersionAndVariant(t *testing.T) {
+	slug, err := generateSlug(bytes.NewReader(make([]byte, 16)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if slug != "00000000-0000-4000-8000-000000000000" {
+		t.Fatalf("generateSlug() = %q", slug)
+	}
+}
+
+func TestCustomSlugValidation(t *testing.T) {
+	valid := []string{"abc", "team-weekly", "room-42", "00000000-0000-4000-8000-000000000000"}
+	for _, slug := range valid {
+		if err := validateSlug(slug); err != nil {
+			t.Errorf("validateSlug(%q) = %v", slug, err)
+		}
+	}
+	invalid := []string{"ab", "-team", "team-", "team--weekly", "team weekly", "team_weekly", "Team"}
+	for _, slug := range invalid {
+		if err := validateSlug(slug); err == nil {
+			t.Errorf("validateSlug(%q) unexpectedly succeeded", slug)
+		}
+	}
+	if got := normalizeSlug("  Team-Weekly "); got != "team-weekly" {
+		t.Errorf("normalizeSlug() = %q", got)
 	}
 }
 
@@ -37,7 +66,10 @@ func (s *collisionStore) CreateRoom(_ context.Context, room store.Room) error {
 func TestCreateRetriesSlugCollision(t *testing.T) {
 	roomStore := &collisionStore{}
 	service := NewService(roomStore)
-	candidates := []string{"calm-otter-412", "quiet-fox-713"}
+	candidates := []string{
+		"00000000-0000-4000-8000-000000000001",
+		"00000000-0000-4000-8000-000000000002",
+	}
 	service.generateSlug = func() (string, error) {
 		next := candidates[0]
 		candidates = candidates[1:]
@@ -50,7 +82,9 @@ func TestCreateRetriesSlugCollision(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if roomStore.calls != 2 || room.Slug != "quiet-fox-713" || roomStore.room != room {
+	if roomStore.calls != 2 ||
+		room.Slug != "00000000-0000-4000-8000-000000000002" ||
+		roomStore.room != room {
 		t.Fatalf("Create() = %#v after %d calls", room, roomStore.calls)
 	}
 }

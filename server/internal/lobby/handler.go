@@ -101,15 +101,14 @@ func (h *Handler) Join(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if session, ok := auth.SessionFromContext(r.Context()); ok && session.Sub == room.OwnerSub {
+	if session, ok := auth.SessionFromContext(r.Context()); ok && httpx.CanManageRoom(session, room) {
 		hostName := strings.TrimSpace(session.Name)
 		if hostName == "" {
 			hostName = name
 		}
 		// LiveKit allows one participant per identity, so a stable host
 		// identity would make every new tab disconnect the previous one. The
-		// nonce keeps each connection distinct; moderation matches the
-		// "host:<sub>" prefix when protecting the owner.
+		// nonce keeps each manager connection distinct.
 		nonce, err := randomHex(4)
 		if err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "Could not join the room. Try again.")
@@ -182,7 +181,7 @@ func (h *Handler) Wait(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Host(w http.ResponseWriter, r *http.Request) {
-	room, ok := h.requireOwner(w, r, r.PathValue("slug"))
+	room, ok := h.requireManager(w, r, r.PathValue("slug"))
 	if !ok {
 		return
 	}
@@ -261,15 +260,15 @@ func (h *Handler) authorizeRequest(w http.ResponseWriter, r *http.Request) (Requ
 		httpx.WriteError(w, http.StatusNotFound, "Lobby request not found.")
 		return Request{}, false
 	}
-	if _, ok := h.requireOwner(w, r, request.RoomSlug); !ok {
+	if _, ok := h.requireManager(w, r, request.RoomSlug); !ok {
 		return Request{}, false
 	}
 	return request, true
 }
 
-func (h *Handler) requireOwner(w http.ResponseWriter, r *http.Request, slug string) (store.Room, bool) {
-	room, _, ok := httpx.RequireRoomOwner(
-		w, r, h.store, slug, "Only the room owner can manage this lobby.",
+func (h *Handler) requireManager(w http.ResponseWriter, r *http.Request, slug string) (store.Room, bool) {
+	room, _, ok := httpx.RequireRoomManager(
+		w, r, h.store, slug, "Only a room administrator can manage this lobby.",
 	)
 	if !ok {
 		return store.Room{}, false

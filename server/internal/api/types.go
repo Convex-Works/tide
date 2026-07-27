@@ -60,9 +60,9 @@ type PublicRoomInfo struct {
 	Slug         string `json:"slug"`
 	Name         string `json:"name"`
 	LobbyEnabled bool   `json:"lobby_enabled"`
-	// IsOwner is true when the requesting session owns this room; the
-	// capability itself is still enforced server-side on every route.
-	IsOwner bool `json:"is_owner"`
+	// CanManage is true when the requesting session owns this room or is a
+	// global administrator. The capability is enforced server-side on every route.
+	CanManage bool `json:"can_manage"`
 }
 
 type CreateRoomRequest struct {
@@ -71,6 +71,7 @@ type CreateRoomRequest struct {
 
 type UpdateRoomRequest struct {
 	Name         *string `json:"name,omitempty"`
+	Slug         *string `json:"slug,omitempty"`
 	LobbyEnabled *bool   `json:"lobby_enabled,omitempty"`
 }
 

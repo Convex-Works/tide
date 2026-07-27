@@ -42,7 +42,11 @@ func DecodeJSON(w http.ResponseWriter, r *http.Request, target any) error {
 	return nil
 }
 
-func RequireRoomOwner(
+func CanManageRoom(session sessionctx.Session, room store.Room) bool {
+	return session.IsAdmin || room.OwnerSub == session.Sub
+}
+
+func RequireRoomManager(
 	w http.ResponseWriter,
 	r *http.Request,
 	rooms RoomLoader,
@@ -63,7 +67,7 @@ func RequireRoomOwner(
 		WriteError(w, http.StatusInternalServerError, "Could not load the room. Try again.")
 		return store.Room{}, sessionctx.Session{}, false
 	}
-	if room.OwnerSub != session.Sub {
+	if !CanManageRoom(session, room) {
 		WriteError(w, http.StatusForbidden, forbidden)
 		return store.Room{}, sessionctx.Session{}, false
 	}

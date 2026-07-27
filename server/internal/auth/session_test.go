@@ -15,7 +15,7 @@ func TestSessionRoundTripAndAttributes(t *testing.T) {
 	sessions := NewSessions("test-secret", "https://klisi.example", nil)
 	sessions.now = func() time.Time { return now }
 	recorder := httptest.NewRecorder()
-	want := Session{Sub: "subject", Email: "host@example.com", Name: "Host"}
+	want := Session{Sub: "subject", Email: "host@example.com", Name: "Host", IsAdmin: true}
 	if err := sessions.Set(recorder, want); err != nil {
 		t.Fatal(err)
 	}

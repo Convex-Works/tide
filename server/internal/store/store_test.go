@@ -30,6 +30,8 @@ func TestRoomCRUD(t *testing.T) {
 	}
 
 	want.Name = "Renamed"
+	oldSlug := want.Slug
+	want.Slug = "weekly-team"
 	want.LobbyEnabled = false
 	if err := db.UpdateRoom(ctx, want); err != nil {
 		t.Fatal(err)
@@ -38,12 +40,39 @@ func TestRoomCRUD(t *testing.T) {
 	if err != nil || got != want {
 		t.Fatalf("updated room = %#v, %v; want %#v", got, err, want)
 	}
+	if _, err := db.RoomBySlug(ctx, oldSlug); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("old slug should be unavailable, err = %v", err)
+	}
 
 	if err := db.DeleteRoom(ctx, want.ID); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.RoomBySlug(ctx, want.Slug); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("RoomBySlug after delete error = %v", err)
+	}
+}
+
+func TestRoomsReturnsEveryOwner(t *testing.T) {
+	db, err := Open("file::memory:?cache=shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	ctx := context.Background()
+	for _, room := range []Room{
+		{ID: "room-1", Slug: "one", Name: "One", OwnerSub: "owner-1", CreatedAt: 1},
+		{ID: "room-2", Slug: "two", Name: "Two", OwnerSub: "owner-2", CreatedAt: 2},
+	} {
+		if err := db.CreateRoom(ctx, room); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rooms, err := db.Rooms(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rooms) != 2 || rooms[0].ID != "room-2" || rooms[1].ID != "room-1" {
+		t.Fatalf("Rooms() = %#v", rooms)
 	}
 }
 

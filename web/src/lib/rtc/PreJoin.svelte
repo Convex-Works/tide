@@ -266,8 +266,6 @@
           <span>Room</span>
           <input class="mono" bind:value={room} name="room" autocomplete="off" required />
         </label>
-      {:else}
-        <div class="room-chip mono">{room}</div>
       {/if}
 
       <label>
@@ -435,17 +433,6 @@
     margin-bottom: 8px;
     font-size: 24px;
     line-height: 30px;
-  }
-
-  .room-chip {
-    display: inline-block;
-    margin-bottom: 16px;
-    padding: 2px 7px;
-    color: var(--ink-2);
-    font-size: 11px;
-    line-height: 18px;
-    border: 1px solid var(--border);
-    border-radius: 999px;
   }
 
   label {

@@ -61,16 +61,17 @@ export interface PublicRoomInfo {
   name: string;
   lobby_enabled: boolean;
   /**
-   * IsOwner is true when the requesting session owns this room; the
-   * capability itself is still enforced server-side on every route.
+   * CanManage is true when the requesting session owns this room or is a
+   * global administrator. The capability is enforced server-side on every route.
    */
-  is_owner: boolean;
+  can_manage: boolean;
 }
 export interface CreateRoomRequest {
   name: string;
 }
 export interface UpdateRoomRequest {
   name?: string;
+  slug?: string;
   lobby_enabled?: boolean;
 }
 export interface JoinRequest {

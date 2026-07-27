@@ -10,9 +10,9 @@
 
   let {
     rtc,
-    roomName,
+    roomSlug,
     onleave,
-    isOwner = false,
+    canManage = false,
     pending = [],
     peopleOpen = $bindable(false),
     lobbyError = '',
@@ -20,9 +20,9 @@
     ondeny = () => undefined
   }: {
     rtc: RoomState;
-    roomName: string;
+    roomSlug: string;
     onleave: () => void;
-    isOwner?: boolean;
+    canManage?: boolean;
     pending?: LobbyRequestInfo[];
     peopleOpen?: boolean;
     lobbyError?: string;
@@ -121,7 +121,6 @@
 <main class="stage">
   <header class="stage-header">
     <div class="room-status">
-      <span class="slug mono">{roomName}</span>
       {#if rtc.isRecording}<span class="rec-chip mono" data-testid="recording-chip">REC</span>{/if}
     </div>
     {#if rtc.connectionState !== 'connected'}
@@ -130,7 +129,7 @@
   </header>
 
   {#if peopleOpen}
-    <ParticipantPanel {rtc} slug={roomName} {isOwner} {pending} {lobbyError} {onadmit} {ondeny} />
+    <ParticipantPanel {rtc} slug={roomSlug} {canManage} {pending} {lobbyError} {onadmit} {ondeny} />
   {:else if chatOpen}
     <ChatPanel {rtc} />
   {/if}
@@ -212,9 +211,9 @@
     {peopleOpen}
     {chatOpen}
     {unreadChat}
-    {isOwner}
+    {canManage}
     {view}
-    roomSlug={roomName}
+    {roomSlug}
     ontogglepeople={togglePeople}
     ontogglechat={toggleChat}
     ontoggleview={() => (view = view === 'grid' ? 'speaker' : 'grid')}
@@ -237,15 +236,6 @@
     align-items: center;
     justify-content: space-between;
     margin-bottom: 8px;
-  }
-
-  .slug {
-    padding: 2px 7px;
-    color: var(--text);
-    font-size: 11px;
-    line-height: 18px;
-    border: 1px solid var(--border-d);
-    border-radius: 999px;
   }
 
   .room-status {

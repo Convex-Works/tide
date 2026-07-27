@@ -94,7 +94,10 @@ klisi/
 **Hosts** authenticate with any OIDC provider (authorization code flow,
 config-driven: issuer, client ID/secret, redirect URL). On callback, the klisi
 server creates a session: an HttpOnly, Secure, SameSite=Lax cookie containing an
-HMAC-signed payload (subject, email, name, expiry). No session table.
+HMAC-signed payload (subject, email, name, global-admin capability, expiry). No
+session table. Optional comma-separated user and administrator group policies
+are evaluated from the verified OIDC `groups` claim at sign-in. Administrators
+can manage every room; ordinary hosts manage rooms they own.
 
 **Guests** never authenticate. They exist only as a display name typed on the
 pre-join screen and admitted through the lobby.
@@ -116,8 +119,9 @@ display name travels in the token's `name` field.
 ## 5. Rooms and meeting URLs
 
 - A room row: `id, slug, name, owner_sub, lobby_enabled (default true), created_at`.
-- Slug format: `word-word-NNN` (e.g. `calm-otter-412`) — readable, typeable,
-  unguessable enough combined with the lobby. Meeting URL: `https://…/m/calm-otter-412`.
+- New rooms receive an opaque UUID v4 slug by default. Owners can replace it
+  with a unique 3–64 character lowercase slug containing letters, numbers, and
+  single hyphens while the room is idle. Meeting URL: `https://…/m/<slug>`.
 - Any authenticated host can create rooms; the creator is the room's owner.
   Rooms are persistent (reusable URLs), meetings are implicit sessions within
   them (LiveKit room created on first join, destroyed on last leave).
@@ -254,8 +258,8 @@ Tokens:
 Typography: **Inter** (variable) for all UI — base 13px/20px, weights 450/550,
 scale 11 / 12.5 / 13 / 15 / 18, with 24px reserved for the pre-join room name.
 **Geist Mono** for anything machine-flavored: room slugs, timers, participant
-counts, keyboard shortcuts. The slug is always a mono chip
-(`calm-otter-412` in a bordered pill) — it is the product's recurring artifact.
+counts, keyboard shortcuts. The human room name is shown during join and lobby
+transitions; internal room slugs are kept out of the meeting UI.
 
 Geometry: 4px spacing base; controls 28px tall; panel padding 12px; gaps 8px;
 radius 4px (controls), 6px (cards/panels), 8px (video tiles). Borders are 1px,
@@ -302,6 +306,7 @@ KLISI_SESSION_SECRET=…           KLISI_DB_PATH=./data/klisi.db
 KLISI_LIVEKIT_URL=ws://…:7880    KLISI_LIVEKIT_PUBLIC_URL=wss://…
 KLISI_LIVEKIT_API_KEY=…          KLISI_LIVEKIT_API_SECRET=…
 KLISI_OIDC_ISSUER=…              KLISI_OIDC_CLIENT_ID / _CLIENT_SECRET
+KLISI_USER_GROUPS=…              KLISI_ADMIN_GROUPS=…
 KLISI_S3_ENDPOINT=…              KLISI_S3_PUBLIC_ENDPOINT=…
 KLISI_S3_EGRESS_ENDPOINT=…       KLISI_S3_BUCKET / _ACCESS_KEY / _SECRET_KEY
 KLISI_S3_REGION=…                KLISI_EGRESS_TEMPLATE_URL=…

@@ -1,6 +1,7 @@
 package rooms
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -51,7 +52,7 @@ func deleteTestHandler(t *testing.T) (*Handler, *fakeObjectStore, *store.Store, 
 		t.Fatal(err)
 	}
 	objects := &fakeObjectStore{}
-	return NewHandler(db, objects, nil), objects, db, room
+	return NewHandler(db, objects, nil, nil), objects, db, room
 }
 
 func TestListEnrichesLiveState(t *testing.T) {
@@ -73,7 +74,7 @@ func TestListEnrichesLiveState(t *testing.T) {
 	}
 
 	live := &fakeLiveSource{rooms: map[string]LiveRoom{"live-one": {NumParticipants: 2, Recording: true}}}
-	handler := NewHandler(db, &fakeObjectStore{}, live)
+	handler := NewHandler(db, &fakeObjectStore{}, live, nil)
 
 	request := httptest.NewRequest(http.MethodGet, "/api/rooms", nil)
 	request = request.WithContext(auth.WithSession(request.Context(), auth.Session{Sub: owner}))
@@ -96,6 +97,171 @@ func TestListEnrichesLiveState(t *testing.T) {
 	}
 	if got := bySlug["idle-one"]; got.Active || got.LastActiveAt == nil || *got.LastActiveAt != 1000 {
 		t.Errorf("idle-one wrong: %+v", got)
+	}
+}
+
+func TestListAdminSeesRoomsFromEveryOwner(t *testing.T) {
+	db, err := store.Open("file::memory:?cache=shared")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	ctx := context.Background()
+	for _, room := range []store.Room{
+		{ID: "room-a", Slug: "room-a", Name: "A", OwnerSub: "owner-a", CreatedAt: 1},
+		{ID: "room-b", Slug: "room-b", Name: "B", OwnerSub: "owner-b", CreatedAt: 2},
+	} {
+		if err := db.CreateRoom(ctx, room); err != nil {
+			t.Fatal(err)
+		}
+	}
+	handler := NewHandler(db, &fakeObjectStore{}, nil, nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/rooms", nil)
+	request = request.WithContext(auth.WithSession(request.Context(), auth.Session{
+		Sub: "admin", IsAdmin: true,
+	}))
+	response := httptest.NewRecorder()
+
+	handler.List(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var listed []api.RoomInfo
+	if err := json.Unmarshal(response.Body.Bytes(), &listed); err != nil {
+		t.Fatal(err)
+	}
+	if len(listed) != 2 {
+		t.Fatalf("listed rooms = %#v", listed)
+	}
+}
+
+func updateRequest(slug, sessionSub string, body string) *http.Request {
+	request := httptest.NewRequest(http.MethodPatch, "/api/rooms/"+slug, bytes.NewBufferString(body))
+	request.SetPathValue("slug", slug)
+	return request.WithContext(auth.WithSession(request.Context(), auth.Session{Sub: sessionSub}))
+}
+
+func TestUpdateChangesSlugAndKeepsRecordingsAddressable(t *testing.T) {
+	handler, _, db, room := deleteTestHandler(t)
+	if err := db.InsertRecording(context.Background(), store.Recording{
+		ID: "rec-rename", RoomID: room.ID, RoomSlug: room.Slug, EgressID: "egress-rename",
+		Status: "completed", StartedBy: "owner", StartedAt: 100,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	response := httptest.NewRecorder()
+	handler.Update(response, updateRequest(room.Slug, "owner", `{"slug":"Team-Weekly"}`))
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	updated, err := db.RoomBySlug(context.Background(), "team-weekly")
+	if err != nil || updated.ID != room.ID {
+		t.Fatalf("updated room = %#v, %v", updated, err)
+	}
+	if _, err := db.RoomBySlug(context.Background(), room.Slug); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("old slug should be unavailable, err = %v", err)
+	}
+	recordings, err := db.RecordingsByRoomSlug(context.Background(), "team-weekly")
+	if err != nil || len(recordings) != 1 || recordings[0].RoomSlug != "team-weekly" {
+		t.Fatalf("renamed recordings = %#v, %v", recordings, err)
+	}
+}
+
+func TestAdminCanUpdateRoomOwnedBySomeoneElse(t *testing.T) {
+	handler, _, db, room := deleteTestHandler(t)
+	request := updateRequest(room.Slug, "admin", `{"name":"Admin renamed"}`)
+	request = request.WithContext(auth.WithSession(request.Context(), auth.Session{
+		Sub: "admin", IsAdmin: true,
+	}))
+	response := httptest.NewRecorder()
+
+	handler.Update(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	updated, err := db.RoomBySlug(context.Background(), room.Slug)
+	if err != nil || updated.Name != "Admin renamed" {
+		t.Fatalf("updated room = %#v, %v", updated, err)
+	}
+}
+
+func TestPublicReportsAdminManagementCapability(t *testing.T) {
+	handler, _, _, room := deleteTestHandler(t)
+	request := httptest.NewRequest(http.MethodGet, "/api/rooms/"+room.Slug, nil)
+	request.SetPathValue("slug", room.Slug)
+	request = request.WithContext(auth.WithSession(request.Context(), auth.Session{
+		Sub: "admin", IsAdmin: true,
+	}))
+	response := httptest.NewRecorder()
+
+	handler.Public(response, request)
+
+	var info api.PublicRoomInfo
+	if err := json.Unmarshal(response.Body.Bytes(), &info); err != nil {
+		t.Fatal(err)
+	}
+	if response.Code != http.StatusOK || !info.CanManage {
+		t.Fatalf("status/info = %d/%#v", response.Code, info)
+	}
+}
+
+func TestUpdateRejectsInvalidOrUnavailableSlug(t *testing.T) {
+	tests := []struct {
+		name string
+		live *fakeLiveSource
+		body string
+		code int
+	}{
+		{name: "invalid", body: `{"slug":"not valid!"}`, code: http.StatusBadRequest},
+		{
+			name: "active",
+			live: &fakeLiveSource{rooms: map[string]LiveRoom{
+				"calm-otter-412": {NumParticipants: 1},
+			}},
+			body: `{"slug":"new-link"}`,
+			code: http.StatusConflict,
+		},
+		{
+			name: "live state unavailable",
+			live: &fakeLiveSource{err: errors.New("livekit unavailable")},
+			body: `{"slug":"new-link"}`,
+			code: http.StatusServiceUnavailable,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			_, _, db, room := deleteTestHandler(t)
+			handler := NewHandler(db, &fakeObjectStore{}, test.live, nil)
+			response := httptest.NewRecorder()
+			handler.Update(response, updateRequest(room.Slug, "owner", test.body))
+			if response.Code != test.code {
+				t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+			}
+			if _, err := db.RoomBySlug(context.Background(), room.Slug); err != nil {
+				t.Fatalf("original room must remain: %v", err)
+			}
+		})
+	}
+}
+
+func TestUpdateRejectsDuplicateSlug(t *testing.T) {
+	handler, _, db, room := deleteTestHandler(t)
+	if err := db.CreateRoom(context.Background(), store.Room{
+		ID: "room-2", Slug: "taken-link", Name: "Taken", OwnerSub: "owner", CreatedAt: 2,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	response := httptest.NewRecorder()
+	handler.Update(response, updateRequest(room.Slug, "owner", `{"slug":"taken-link"}`))
+
+	if response.Code != http.StatusConflict {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
 	}
 }
 

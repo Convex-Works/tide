@@ -37,6 +37,9 @@ func TestJoinPolicyMatrix(t *testing.T) {
 	}
 	handler, _ := New(cfg, nil, db)
 	ownerCookie := makeSessionCookie(t, cfg, auth.Session{Sub: "owner", Email: "owner@example.com", Name: "Owner"})
+	adminCookie := makeSessionCookie(t, cfg, auth.Session{
+		Sub: "admin", Email: "admin@example.com", Name: "Admin", IsAdmin: true,
+	})
 
 	tests := []struct {
 		name        string
@@ -47,6 +50,7 @@ func TestJoinPolicyMatrix(t *testing.T) {
 		wantRequest bool
 	}{
 		{name: "owner bypasses lobby", slug: rooms[0].Slug, cookie: ownerCookie, wantStatus: "admitted", wantToken: true},
+		{name: "global admin bypasses lobby", slug: rooms[0].Slug, cookie: adminCookie, wantStatus: "admitted", wantToken: true},
 		{name: "guest waits when lobby enabled", slug: rooms[0].Slug, wantStatus: "waiting", wantRequest: true},
 		{name: "guest enters when lobby disabled", slug: rooms[1].Slug, wantStatus: "admitted", wantToken: true},
 	}

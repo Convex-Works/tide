@@ -84,11 +84,12 @@ func TestDecodeJSONLimitsBody(t *testing.T) {
 	}
 }
 
-func TestRequireRoomOwner(t *testing.T) {
+func TestRequireRoomManager(t *testing.T) {
 	databaseError := errors.New("database unavailable")
 	tests := []struct {
 		name       string
 		sessionSub string
+		admin      bool
 		room       store.Room
 		loadErr    error
 		wantStatus int
@@ -100,18 +101,21 @@ func TestRequireRoomOwner(t *testing.T) {
 		{name: "load failure", sessionSub: "owner", loadErr: databaseError, wantStatus: http.StatusInternalServerError, wantBody: "{\"error\":\"Could not load the room. Try again.\"}\n"},
 		{name: "not owner", sessionSub: "guest", room: store.Room{OwnerSub: "owner"}, wantStatus: http.StatusForbidden, wantBody: "{\"error\":\"Owners only.\"}\n"},
 		{name: "owner", sessionSub: "owner", room: store.Room{Slug: "room", OwnerSub: "owner"}, wantStatus: http.StatusOK, wantOK: true},
+		{name: "global admin", sessionSub: "admin", admin: true, room: store.Room{Slug: "room", OwnerSub: "owner"}, wantStatus: http.StatusOK, wantOK: true},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			request := httptest.NewRequest(http.MethodGet, "/rooms/room", nil)
 			if test.sessionSub != "" {
-				request = request.WithContext(auth.WithSession(request.Context(), auth.Session{Sub: test.sessionSub}))
+				request = request.WithContext(auth.WithSession(request.Context(), auth.Session{
+					Sub: test.sessionSub, IsAdmin: test.admin,
+				}))
 			}
 			loader := roomLoaderFunc(func(context.Context, string) (store.Room, error) {
 				return test.room, test.loadErr
 			})
-			room, session, ok := httpx.RequireRoomOwner(recorder, request, loader, "room", "Owners only.")
+			room, session, ok := httpx.RequireRoomManager(recorder, request, loader, "room", "Owners only.")
 			if ok != test.wantOK {
 				t.Fatalf("ok = %t, want %t", ok, test.wantOK)
 			}

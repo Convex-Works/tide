@@ -5,10 +5,11 @@ package sessionctx
 import "context"
 
 type Session struct {
-	Sub   string `json:"sub"`
-	Email string `json:"email"`
-	Name  string `json:"name"`
-	Exp   int64  `json:"exp"`
+	Sub     string `json:"sub"`
+	Email   string `json:"email"`
+	Name    string `json:"name"`
+	IsAdmin bool   `json:"is_admin,omitempty"`
+	Exp     int64  `json:"exp"`
 	// SID identifies this cookie for server-side revocation on logout.
 	SID string `json:"sid,omitempty"`
 }

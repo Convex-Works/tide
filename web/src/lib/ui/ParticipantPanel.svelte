@@ -7,7 +7,7 @@
   let {
     rtc,
     slug,
-    isOwner = false,
+    canManage = false,
     pending = [],
     lobbyError = '',
     onadmit = () => undefined,
@@ -15,7 +15,7 @@
   }: {
     rtc: RoomState;
     slug: string;
-    isOwner?: boolean;
+    canManage?: boolean;
     pending?: LobbyRequestInfo[];
     lobbyError?: string;
     onadmit?: (id: string) => void | Promise<void>;
@@ -62,7 +62,7 @@
     <span class="mono">{rtc.participants.length}</span>
   </header>
 
-  {#if isOwner && pending.length > 0}
+  {#if canManage && pending.length > 0}
     <section class="waiting" aria-label="Lobby">
       <div class="section-heading">
         <h3>Waiting</h3>
@@ -104,7 +104,7 @@
           </div>
         </div>
 
-        {#if isOwner && !participant.isLocal}
+        {#if canManage && !participant.isLocal}
           <div class="moderation-actions">
             <button
               type="button"

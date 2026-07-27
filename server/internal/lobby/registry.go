@@ -151,6 +151,19 @@ func (r *Registry) Pending(roomSlug string) []Request {
 	return requests
 }
 
+// HasPending reports whether changing this room's address would strand a
+// waiting guest whose admission request still references the old slug.
+func (r *Registry) HasPending(roomSlug string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, item := range r.requests {
+		if item.roomSlug == roomSlug && item.status == StatusWaiting {
+			return true
+		}
+	}
+	return false
+}
+
 func (r *Registry) Subscribe(roomSlug string) (<-chan struct{}, func()) {
 	updates := make(chan struct{}, 1)
 	r.mu.Lock()

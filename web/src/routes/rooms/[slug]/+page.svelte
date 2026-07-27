@@ -29,9 +29,12 @@
   let error = $state('');
   let busy = $state(false);
   let copied = $state(false);
+  let slugDraft = $state('');
+  let slugSaved = $state(false);
   let deleteConfirm = $state(false);
   let deleteRecordingID = $state('');
   let copyTimer: ReturnType<typeof setTimeout> | undefined;
+  let slugSavedTimer: ReturnType<typeof setTimeout> | undefined;
   let recordingPoll: ReturnType<typeof setTimeout> | undefined;
   let destroyed = false;
 
@@ -48,6 +51,7 @@
         return;
       }
       room = found;
+      slugDraft = found.slug;
       loadState = 'ready';
       await loadRecordings();
     } catch (cause) {
@@ -64,7 +68,7 @@
     if (destroyed) return;
     recordingsLoading = true;
     try {
-      const list = await listRecordings(slug);
+      const list = await listRecordings(room?.slug ?? slug);
       if (destroyed) return;
       recordings = list;
       if (list.some((recording) => pendingStatuses.includes(recording.status))) {
@@ -82,12 +86,38 @@
   async function copyLink(): Promise<void> {
     error = '';
     try {
-      await navigator.clipboard.writeText(`${window.location.origin}/m/${slug}`);
+      await navigator.clipboard.writeText(`${window.location.origin}/m/${room?.slug ?? slug}`);
       copied = true;
       if (copyTimer) clearTimeout(copyTimer);
       copyTimer = setTimeout(() => (copied = false), 1600);
     } catch {
       error = 'Could not copy the meeting link. Copy it from the address bar instead.';
+    }
+  }
+
+  async function changeSlug(event: SubmitEvent): Promise<void> {
+    event.preventDefault();
+    if (!room || busy) return;
+    const current = room;
+    const next = slugDraft.trim().toLowerCase();
+    if (next === current.slug) return;
+
+    busy = true;
+    slugSaved = false;
+    error = '';
+    try {
+      const updated = await updateRoom(current.slug, { slug: next });
+      room = { ...current, slug: updated.slug };
+      slugDraft = updated.slug;
+      recordings = recordings.map((recording) => ({ ...recording, room_slug: updated.slug }));
+      await goto(`/rooms/${updated.slug}`, { replaceState: true });
+      slugSaved = true;
+      if (slugSavedTimer) clearTimeout(slugSavedTimer);
+      slugSavedTimer = setTimeout(() => (slugSaved = false), 1600);
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : 'Could not change the room link. Try again.';
+    } finally {
+      busy = false;
     }
   }
 
@@ -167,6 +197,7 @@
   onDestroy(() => {
     destroyed = true;
     if (copyTimer) clearTimeout(copyTimer);
+    if (slugSavedTimer) clearTimeout(slugSavedTimer);
     if (recordingPoll) clearTimeout(recordingPoll);
   });
 </script>
@@ -347,6 +378,55 @@
             />
           </Switch.Root>
         </div>
+
+        <form
+          class="flex items-end justify-between gap-4 border-t border-border p-3"
+          onsubmit={changeSlug}
+        >
+          <label class="min-w-0 flex-1" for="room-slug">
+            <span class="block text-[13px] text-ink">Custom room link</span>
+            <span class="mt-0.5 block text-[12px] text-ink-2">
+              Lowercase letters, numbers, and hyphens. Changing it invalidates the old link.
+            </span>
+            <input
+              id="room-slug"
+              name="room-slug"
+              class="mono mt-2 h-7 w-full max-w-sm rounded-control border border-border bg-paper px-2 text-[12px] text-ink outline-none focus:border-accent"
+              value={slugDraft}
+              minlength="3"
+              maxlength="64"
+              pattern="[a-z0-9]+(-[a-z0-9]+)*"
+              autocomplete="off"
+              autocapitalize="none"
+              spellcheck="false"
+              disabled={busy || room.active || room.recording}
+              aria-describedby="room-slug-status"
+              oninput={(event) => (slugDraft = event.currentTarget.value.toLowerCase())}
+              required
+            />
+            <span id="room-slug-status" class="mt-1 block text-[11px] text-ink-2">
+              {#if room.active || room.recording}
+                The link can be changed after the meeting and recording stop.
+              {:else}
+                Meeting URL: /m/{slugDraft || room.slug}
+              {/if}
+            </span>
+          </label>
+          <button
+            type="submit"
+            disabled={busy ||
+              room.active ||
+              room.recording ||
+              slugDraft.trim().toLowerCase() === room.slug}
+            class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-control border border-border bg-paper px-2.5 text-[12px] text-ink transition-colors hover:bg-surface-2 disabled:opacity-60"
+          >
+            {#if slugSaved}
+              <Check size={14} weight="regular" aria-hidden="true" /> Saved
+            {:else}
+              Save link
+            {/if}
+          </button>
+        </form>
 
         <section class="flex items-center justify-between gap-4 p-3">
           <div class="min-w-0">

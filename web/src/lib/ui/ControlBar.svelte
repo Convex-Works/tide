@@ -25,7 +25,7 @@
     peopleOpen = false,
     chatOpen = false,
     unreadChat = 0,
-    isOwner = false,
+    canManage = false,
     roomSlug = '',
     view = 'grid',
     ontogglepeople = () => undefined,
@@ -37,7 +37,7 @@
     peopleOpen?: boolean;
     chatOpen?: boolean;
     unreadChat?: number;
-    isOwner?: boolean;
+    canManage?: boolean;
     roomSlug?: string;
     view?: 'grid' | 'speaker';
     ontogglepeople?: () => void;
@@ -203,7 +203,7 @@
     {/if}
   </div>
 
-  {#if isOwner}
+  {#if canManage}
     <!-- The stopPropagation shield keeps the window click-away handler from
          collapsing the confirm state; interaction lives on the controls. -->
     <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
@@ -327,7 +327,7 @@
     <span class="recording-error" role="alert">{recordingError || endError}</span>
   {/if}
 
-  {#if isOwner}
+  {#if canManage}
     <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
     <div class="leave-group" onclick={(event) => event.stopPropagation()}>
       {#if leaveConfirm}

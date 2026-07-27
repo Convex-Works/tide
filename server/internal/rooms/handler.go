@@ -21,17 +21,30 @@ type objectStore interface {
 	Remove(ctx context.Context, key string) error
 }
 
-type Handler struct {
-	store   *store.Store
-	service *Service
-	objects objectStore
-	live    LiveRoomSource
+type pendingLobbySource interface {
+	HasPending(roomSlug string) bool
 }
 
-// NewHandler builds the rooms handler. live may be nil (e.g. in tests or when
-// no SFU is reachable); the list then reports every room as inactive.
-func NewHandler(roomStore *store.Store, objects objectStore, live LiveRoomSource) *Handler {
-	return &Handler{store: roomStore, service: NewService(roomStore), objects: objects, live: live}
+type Handler struct {
+	store        *store.Store
+	service      *Service
+	objects      objectStore
+	live         LiveRoomSource
+	pendingLobby pendingLobbySource
+}
+
+// NewHandler builds the rooms handler. live and pendingLobby may be nil in
+// focused tests. Without live state the list reports every room as inactive.
+func NewHandler(
+	roomStore *store.Store,
+	objects objectStore,
+	live LiveRoomSource,
+	pendingLobby pendingLobbySource,
+) *Handler {
+	return &Handler{
+		store: roomStore, service: NewService(roomStore), objects: objects,
+		live: live, pendingLobby: pendingLobby,
+	}
 }
 
 func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
@@ -64,7 +77,13 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusUnauthorized, "Authentication required.")
 		return
 	}
-	owned, err := h.store.RoomsByOwner(r.Context(), session.Sub)
+	var owned []store.Room
+	var err error
+	if session.IsAdmin {
+		owned, err = h.store.Rooms(r.Context())
+	} else {
+		owned, err = h.store.RoomsByOwner(r.Context(), session.Sub)
+	}
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not load rooms. Try again.")
 		return
@@ -111,7 +130,7 @@ func (h *Handler) Public(w http.ResponseWriter, r *http.Request) {
 	session, _ := auth.SessionFromContext(r.Context())
 	httpx.WriteJSON(w, http.StatusOK, api.PublicRoomInfo{
 		Slug: room.Slug, Name: room.Name, LobbyEnabled: room.LobbyEnabled,
-		IsOwner: session.Sub != "" && session.Sub == room.OwnerSub,
+		CanManage: session.Sub != "" && httpx.CanManageRoom(session, room),
 	})
 }
 
@@ -130,8 +149,8 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not load the room. Try again.")
 		return
 	}
-	if room.OwnerSub != session.Sub {
-		httpx.WriteError(w, http.StatusForbidden, "Only the room owner can change this room.")
+	if !httpx.CanManageRoom(session, room) {
+		httpx.WriteError(w, http.StatusForbidden, "Only a room administrator can change this room.")
 		return
 	}
 	var request api.UpdateRoomRequest
@@ -139,8 +158,8 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "Request body must be valid JSON.")
 		return
 	}
-	if request.Name == nil && request.LobbyEnabled == nil {
-		httpx.WriteError(w, http.StatusBadRequest, "Provide a room name or lobby setting to update.")
+	if request.Name == nil && request.Slug == nil && request.LobbyEnabled == nil {
+		httpx.WriteError(w, http.StatusBadRequest, "Provide a room name, slug, or lobby setting to update.")
 		return
 	}
 	if request.Name != nil {
@@ -154,7 +173,43 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	if request.LobbyEnabled != nil {
 		room.LobbyEnabled = *request.LobbyEnabled
 	}
+	if request.Slug != nil {
+		slug := normalizeSlug(*request.Slug)
+		if err := validateSlug(slug); err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, err.Error()+".")
+			return
+		}
+		if slug != room.Slug {
+			if h.pendingLobby != nil && h.pendingLobby.HasPending(room.Slug) {
+				httpx.WriteError(w, http.StatusConflict, "Admit or deny waiting guests before changing the room link.")
+				return
+			}
+			if _, err := h.store.ActiveRecordingByRoomID(r.Context(), room.ID); err == nil {
+				httpx.WriteError(w, http.StatusConflict, "Stop the recording before changing the room link.")
+				return
+			} else if !errors.Is(err, sql.ErrNoRows) {
+				httpx.WriteError(w, http.StatusInternalServerError, "Could not check the recording state. Try again.")
+				return
+			}
+			if h.live != nil {
+				liveRooms, err := h.live.ActiveRooms(r.Context())
+				if err != nil {
+					httpx.WriteError(w, http.StatusServiceUnavailable, "Could not verify that the room is idle. Try again.")
+					return
+				}
+				if live := liveRooms[room.Slug]; live.NumParticipants > 0 || live.Recording {
+					httpx.WriteError(w, http.StatusConflict, "Wait until the meeting is empty before changing the room link.")
+					return
+				}
+			}
+			room.Slug = slug
+		}
+	}
 	if err := h.store.UpdateRoom(r.Context(), room); err != nil {
+		if store.IsSlugConflict(err) {
+			httpx.WriteError(w, http.StatusConflict, "That room link is already in use.")
+			return
+		}
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not update the room. Try again.")
 		return
 	}
@@ -176,8 +231,8 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not load the room. Try again.")
 		return
 	}
-	if room.OwnerSub != session.Sub {
-		httpx.WriteError(w, http.StatusForbidden, "Only the room owner can delete this room.")
+	if !httpx.CanManageRoom(session, room) {
+		httpx.WriteError(w, http.StatusForbidden, "Only a room administrator can delete this room.")
 		return
 	}
 	// An in-progress recording would keep writing to a room that no longer

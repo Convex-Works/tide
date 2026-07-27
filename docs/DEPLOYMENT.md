@@ -120,6 +120,8 @@ secret values and refuses weak or shipped development secrets.
 | `KLISI_OIDC_ISSUER`         | `http://localhost:5556/dex`        | Exact issuer URL used for discovery and ID token verification. Set the external production issuer.                                                                                |
 | `KLISI_OIDC_CLIENT_ID`      | `klisi`                            | Registered OIDC client ID.                                                                                                                                                        |
 | `KLISI_OIDC_CLIENT_SECRET`  | none in production                 | Registered OIDC client secret. Required; use at least 16 characters.                                                                                                              |
+| `KLISI_USER_GROUPS`         | empty                              | Comma-separated, case-sensitive OIDC groups allowed to sign in. Empty permits every verified OIDC user; administrators are always allowed.                                        |
+| `KLISI_ADMIN_GROUPS`        | empty                              | Comma-separated, case-sensitive OIDC groups whose members can administer every room. Empty grants no global administration.                                                       |
 | `KLISI_S3_ENDPOINT`         | `http://localhost:9000`            | S3 endpoint as seen by klisi for deletes and object management.                                                                                                                   |
 | `KLISI_S3_PUBLIC_ENDPOINT`  | `http://localhost:9000`            | Browser-reachable S3 endpoint used to sign five-minute download URLs. The hostname in the signature must be the hostname the browser uses.                                        |
 | `KLISI_S3_EGRESS_ENDPOINT`  | `http://minio:9000`                | S3 endpoint as seen by Egress. klisi sends it with every recording request.                                                                                                       |
@@ -235,12 +237,18 @@ Register this redirect URI exactly:
 <KLISI_BASE_URL>/api/auth/callback
 ```
 
-klisi requests `openid profile email` and uses PKCE with S256. The ID token must
-contain a non-empty `sub`; this is the stable room-owner identity. `name` and
-`email` are used for display and should be supplied. The code accepts an empty
-email and falls back from a missing name to email, but that produces a poor host
-identity in the UI. The issuer URL must match the token issuer and discovery
-document exactly.
+klisi requests `openid profile email groups` and uses PKCE with S256. The ID
+token must contain a non-empty `sub`; this is the stable room-owner identity.
+`name` and `email` are used for display and should be supplied. `groups`
+controls login and global room administration when the corresponding group
+configuration is non-empty. Group matching is exact and case-sensitive. The
+code accepts an empty email and falls back from a missing name to email, but
+that produces a poor host identity in the UI. The issuer URL must match the
+token issuer and discovery document exactly.
+
+OIDC group membership is captured when the Klisi session is created. Providers
+that do not push group-change or back-channel logout events cannot revoke that
+cached authorization before the signed session expires.
 
 ## Back up state
 
