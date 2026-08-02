@@ -160,6 +160,11 @@ the LiveKit server SDK — so they hold at the SFU regardless of client behavior
 The participant list itself is client-side LiveKit state (join/leave/track
 events) — no polling, no server involvement.
 
+Every remote participant tile has a viewer-local action menu. Hiding video
+unsubscribes that participant's camera publications for the current viewer,
+while leaving audio and screen sharing untouched; room managers also receive
+the server-enforced mute and remove actions in the same menu.
+
 ## 8. Recording
 
 Room-composite recording via LiveKit Egress. The recording's lifetime is bound
