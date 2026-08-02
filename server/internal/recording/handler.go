@@ -8,10 +8,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
+	"path"
+	"strings"
 	"time"
+	"unicode"
 
 	protocol "github.com/livekit/protocol/livekit"
+	"google.golang.org/protobuf/proto"
 
 	"klisi/internal/api"
 	"klisi/internal/auth"
@@ -103,29 +108,52 @@ func (h *Handler) Start(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	startedAt := h.now().Unix()
-	// Audio-only stays MP4 (AAC): it plays everywhere, including iOS Safari,
-	// and egress normalizes filepath extensions to the file type anyway.
-	key := fmt.Sprintf("recordings/%s/%d.mp4", room.Slug, startedAt)
+	started := h.now().UTC()
+	startedAt := started.Unix()
+	id, err := h.newID()
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not create the recording. Try again.")
+		return
+	}
+	fileType := protocol.EncodedFileType_MP4
+	extension := ".mp4"
+	mode := "video"
+	if audioOnly {
+		fileType = protocol.EncodedFileType_OGG
+		extension = ".ogg"
+		mode = "audio"
+	}
+	filename := recordingFilename(started, room.Name, extension)
+	// Keep the requested human-readable basename while using the recording ID
+	// as a directory so two recordings started in the same minute cannot
+	// overwrite each other.
+	key := path.Join("recordings", room.Slug, id, filename)
+	metadata := map[string]string{
+		"klisi-filename":       filename,
+		"klisi-meeting-id":     room.ID,
+		"klisi-meeting-name":   room.Name,
+		"klisi-meeting-slug":   room.Slug,
+		"klisi-recording-id":   id,
+		"klisi-recording-mode": mode,
+		"klisi-started-at":     started.Format(time.RFC3339),
+		"klisi-started-by":     session.Sub,
+	}
 	info, err := h.egress.StartRoomCompositeEgress(r.Context(), &protocol.RoomCompositeEgressRequest{
 		RoomName:      room.Slug,
 		Layout:        "grid",
 		CustomBaseUrl: h.templateURL,
 		AudioOnly:     audioOnly,
 		FileOutputs: []*protocol.EncodedFileOutput{{
-			FileType: protocol.EncodedFileType_MP4,
+			FileType: fileType,
 			Filepath: key,
-			Output:   s3EncodedOutput(h.s3Output),
+			Output: s3EncodedOutput(
+				h.s3Output, metadata,
+				mime.FormatMediaType("attachment", map[string]string{"filename": filename}),
+			),
 		}},
 	})
 	if err != nil || info == nil || info.EgressId == "" {
 		httpx.WriteError(w, http.StatusBadGateway, "LiveKit could not start recording. Try again.")
-		return
-	}
-	id, err := h.newID()
-	if err != nil {
-		_, _ = h.egress.StopEgress(r.Context(), &protocol.StopEgressRequest{EgressId: info.EgressId})
-		httpx.WriteError(w, http.StatusInternalServerError, "Could not create the recording. Try again.")
 		return
 	}
 	recording := store.Recording{
@@ -305,11 +333,43 @@ func randomID() (string, error) {
 	return hex.EncodeToString(value), nil
 }
 
+func recordingFilename(started time.Time, meetingName, extension string) string {
+	name := strings.Map(func(r rune) rune {
+		switch {
+		case strings.ContainsRune(`/\\<>:"|?*`, r):
+			return '-'
+		case unicode.IsControl(r):
+			return ' '
+		default:
+			return r
+		}
+	}, meetingName)
+	name = strings.Trim(strings.Join(strings.Fields(name), " "), ". ")
+	if name == "" {
+		name = "meeting"
+	}
+	return fmt.Sprintf("%s - %s%s", started.UTC().Format("2006-01-02 15-04"), name, extension)
+}
+
 // s3EncodedOutput wraps the configured S3 destination for an egress request;
 // nil (tests) leaves the output empty so egress falls back to local staging.
-func s3EncodedOutput(s3 *protocol.S3Upload) *protocol.EncodedFileOutput_S3 {
+// Clone the configured protobuf before adding per-recording values: the
+// handler is shared by concurrent requests and must never mutate its template.
+func s3EncodedOutput(
+	s3 *protocol.S3Upload,
+	metadata map[string]string,
+	contentDisposition string,
+) *protocol.EncodedFileOutput_S3 {
 	if s3 == nil {
 		return nil
 	}
-	return &protocol.EncodedFileOutput_S3{S3: s3}
+	destination := proto.Clone(s3).(*protocol.S3Upload)
+	if destination.Metadata == nil {
+		destination.Metadata = make(map[string]string, len(metadata))
+	}
+	for key, value := range metadata {
+		destination.Metadata[key] = value
+	}
+	destination.ContentDisposition = contentDisposition
+	return &protocol.EncodedFileOutput_S3{S3: destination}
 }

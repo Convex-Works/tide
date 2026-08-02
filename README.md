@@ -54,8 +54,9 @@ npx playwright test
 
 The server starts a LiveKit room-composite Egress job and includes the S3
 destination in that request. Egress renders klisi's own `/egress-template`,
-writes the MP4 to S3-compatible storage, and reports state through signed
-LiveKit webhooks.
+writes OGG audio or MP4 video to S3-compatible storage, and reports state
+through signed LiveKit webhooks. Object names include the UTC start time and
+meeting name, with identifying recording metadata stored alongside the file.
 
 ## Production notes
 

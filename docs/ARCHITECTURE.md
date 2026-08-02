@@ -39,7 +39,7 @@ Everything else is out of scope by design. Feature restraint is the product.
            │ hidden participant      ▼                      │ SDK       │ URLs
            │              ┌──────────────────┐              │           ▼
            └─────────────►│  Egress worker    │─────────────┼──────►┌────────┐
-                          │  (Chrome + GST)   │   MP4       │       │  S3 /  │
+                          │  (Chrome + GST)   │ OGG / MP4   │       │  S3 /  │
                           └──────────────────┘─────────────►└──────►│ MinIO  │
                                                                     └────────┘
 ```
@@ -48,7 +48,7 @@ Everything else is out of scope by design. Feature restraint is the product.
 |---|---|---|
 | **klisi server** | Single Go binary, embeds the built SPA via `embed.FS` | Auth, sessions, rooms, tokens, lobby, moderation API, recording lifecycle + management, webhooks |
 | **LiveKit server** | Stateless Go binary (upstream, Apache 2.0) | All media: SFU, simulcast, adaptive streaming, ICE, reconnection/resume |
-| **Egress worker** | Upstream worker service (headless Chrome + GStreamer) | Renders our composite layout page, encodes MP4, writes directly to S3 |
+| **Egress worker** | Upstream worker service (headless Chrome + GStreamer) | Renders our composite layout page, encodes OGG audio or MP4 video, writes directly to S3 |
 | **Redis** | Required by LiveKit once Egress runs | Egress job queue, LiveKit node state |
 | **MinIO (dev) / S3 (prod)** | Object storage | Recording files |
 | **Dex (dev only)** | OIDC identity provider | Host login in the dev stack; any OIDC provider in prod |
@@ -167,9 +167,11 @@ to the egress job, not to any participant's tab.
 
 1. Host clicks Record → `POST /api/rooms/:slug/recording/start` → server checks
    ownership → `StartRoomCompositeEgress` with S3 output
-   (`recordings/<room>/<ts>.mp4`) and our **layout URL**. The S3 destination
-   travels in every egress request; its worker-visible endpoint is configured
-   by `KLISI_S3_EGRESS_ENDPOINT`.
+   (`recordings/<room>/<recording-id>/<yyyy-mm-dd hh-mm> - <meeting>.<ext>`) and
+   our **layout URL**. Audio-only recordings use OGG; video composites use MP4.
+   The S3 destination and identifying recording metadata travel in every egress
+   request; its worker-visible endpoint is configured by
+   `KLISI_S3_EGRESS_ENDPOINT`.
 2. The layout is a route of our own SPA (`/egress-template`) implementing
    LiveKit's egress template contract (it receives `url`, `token`, `layout`
    query params and joins as a hidden subscriber). Recordings therefore use

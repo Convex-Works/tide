@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -128,7 +129,8 @@ func TestStartStopAuthorizationAndDoubleStart(t *testing.T) {
 		}
 		start := egress.starts[0]
 		if start.RoomName != room.Slug || start.CustomBaseUrl != "http://egress-template.example" ||
-			len(start.FileOutputs) != 1 || start.FileOutputs[0].Filepath != "recordings/calm-otter-412/1700000000.mp4" {
+			len(start.FileOutputs) != 1 || start.FileOutputs[0].FileType != protocol.EncodedFileType_OGG ||
+			start.FileOutputs[0].Filepath != "recordings/calm-otter-412/recording-1/2023-11-14 22-13 - Weekly.ogg" {
 			t.Fatalf("start request = %#v", start)
 		}
 
@@ -224,4 +226,88 @@ func TestStartRecordingModes(t *testing.T) {
 			t.Fatalf("status = %d, starts = %d", response.Code, len(egress.starts))
 		}
 	})
+}
+
+func TestStartRecordingFileOutput(t *testing.T) {
+	tests := []struct {
+		name      string
+		body      string
+		fileType  protocol.EncodedFileType
+		extension string
+		mode      string
+	}{
+		{name: "audio", body: "", fileType: protocol.EncodedFileType_OGG, extension: ".ogg", mode: "audio"},
+		{name: "video", body: `{"video":true}`, fileType: protocol.EncodedFileType_MP4, extension: ".mp4", mode: "video"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler, egress, _, room := recordingTestHandler(t)
+			handler.s3Output = &protocol.S3Upload{
+				Bucket: "recordings",
+				Metadata: map[string]string{
+					"deployment": "production",
+				},
+				ContentDisposition: "attachment; filename=old",
+			}
+			request := ownerRequest(http.MethodPost, room, "owner")
+			if test.body != "" {
+				request = httptest.NewRequest(http.MethodPost, "/recording", strings.NewReader(test.body))
+				request.SetPathValue("slug", room.Slug)
+				request = request.WithContext(auth.WithSession(request.Context(), auth.Session{Sub: "owner"}))
+			}
+			response := httptest.NewRecorder()
+			handler.Start(response, request)
+			if response.Code != http.StatusCreated || len(egress.starts) != 1 {
+				t.Fatalf("status = %d, starts = %d, body = %s", response.Code, len(egress.starts), response.Body.String())
+			}
+
+			output := egress.starts[0].FileOutputs[0]
+			filename := "2023-11-14 22-13 - Weekly" + test.extension
+			wantKey := "recordings/calm-otter-412/recording-1/" + filename
+			if output.FileType != test.fileType || output.Filepath != wantKey {
+				t.Fatalf("file output = %#v, want type %s and path %q", output, test.fileType, wantKey)
+			}
+			s3 := output.GetS3()
+			if s3 == nil {
+				t.Fatal("S3 output is nil")
+			}
+			wantMetadata := map[string]string{
+				"deployment":           "production",
+				"klisi-filename":       filename,
+				"klisi-meeting-id":     room.ID,
+				"klisi-meeting-name":   room.Name,
+				"klisi-meeting-slug":   room.Slug,
+				"klisi-recording-id":   "recording-1",
+				"klisi-recording-mode": test.mode,
+				"klisi-started-at":     "2023-11-14T22:13:20Z",
+				"klisi-started-by":     "owner",
+			}
+			if !reflect.DeepEqual(s3.Metadata, wantMetadata) {
+				t.Fatalf("metadata = %#v, want %#v", s3.Metadata, wantMetadata)
+			}
+			if want := `attachment; filename="` + filename + `"`; s3.ContentDisposition != want {
+				t.Fatalf("content disposition = %q, want %q", s3.ContentDisposition, want)
+			}
+			if !reflect.DeepEqual(handler.s3Output.Metadata, map[string]string{"deployment": "production"}) ||
+				handler.s3Output.ContentDisposition != "attachment; filename=old" {
+				t.Fatalf("configured S3 destination was mutated: %#v", handler.s3Output)
+			}
+		})
+	}
+}
+
+func TestRecordingFilename(t *testing.T) {
+	started := time.Date(2026, time.August, 2, 12, 34, 0, 0, time.FixedZone("EEST", 3*60*60))
+	for _, test := range []struct {
+		name string
+		want string
+	}{
+		{name: "  Product / planning\\notes: Q3?\n", want: "2026-08-02 09-34 - Product - planning-notes- Q3-.ogg"},
+		{name: "...", want: "2026-08-02 09-34 - meeting.ogg"},
+		{name: "Συνάντηση", want: "2026-08-02 09-34 - Συνάντηση.ogg"},
+	} {
+		if got := recordingFilename(started, test.name, ".ogg"); got != test.want {
+			t.Errorf("recordingFilename(%q) = %q, want %q", test.name, got, test.want)
+		}
+	}
 }

@@ -24,7 +24,7 @@ do not apply it unchanged.
        └───────────────────────────────►│ LiveKit     │  │ S3-compatible│
                                         └──────┬──────┘  │ store        │
                                                │ Redis    └──────▲───────┘
-                                        ┌──────▼──────┐          │ MP4
+                                        ┌──────▼──────┐      OGG / MP4
                                         │ Redis       │          │
                                         └──────┬──────┘          │
                                                │ jobs             │
@@ -125,7 +125,7 @@ secret values and refuses weak or shipped development secrets.
 | `KLISI_S3_ENDPOINT`         | `http://localhost:9000`            | S3 endpoint as seen by klisi for deletes and object management.                                                                                                                   |
 | `KLISI_S3_PUBLIC_ENDPOINT`  | `http://localhost:9000`            | Browser-reachable S3 endpoint used to sign five-minute download URLs. The hostname in the signature must be the hostname the browser uses.                                        |
 | `KLISI_S3_EGRESS_ENDPOINT`  | `http://minio:9000`                | S3 endpoint as seen by Egress. klisi sends it with every recording request.                                                                                                       |
-| `KLISI_S3_BUCKET`           | `klisi-recordings`                 | Existing bucket for `recordings/<room>/<timestamp>.mp4`.                                                                                                                          |
+| `KLISI_S3_BUCKET`           | `klisi-recordings`                 | Existing bucket for timestamped OGG audio and MP4 video objects under `recordings/<room>/<recording-id>/`.                                                                         |
 | `KLISI_S3_ACCESS_KEY`       | none in production                 | S3 access key sent to the server-side client and Egress request. Required.                                                                                                        |
 | `KLISI_S3_SECRET_KEY`       | none in production                 | S3 secret key. Required; use at least 16 characters.                                                                                                                              |
 | `KLISI_S3_REGION`           | `us-east-1`                        | S3 signing region. It must match the store.                                                                                                                                       |
@@ -212,7 +212,7 @@ There are three endpoint views because the caller and the signer matter:
 | ------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | Server  | `KLISI_S3_ENDPOINT`        | klisi deletes and manages objects. Use a private Service endpoint when available.                                                        |
 | Browser | `KLISI_S3_PUBLIC_ENDPOINT` | klisi signs a URL containing this origin, then redirects the browser to it. It must resolve publicly and its TLS certificate must match. |
-| Egress  | `KLISI_S3_EGRESS_ENDPOINT` | Egress uploads the MP4. Use the endpoint reachable from the Egress namespace.                                                            |
+| Egress  | `KLISI_S3_EGRESS_ENDPOINT` | Egress uploads OGG audio or MP4 video. Use the endpoint reachable from the Egress namespace.                                             |
 
 With an in-cluster MinIO service, the server and Egress views usually share an
 internal endpoint while the browser view uses a public object-storage ingress.
@@ -222,8 +222,8 @@ secret key, and path-style compatibility consistent. klisi forces path-style
 bucket lookup for S3-compatible stores.
 
 Recordings do not pass through the klisi pod. klisi includes the Egress endpoint
-and S3 credentials in each Egress request, and the worker writes the MP4
-directly to the bucket.
+and S3 credentials in each Egress request, and the worker writes the OGG or
+MP4 object directly to the bucket.
 
 ## Configure OIDC
 
