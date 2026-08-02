@@ -28,8 +28,9 @@ CREATE TABLE IF NOT EXISTS recordings (
     duration_s INTEGER NULL,
     s3_key TEXT NULL,
     size_bytes INTEGER NULL,
-    -- 1 for audio-only recordings (the default mode). Both modes produce an
-    -- .mp4 key, so the mode is stored rather than inferred from the filename.
+    -- 1 for audio-only recordings (the default mode). Audio recordings use
+    -- .ogg and video composites use .mp4; the mode remains explicit so API
+    -- consumers never need to infer it from an object key.
     -- Existing DBs get it via the ensureColumn migration in Open().
     audio_only INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (room_id) REFERENCES rooms (id) ON DELETE CASCADE
