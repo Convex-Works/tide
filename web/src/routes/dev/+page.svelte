@@ -59,7 +59,13 @@
     <p>Joining…</p>
   </main>
 {:else}
-  <PreJoin bind:room bind:name {error} onjoin={join} />
+  <PreJoin
+    bind:room
+    bind:name
+    {error}
+    onactivateplayback={() => rtc.activateMediaPlayback()}
+    onjoin={join}
+  />
 {/if}
 
 <style>

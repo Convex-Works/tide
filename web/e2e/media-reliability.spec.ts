@@ -38,11 +38,7 @@ test('media ownership converges across the deterministic lifecycle corpus', asyn
     // Sequential late join: publications already exist when the receiver
     // connects, so no TrackPublished event can be required for projection.
     await joinMediaTestRoom(page, roomName, `${testInfo.project.name}-receiver`);
-    const recovery = page.getByTestId('media-recovery');
-    if (await recovery.isVisible().catch(() => false)) {
-      await recovery.getByRole('button', { name: 'Resume' }).click();
-      await expect(recovery).toBeHidden({ timeout: 10_000 });
-    }
+    await expect(page.getByText('Media paused', { exact: true })).toHaveCount(0);
     await expectMediaInvariant(page);
     const persistentTags = await tagMediaElements(page);
     expect(Object.keys(persistentTags).sort()).toEqual(
@@ -115,8 +111,9 @@ test('media ownership converges across the deterministic lifecycle corpus', asyn
     await expectMediaInvariant(page);
     await expectMediaElementTags(page, persistentTags);
 
-    // A deliberate autoplay rejection must remain visible until the recovery
-    // click calls Room.startAudio in the user-activation stack.
+    // A transient autoplay rejection is retried without exposing recovery UI.
+    // Persistent browser policy failures are armed for the next ordinary user
+    // gesture by RoomState's capture listener.
     await page.evaluate((microphoneSid) => {
       const hook = (
         window as Window &
@@ -132,12 +129,10 @@ test('media ownership converges across the deterministic lifecycle corpus', asyn
       hook.clearSrcObject(microphoneSid);
       hook.reconcile();
     }, synthetic.microphoneSid);
-    await expect(recovery).toBeVisible({ timeout: 5_000 });
-    await recovery.getByRole('button', { name: 'Resume' }).click();
-    await expect(recovery).toBeHidden({ timeout: 10_000 });
     await expect
       .poll(async () => (await probe(page)).playback, { timeout: 10_000 })
       .toMatchObject({ audio: true, video: true });
+    await expect(page.getByText('Media paused', { exact: true })).toHaveCount(0);
 
     // A synthetic failure receives one automatic resubscribe cycle.
     const retriesBefore = (await probe(page)).subscriptionRetryTotals[synthetic.cameraSid] ?? 0;
@@ -160,41 +155,24 @@ test('media ownership converges across the deterministic lifecycle corpus', asyn
     );
     await expectMediaInvariant(page);
 
-    // If that bounded retry also fails, the exact SID becomes an observable
-    // recoverable error. Resume is a user-driven retry and must clear it.
+    // A later failure is also retried in the background; recovery no longer
+    // depends on a dedicated banner button.
     await page.evaluate((cameraSid) => {
       (
         window as Window &
           typeof globalThis & {
             __klisiMediaTest: {
-              injectSubscriptionFailure(sid: string, exhausted?: boolean): void;
+              injectSubscriptionFailure(sid: string): void;
             };
           }
-      ).__klisiMediaTest.injectSubscriptionFailure(cameraSid, true);
+      ).__klisiMediaTest.injectSubscriptionFailure(cameraSid);
     }, synthetic.cameraSid);
-    await expect
-      .poll(async () => (await probe(page)).subscriptionFailures[synthetic.cameraSid], {
-        timeout: 5_000
-      })
-      .toMatchObject({
-        publicationSid: synthetic.cameraSid,
-        recoverable: true,
-        retrying: false,
-        exhausted: true,
-        attempts: 1
-      });
-    await page.waitForTimeout(500);
-    expect((await probe(page)).subscriptionRetryTotals[synthetic.cameraSid]).toBe(
-      retriesBefore + 1
-    );
-    await expect(recovery).toBeVisible();
-    await recovery.getByRole('button', { name: 'Resume' }).click();
     await expect
       .poll(async () => (await probe(page)).subscriptionRetryTotals[synthetic.cameraSid], {
         timeout: 10_000
       })
       .toBe(retriesBefore + 2);
-    await expect(recovery).toBeHidden({ timeout: 10_000 });
+    await expect(page.getByText('Media paused', { exact: true })).toHaveCount(0);
     await expectMediaInvariant(page);
 
     // Full PC reconnect is authoritative and must converge without a reload or

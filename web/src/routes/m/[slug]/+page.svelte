@@ -251,7 +251,15 @@
     ondeny={deny}
   />
 {:else if meetingState === 'prejoin' && details}
-  <PreJoin room={slug} bind:name {error} showRoom={false} heading={details.name} onjoin={join} />
+  <PreJoin
+    room={slug}
+    bind:name
+    {error}
+    showRoom={false}
+    heading={details.name}
+    onactivateplayback={() => rtc.activateMediaPlayback()}
+    onjoin={join}
+  />
 {:else if meetingState === 'loading'}
   <main class="meeting-state" aria-live="polite"><p>Loading room…</p></main>
 {:else if meetingState === 'missing'}

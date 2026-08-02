@@ -65,14 +65,6 @@
   let speakerRailCount = $derived(
     Math.max(1, rtc.participants.filter((participant) => participant !== promoted).length)
   );
-  let exhaustedSubscription = $derived(
-    Object.values(rtc.subscriptionFailures).find(
-      (failure) => failure.recoverable && failure.exhausted
-    )
-  );
-  let mediaNeedsRecovery = $derived(
-    !rtc.canPlaybackAudio || !rtc.canPlaybackVideo || Boolean(exhaustedSubscription)
-  );
   let previousPendingCount = 0;
   let chatOpen = $state(false);
   let unreadChat = $state(0);
@@ -132,24 +124,6 @@
     <ParticipantPanel {rtc} slug={roomSlug} {canManage} {pending} {lobbyError} {onadmit} {ondeny} />
   {:else if chatOpen}
     <ChatPanel {rtc} />
-  {/if}
-
-  {#if mediaNeedsRecovery}
-    <div class="media-recovery" role="alert" aria-live="polite" data-testid="media-recovery">
-      <span>Media paused</span>
-      <button
-        type="button"
-        disabled={rtc.mediaResumePending}
-        onclick={() => void rtc.resumeMedia()}
-      >
-        {rtc.mediaResumePending ? 'Resuming…' : 'Resume'}
-      </button>
-      {#if rtc.mediaPlaybackError}
-        <span class="media-error">{rtc.mediaPlaybackError}</span>
-      {:else if exhaustedSubscription}
-        <span class="media-error">{exhaustedSubscription.message}</span>
-      {/if}
-    </div>
   {/if}
 
   <section
@@ -349,44 +323,6 @@
     color: var(--text-2);
     font-size: 10px;
     text-transform: uppercase;
-  }
-
-  .media-recovery {
-    position: fixed;
-    z-index: 20;
-    top: 48px;
-    left: 50%;
-    display: flex;
-    max-width: min(560px, calc(100vw - 24px));
-    align-items: center;
-    gap: 7px;
-    padding: 5px 8px;
-    color: var(--text);
-    font-size: 12px;
-    background: color-mix(in srgb, var(--panel-2) 94%, transparent);
-    border: 1px solid var(--border-d);
-    border-radius: var(--radius-control);
-    box-shadow: 0 6px 24px rgb(0 0 0 / 22%);
-    transform: translateX(-50%);
-  }
-
-  .media-recovery button {
-    padding: 2px 6px;
-    color: white;
-    font: inherit;
-    background: var(--accent-d);
-    border: 0;
-    border-radius: var(--radius-control);
-    cursor: pointer;
-  }
-
-  .media-recovery button:disabled {
-    cursor: wait;
-    opacity: 0.7;
-  }
-
-  .media-error {
-    color: var(--rec);
   }
 
   @media (max-width: 720px) {

@@ -529,10 +529,6 @@ test('seeded model-based media lifecycle fuzzing', async ({ page }, testInfo) =>
               roomName,
               `${testInfo.project.name}-fuzz-receiver-${receiverAttempts}`
             );
-            const recovery = receiver.getByTestId('media-recovery');
-            if (await recovery.isVisible().catch(() => false)) {
-              await recovery.getByRole('button', { name: 'Resume' }).click();
-            }
             await expectMediaInvariant(receiver);
             const lifecycle = [...commands];
             while (lifecycle.length < 50) {

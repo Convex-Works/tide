@@ -65,6 +65,7 @@ interface ChatPayload {
 
 const maximumChatMessages = 200;
 const subscriptionRetryDelay = 250;
+const maximumAutomaticSubscriptionRetries = 3;
 const removalReconcileDelay = 100;
 
 interface MediaProbeParticipant {
@@ -100,7 +101,6 @@ export class RoomState {
   wasRemoved = $state(false);
   canPlaybackAudio = $state(true);
   canPlaybackVideo = $state(true);
-  mediaResumePending = $state(false);
   mediaPlaybackError = $state('');
   subscriptionFailures = $state<Record<string, MediaSubscriptionFailure>>({});
   subscriptionRetryTotals = $state<Record<string, number>>({});
@@ -114,6 +114,9 @@ export class RoomState {
   private subscriptionRetryAttempts = new Map<string, number>();
   private subscriptionRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private removalReconcileTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private mediaPlaybackAttempt = 0;
+  private mediaPlaybackUnlock?: AbortController;
+  private mediaPlaybackEpoch = 0;
 
   constructor() {
     this.room
@@ -122,7 +125,10 @@ export class RoomState {
         this.syncConnectionChrome(state);
       })
       .on(RoomEvent.Disconnected, (reason?: DisconnectReason) => this.handleDisconnected(reason))
-      .on(RoomEvent.Reconnected, () => this.reconcileMedia(true))
+      .on(RoomEvent.Reconnected, () => {
+        this.reconcileMedia(true);
+        this.recoverMediaPlayback();
+      })
       .on(RoomEvent.ParticipantConnected, (participant: RemoteParticipant) => {
         this.reconcileMedia();
         if (participant.kind !== ParticipantKind.EGRESS) playParticipantEnteredSound();
@@ -196,11 +202,21 @@ export class RoomState {
       .on(RoomEvent.RoomMetadataChanged, () => this.syncRoomMetadata())
       .on(RoomEvent.AudioPlaybackStatusChanged, (playing) => {
         this.canPlaybackAudio = playing;
-        if (playing && this.canPlaybackVideo) this.mediaPlaybackError = '';
+        if (playing && this.canPlaybackVideo) {
+          this.mediaPlaybackError = '';
+          this.clearMediaPlaybackUnlock();
+        } else if (!playing) {
+          this.recoverMediaPlayback();
+        }
       })
       .on(RoomEvent.VideoPlaybackStatusChanged, (playing) => {
         this.canPlaybackVideo = playing;
-        if (playing && this.canPlaybackAudio) this.mediaPlaybackError = '';
+        if (playing && this.canPlaybackAudio) {
+          this.mediaPlaybackError = '';
+          this.clearMediaPlaybackUnlock();
+        } else if (!playing) {
+          this.recoverMediaPlayback();
+        }
       })
       .on(
         RoomEvent.DataReceived,
@@ -240,6 +256,7 @@ export class RoomState {
       this.connectionState = this.room.state;
       this.canPlaybackAudio = this.room.canPlaybackAudio;
       this.canPlaybackVideo = this.room.canPlaybackVideo;
+      if (!this.canPlaybackAudio || !this.canPlaybackVideo) this.recoverMediaPlayback();
       this.syncRoomMetadata();
 
       if (media.audioDeviceId) {
@@ -277,30 +294,51 @@ export class RoomState {
     this.syncAllMediaState();
   }
 
-  async resumeMedia(): Promise<void> {
-    this.mediaResumePending = true;
-    this.mediaPlaybackError = '';
+  /**
+   * Starts LiveKit's playback unlock while the caller is still inside a user
+   * gesture. Calling this before the asynchronous join path preserves the Join
+   * click for remote audio that is attached after the room connects.
+   */
+  activateMediaPlayback(): void {
+    this.clearMediaPlaybackUnlock();
+    this.startMediaPlaybackAttempt();
+  }
 
-    // Both calls are created synchronously in the click stack so browsers see
-    // the user activation. Awaiting one before starting the other loses it.
-    const starts: Promise<void>[] = [];
-    if (!this.canPlaybackAudio) starts.push(this.room.startAudio());
-    if (!this.canPlaybackVideo) starts.push(this.room.startVideo());
+  private recoverMediaPlayback(): void {
+    // Keep the fallback armed while the automatic attempt is in flight. A
+    // real gesture supersedes that attempt instead of being lost to it.
+    this.armMediaPlaybackUnlock();
+    this.startMediaPlaybackAttempt();
+  }
+
+  private startMediaPlaybackAttempt(): void {
+    this.mediaPlaybackError = '';
+    const epoch = this.mediaPlaybackEpoch;
+    const attempt = ++this.mediaPlaybackAttempt;
+
+    // Create both promises synchronously so a click/tap activation is visible
+    // to both LiveKit playback paths.
+    const starts = [this.room.startAudio(), this.room.startVideo()];
     this.retryExhaustedSubscriptions();
 
-    const results = await Promise.allSettled(starts);
-    this.canPlaybackAudio = this.room.canPlaybackAudio;
-    this.canPlaybackVideo = this.room.canPlaybackVideo;
-    const rejected = results.find(
-      (result): result is PromiseRejectedResult => result.status === 'rejected'
-    );
-    if (rejected || !this.canPlaybackAudio || !this.canPlaybackVideo) {
-      this.mediaPlaybackError =
-        rejected?.reason instanceof Error
-          ? rejected.reason.message
-          : 'Playback is still blocked. Check this site’s media permissions and try again.';
-    }
-    this.mediaResumePending = false;
+    void Promise.allSettled(starts).then((results) => {
+      if (epoch !== this.mediaPlaybackEpoch || attempt !== this.mediaPlaybackAttempt) return;
+      this.canPlaybackAudio = this.room.canPlaybackAudio;
+      this.canPlaybackVideo = this.room.canPlaybackVideo;
+      const rejected = results.find(
+        (result): result is PromiseRejectedResult => result.status === 'rejected'
+      );
+      if (rejected || !this.canPlaybackAudio || !this.canPlaybackVideo) {
+        this.mediaPlaybackError =
+          rejected?.reason instanceof Error
+            ? rejected.reason.message
+            : 'Playback is still blocked by the browser.';
+        this.armMediaPlaybackUnlock();
+      } else {
+        this.mediaPlaybackError = '';
+        this.clearMediaPlaybackUnlock();
+      }
+    });
   }
 
   async sendChat(text: string): Promise<void> {
@@ -393,8 +431,10 @@ export class RoomState {
     this.hasSyncedRoomMetadata = false;
     this.canPlaybackAudio = true;
     this.canPlaybackVideo = true;
-    this.mediaResumePending = false;
     this.mediaPlaybackError = '';
+    this.mediaPlaybackEpoch += 1;
+    this.mediaPlaybackAttempt += 1;
+    this.clearMediaPlaybackUnlock();
     this.subscriptionFailures = {};
     this.subscriptionRetryAttempts.clear();
     for (const timer of this.subscriptionRetryTimers.values()) clearTimeout(timer);
@@ -426,7 +466,7 @@ export class RoomState {
           : `Could not subscribe to this media publication (LiveKit error ${String(reason)}).`,
       recoverable,
       retrying: false,
-      exhausted: !recoverable || attempts >= 1,
+      exhausted: !recoverable || attempts >= maximumAutomaticSubscriptionRetries,
       attempts,
       occurredAt: Date.now()
     };
@@ -435,7 +475,9 @@ export class RoomState {
       [publicationSid]: failure
     };
     this.reconcileMedia();
-    if (recoverable && attempts < 1) this.scheduleSubscriptionRetry(publicationSid);
+    if (recoverable && attempts < maximumAutomaticSubscriptionRetries) {
+      this.scheduleSubscriptionRetry(publicationSid);
+    }
   }
 
   private scheduleSubscriptionRetry(publicationSid: string): void {
@@ -496,6 +538,32 @@ export class RoomState {
       publication.setSubscribed(true);
     }
     this.reconcileMedia();
+  }
+
+  private armMediaPlaybackUnlock(): void {
+    if (typeof document === 'undefined' || this.mediaPlaybackUnlock) return;
+    const controller = new AbortController();
+    const activate = (): void => {
+      controller.abort();
+      this.mediaPlaybackUnlock = undefined;
+      this.activateMediaPlayback();
+    };
+    document.addEventListener('pointerdown', activate, {
+      capture: true,
+      once: true,
+      signal: controller.signal
+    });
+    document.addEventListener('keydown', activate, {
+      capture: true,
+      once: true,
+      signal: controller.signal
+    });
+    this.mediaPlaybackUnlock = controller;
+  }
+
+  private clearMediaPlaybackUnlock(): void {
+    this.mediaPlaybackUnlock?.abort();
+    this.mediaPlaybackUnlock = undefined;
   }
 
   private canRetryPublication(publication: RemoteTrackPublication): boolean {
@@ -719,7 +787,9 @@ export class RoomState {
         return true;
       },
       injectSubscriptionFailure: (publicationSid, exhausted = false) => {
-        if (exhausted) this.subscriptionRetryAttempts.set(publicationSid, 1);
+        if (exhausted) {
+          this.subscriptionRetryAttempts.set(publicationSid, maximumAutomaticSubscriptionRetries);
+        }
         this.recordSubscriptionFailure(publicationSid);
       },
       rejectNextPlayback: (kind = 'any') => {

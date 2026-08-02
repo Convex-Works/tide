@@ -19,6 +19,7 @@
     error = '',
     showRoom = true,
     heading = 'Join a room',
+    onactivateplayback = () => undefined,
     onjoin
   }: {
     room: string;
@@ -26,6 +27,7 @@
     error?: string;
     showRoom?: boolean;
     heading?: string;
+    onactivateplayback?: () => void;
     onjoin: (options: PreJoinOptions) => void | Promise<void>;
   } = $props();
 
@@ -204,6 +206,9 @@
     name = name.trim();
     if (!room || !name) return;
 
+    // LiveKit's playback unlock must begin in the Join click stack, before
+    // token fetches, lobby waits, or the WebSocket connection consume it.
+    onactivateplayback();
     await disposePreview();
     await onjoin({ name, micEnabled, camEnabled, videoDeviceId, audioDeviceId });
   }
