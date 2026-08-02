@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { kick, muteParticipant } from '$lib/api/client';
   import type { LobbyRequestInfo } from '$lib/api/types.gen';
   import ChatPanel from '$lib/ui/ChatPanel.svelte';
   import ControlBar from '$lib/ui/ControlBar.svelte';
@@ -33,6 +34,7 @@
   let focusParticipant = $derived(rtc.participants.find((participant) => participant.screenShare));
   let view = $state<'grid' | 'speaker'>('grid');
   let lastSpeakerIdentity = $state<string>();
+  let participantMenuIdentity = $state<string>();
 
   // Speaker view promotes the most recent remote active speaker; sticky
   // through silence so the pane doesn't flicker between turns. The local
@@ -44,6 +46,15 @@
       )
     );
     if (speaking) lastSpeakerIdentity = speaking;
+  });
+
+  $effect(() => {
+    if (
+      participantMenuIdentity &&
+      !rtc.participants.some((participant) => participant.identity === participantMenuIdentity)
+    ) {
+      participantMenuIdentity = undefined;
+    }
   });
 
   let promoted = $derived(
@@ -107,6 +118,18 @@
         .filter((participant) => participant.identity !== promoted?.identity)
         .findIndex((participant) => participant.identity === identity) + 1
     );
+  }
+
+  function setParticipantMenu(identity: string, open: boolean): void {
+    participantMenuIdentity = open ? identity : undefined;
+  }
+
+  async function muteRemoteParticipant(identity: string): Promise<void> {
+    await muteParticipant(roomSlug, identity);
+  }
+
+  async function removeRemoteParticipant(identity: string): Promise<void> {
+    await kick(roomSlug, identity);
   }
 </script>
 
@@ -172,6 +195,17 @@
           promoted={isPromoted}
           rail={layoutMode === 'speaker' && !isPromoted}
           railRow={railRow(participant.identity)}
+          videoHidden={rtc.isParticipantCameraHidden(participant.identity)}
+          menuOpen={participantMenuIdentity === participant.identity}
+          {canManage}
+          onmenuopenchange={(open) => setParticipantMenu(participant.identity, open)}
+          ontogglevideo={() =>
+            rtc.setParticipantCameraHidden(
+              participant.identity,
+              !rtc.isParticipantCameraHidden(participant.identity)
+            )}
+          onmute={() => muteRemoteParticipant(participant.identity)}
+          onremove={() => removeRemoteParticipant(participant.identity)}
         />
       {/each}
     </div>

@@ -9,7 +9,7 @@ The feature list is frozen:
 - Reusable meeting links and OIDC sign-in for hosts
 - Guest lobby with admit and deny controls
 - Microphone, camera, screen sharing, device selection, and reconnection
-- Participant list with host mute and remove controls
+- Per-participant controls for local camera hiding and host mute/remove
 - Ephemeral in-room chat
 - Server-owned room recording with download and delete management
 

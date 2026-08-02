@@ -90,6 +90,7 @@ export class RoomState {
 
   connectionState = $state<ConnectionState>(ConnectionState.Disconnected);
   participants = $state<ParticipantView[]>([]);
+  hiddenCameraIdentities = $state<string[]>([]);
   micEnabled = $state(false);
   camEnabled = $state(false);
   screenShareEnabled = $state(false);
@@ -294,6 +295,30 @@ export class RoomState {
     this.syncAllMediaState();
   }
 
+  isParticipantCameraHidden(identity: string): boolean {
+    return this.hiddenCameraIdentities.includes(identity);
+  }
+
+  setParticipantCameraHidden(identity: string, hidden: boolean): void {
+    if (identity === this.room.localParticipant.identity) return;
+    const alreadyHidden = this.isParticipantCameraHidden(identity);
+    if (hidden !== alreadyHidden) {
+      this.hiddenCameraIdentities = hidden
+        ? [...this.hiddenCameraIdentities, identity]
+        : this.hiddenCameraIdentities.filter((candidate) => candidate !== identity);
+    }
+
+    const participant = this.room.remoteParticipants.get(identity);
+    if (!participant) return;
+    for (const publication of participant.trackPublications.values()) {
+      if (publication.source !== Track.Source.Camera) continue;
+      this.clearSubscriptionFailure(publication.trackSid);
+      if (publication.isDesired === !hidden) continue;
+      publication.setSubscribed(!hidden);
+    }
+    this.reconcileMedia();
+  }
+
   /**
    * Starts LiveKit's playback unlock while the caller is still inside a user
    * gesture. Calling this before the asynchronous join path preserves the Join
@@ -407,7 +432,11 @@ export class RoomState {
       this.room.localParticipant,
       ...this.room.remoteParticipants.values()
     ];
-    if (authoritative) this.pruneSubscriptionFailures(participants);
+    if (authoritative) {
+      this.pruneSubscriptionFailures(participants);
+      this.pruneHiddenCameraIdentities();
+    }
+    this.enforceHiddenCameraSubscriptions();
     this.participants = projectParticipants(participants, this.subscriptionFailures);
   }
 
@@ -423,6 +452,7 @@ export class RoomState {
     this.wasRemoved = reason === DisconnectReason.PARTICIPANT_REMOVED;
     this.connectionState = ConnectionState.Disconnected;
     this.participants = [];
+    this.hiddenCameraIdentities = [];
     this.activeSpeakerIdentities = [];
     this.micEnabled = false;
     this.camEnabled = false;
@@ -569,6 +599,7 @@ export class RoomState {
   private canRetryPublication(publication: RemoteTrackPublication): boolean {
     return (
       this.connectionState === ConnectionState.Connected &&
+      !this.isHiddenCameraPublication(publication) &&
       publication.isDesired &&
       publication.permissionStatus === TrackPublication.PermissionStatus.Allowed &&
       this.remotePublication(publication.trackSid) === publication
@@ -581,6 +612,34 @@ export class RoomState {
       if (publication) return publication as RemoteTrackPublication;
     }
     return undefined;
+  }
+
+  private isHiddenCameraPublication(publication: RemoteTrackPublication): boolean {
+    if (publication.source !== Track.Source.Camera) return false;
+    for (const [identity, participant] of this.room.remoteParticipants) {
+      if (participant.trackPublications.get(publication.trackSid) === publication) {
+        return this.isParticipantCameraHidden(identity);
+      }
+    }
+    return false;
+  }
+
+  private enforceHiddenCameraSubscriptions(): void {
+    for (const [identity, participant] of this.room.remoteParticipants) {
+      if (!this.isParticipantCameraHidden(identity)) continue;
+      for (const publication of participant.trackPublications.values()) {
+        if (publication.source !== Track.Source.Camera) continue;
+        this.clearSubscriptionFailure(publication.trackSid);
+        if (publication.isDesired) publication.setSubscribed(false);
+      }
+    }
+  }
+
+  private pruneHiddenCameraIdentities(): void {
+    const connected = new Set(this.room.remoteParticipants.keys());
+    this.hiddenCameraIdentities = this.hiddenCameraIdentities.filter((identity) =>
+      connected.has(identity)
+    );
   }
 
   private cancelSubscriptionRetry(publicationSid: string): void {

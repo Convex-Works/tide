@@ -4,6 +4,7 @@
   import { clampAspect, observeAspect } from './aspect';
   import type { ParticipantView } from './media';
   import { attachMediaTrack } from './mediaElement';
+  import ParticipantMenu from './ParticipantMenu.svelte';
 
   let {
     participant,
@@ -12,7 +13,14 @@
     waveform = true,
     promoted = false,
     rail = false,
-    railRow = 1
+    railRow = 1,
+    videoHidden = false,
+    menuOpen = false,
+    canManage = false,
+    onmenuopenchange,
+    ontogglevideo,
+    onmute,
+    onremove
   }: {
     participant: ParticipantView;
     speaking?: boolean;
@@ -21,6 +29,13 @@
     promoted?: boolean;
     rail?: boolean;
     railRow?: number;
+    videoHidden?: boolean;
+    menuOpen?: boolean;
+    canManage?: boolean;
+    onmenuopenchange?: (open: boolean) => void;
+    ontogglevideo?: () => void | Promise<void>;
+    onmute?: () => void | Promise<void>;
+    onremove?: () => void | Promise<void>;
   } = $props();
 
   let aspect = $state(clampAspect(0, 0));
@@ -43,9 +58,10 @@
   style:--tile-row={railRow}
   data-testid="participant-tile"
   data-identity={participant.identity}
+  data-video-hidden={videoHidden}
 >
   <div class="video-box" class:speaking style:--va={aspect}>
-    {#if participant.camera}
+    {#if participant.camera && !videoHidden}
       <!-- Live meeting video does not have a caption track. -->
       <!-- Always muted: audio plays through the persistent remote renderer,
            and an unmuted <video> can be blocked from autoplaying. -->
@@ -60,6 +76,21 @@
       ></video>
     {:else}
       <div class="placeholder" aria-hidden="true">{initialFor(participant.name)}</div>
+    {/if}
+
+    {#if videoHidden}<span class="video-hidden mono">Video hidden</span>{/if}
+
+    {#if !participant.isLocal && ontogglevideo && onmenuopenchange}
+      <ParticipantMenu
+        {participant}
+        open={menuOpen}
+        {videoHidden}
+        {canManage}
+        onopenchange={onmenuopenchange}
+        {ontogglevideo}
+        {onmute}
+        {onremove}
+      />
     {/if}
 
     <div class="name-label">
@@ -82,6 +113,7 @@
 
 <style>
   .cell {
+    position: relative;
     display: grid;
     min-width: 0;
     min-height: 0;
@@ -94,7 +126,7 @@
   .video-box {
     position: relative;
     display: grid;
-    overflow: hidden;
+    overflow: visible;
     aspect-ratio: var(--va);
     /* Contain-fit at the clamped aspect: height-limited width, capped by the
        cell, floored at 140px so portrait tiles never become slivers. When a
@@ -138,6 +170,7 @@
     grid-area: 1 / 1;
     width: 100%;
     height: 100%;
+    border-radius: calc(var(--radius-tile) - 1px);
   }
 
   video {
@@ -153,6 +186,23 @@
     place-items: center;
     color: var(--text-2);
     font-size: 18px;
+  }
+
+  .video-hidden {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    padding: 2px 6px;
+    color: var(--text-2);
+    font-size: 10px;
+    line-height: 16px;
+    background: color-mix(in srgb, var(--stage) 78%, transparent);
+    border: 1px solid var(--border-d);
+    border-radius: var(--radius-control);
+  }
+
+  .cell:focus-within {
+    z-index: 5;
   }
 
   .name-label {
