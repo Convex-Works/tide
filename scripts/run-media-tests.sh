@@ -15,31 +15,33 @@ project_name="$(printf '%.55s' "${project_name}")"
 # The stack pins container addresses so LiveKit can advertise a reachable
 # node-ip, which means it needs a /24 to itself. A fixed one collides whenever
 # two gate runs overlap on a runner — and every pull request produces two, one
-# for the push event and one for the pull_request event. Claim a /24 that no
-# existing network holds; Docker rejects an overlapping pool outright.
+# for the push event and one for the pull_request event.
+#
+# Claim one by *creating* a network with it rather than by reading the list of
+# subnets already in use: Docker refuses an overlapping pool, so the create
+# either succeeds or tells us to try the next candidate. Reading the list first
+# is check-then-act, and two runs that read before either wrote both proceed.
+#
+# Seeded from the run and job identity, not $$: this runner hands the script
+# the same pid on every run, so concurrent runs would otherwise start from the
+# same candidate and walk the range in lockstep.
 claim_network_prefix() {
-  taken="$(docker network ls --quiet |
-    xargs -r docker network inspect --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null ||
-    true)"
-  candidate=$(( ($$ % 240) + 10 ))
+  seed="$(printf '%s' "${run_identity}" | cksum | cut -d' ' -f1)"
+  candidate=$(( (seed % 240) + 10 ))
   attempt=0
   while [ "${attempt}" -lt 240 ]; do
-    case " ${taken} " in
-      *" 10.253.${candidate}.0/24 "*) ;;
-      *)
-        printf '10.253.%s' "${candidate}"
-        return 0
-        ;;
-    esac
-    candidate=$(( (candidate % 240) + 10 ))
+    if docker network create --driver bridge \
+      --subnet "10.253.${candidate}.0/24" "${project_name}-claim" >/dev/null 2>&1; then
+      docker network rm "${project_name}-claim" >/dev/null 2>&1 || true
+      printf '10.253.%s' "${candidate}"
+      return 0
+    fi
+    candidate=$(( ((candidate + 1) % 240) + 10 ))
     attempt=$(( attempt + 1 ))
   done
   echo "No free /24 remains in 10.253.0.0/16 for the media stack." >&2
   return 1
 }
-
-KLISI_MEDIA_NET_PREFIX="$(claim_network_prefix)"
-export KLISI_MEDIA_NET_PREFIX
 
 compose() {
   docker compose --project-name "${project_name}" --file "${compose_file}" "$@"
@@ -55,4 +57,13 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-compose up --build --abort-on-container-exit --exit-code-from runner runner
+# Build first so the claim is made immediately before the network is created.
+# Claiming across the build would leave a window of minutes in which another
+# run takes the same /24.
+compose build
+
+KLISI_MEDIA_NET_PREFIX="$(claim_network_prefix)"
+export KLISI_MEDIA_NET_PREFIX
+echo "Media stack network: ${KLISI_MEDIA_NET_PREFIX}.0/24 (project ${project_name})"
+
+compose up --abort-on-container-exit --exit-code-from runner runner
