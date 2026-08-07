@@ -10,6 +10,7 @@ import {
   publishReplacementMicrophone,
   publishSyntheticScreen,
   resetSyntheticMedia,
+  resubscribeSettleTimeout,
   setPublicationMuted,
   unpublishSynthetic
 } from './media-helpers';
@@ -39,9 +40,9 @@ abstract class MediaCommand implements AsyncCommand<MediaModel, MediaReal> {
   abstract run(model: MediaModel, real: MediaReal): Promise<void>;
   abstract toString(): string;
 
-  protected async converged(real: MediaReal): Promise<void> {
+  protected async converged(real: MediaReal, timeout?: number): Promise<void> {
     real.trace.push(this.toString());
-    await expectMediaInvariant(real.receiver);
+    await expectMediaInvariant(real.receiver, timeout);
   }
 }
 
@@ -316,7 +317,9 @@ class SubscriptionFailure extends MediaCommand {
       real.cameraSid,
       { timeout: 20_000 }
     );
-    await this.converged(real);
+    // A re-subscribe renegotiates, and the SDK reports subscribed before RTP
+    // resumes, so the invariant needs more than the settled-room default.
+    await this.converged(real, resubscribeSettleTimeout);
   }
   toString(): string {
     return 'subscription-failure-converges';

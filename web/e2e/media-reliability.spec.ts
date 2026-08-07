@@ -8,6 +8,7 @@ import {
   probe,
   publishSyntheticCameraAndAudio,
   publishSyntheticScreen,
+  resubscribeSettleTimeout,
   tagMediaElements,
   unpublishSynthetic
 } from './media-helpers';
@@ -241,7 +242,7 @@ test('media ownership converges across the deterministic lifecycle corpus', asyn
         { timeout: 20_000 }
       )
       .toBe(true);
-    await expectMediaInvariant(page);
+    await expectMediaInvariant(page, resubscribeSettleTimeout);
   } finally {
     await attachDiagnostics(testInfo, 'receiver-console.json', receiverConsole);
     await attachDiagnostics(testInfo, 'publisher-console.json', publisherConsole);

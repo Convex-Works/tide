@@ -385,6 +385,15 @@ export async function probe(page: Page): Promise<MediaProbeSnapshot> {
   return page.evaluate(() => (window as MediaTestWindow).__klisiMediaTest.snapshot());
 }
 
+/**
+ * A publication that has just been re-subscribed has to renegotiate before RTP
+ * flows again, and the SDK reports `subscribed` well before the first frames
+ * arrive. Invariant checks that directly follow a re-subscribe need this rather
+ * than the 3 s default, which suits a settled room. It still fails if media
+ * never returns — it only stops the assertion racing the renegotiation.
+ */
+export const resubscribeSettleTimeout = 20_000;
+
 export async function expectMediaInvariant(
   page: Page,
   timeout = 3_000
