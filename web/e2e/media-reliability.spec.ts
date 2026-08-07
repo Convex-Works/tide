@@ -194,8 +194,30 @@ test('media ownership converges across the deterministic lifecycle corpus', asyn
     await expect(page.getByTestId('playback-blocked')).toHaveCount(0);
     await expectMediaInvariant(page);
 
-    // A subscription dropped behind klisi's back — no event, no UI action —
-    // is restored by applySubscriptions on the next tick.
+    // Full PC reconnect is authoritative and must converge without a reload or
+    // changing any participant-owned media node.
+    await page.evaluate(() =>
+      (
+        window as Window &
+          typeof globalThis & {
+            __klisiRoom: { simulateScenario(scenario: 'full-reconnect'): Promise<void> };
+          }
+      ).__klisiRoom.simulateScenario('full-reconnect')
+    );
+    await expect
+      .poll(async () => (await probe(page)).connectionState, { timeout: 45_000 })
+      .toBe('connected');
+    await expectMediaInvariant(page);
+    await expectMediaElementTags(page, persistentTags);
+
+    // A subscription dropped behind klisi's back — no event, no UI action — is
+    // restored by applySubscriptions on the next tick.
+    //
+    // Deliberately last. Re-subscribing gets a *new* track from the SFU, so the
+    // camera's video element is legitimately rebuilt, which would invalidate
+    // the element-identity baseline every assertion above compares against.
+    // (It only shows up on a slow enough runner: when the re-subscribe wins the
+    // race the unsubscribed state is never projected and the element survives.)
     await page.evaluate((cameraSid) => {
       const hook = (
         window as Window &
@@ -220,22 +242,6 @@ test('media ownership converges across the deterministic lifecycle corpus', asyn
       )
       .toBe(true);
     await expectMediaInvariant(page);
-
-    // Full PC reconnect is authoritative and must converge without a reload or
-    // changing any participant-owned media node.
-    await page.evaluate(() =>
-      (
-        window as Window &
-          typeof globalThis & {
-            __klisiRoom: { simulateScenario(scenario: 'full-reconnect'): Promise<void> };
-          }
-      ).__klisiRoom.simulateScenario('full-reconnect')
-    );
-    await expect
-      .poll(async () => (await probe(page)).connectionState, { timeout: 45_000 })
-      .toBe('connected');
-    await expectMediaInvariant(page);
-    await expectMediaElementTags(page, persistentTags);
   } finally {
     await attachDiagnostics(testInfo, 'receiver-console.json', receiverConsole);
     await attachDiagnostics(testInfo, 'publisher-console.json', publisherConsole);
