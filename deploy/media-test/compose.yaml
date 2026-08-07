@@ -17,13 +17,13 @@ services:
       retries: 30
     networks:
       media:
-        ipv4_address: 10.253.0.2
+        ipv4_address: ${KLISI_MEDIA_NET_PREFIX:-10.253.0}.2
 
   livekit:
     build:
       context: ../..
       dockerfile: deploy/media-test/livekit.Dockerfile
-    command: --config /etc/livekit.yaml --node-ip 10.253.0.3
+    command: --config /etc/livekit.yaml --node-ip ${KLISI_MEDIA_NET_PREFIX:-10.253.0}.3
     depends_on:
       redis:
         condition: service_healthy
@@ -34,7 +34,7 @@ services:
       retries: 30
     networks:
       media:
-        ipv4_address: 10.253.0.3
+        ipv4_address: ${KLISI_MEDIA_NET_PREFIX:-10.253.0}.3
 
   # Real OIDC. Without a session the suite cannot reach /m/[slug], the lobby,
   # host token grants, moderation or recording — /api/dev/token mints only
@@ -57,7 +57,7 @@ services:
       retries: 30
     networks:
       media:
-        ipv4_address: 10.253.0.6
+        ipv4_address: ${KLISI_MEDIA_NET_PREFIX:-10.253.0}.6
 
   minio:
     image: minio/minio:RELEASE.2025-04-22T22-12-26Z
@@ -72,7 +72,7 @@ services:
       retries: 30
     networks:
       media:
-        ipv4_address: 10.253.0.7
+        ipv4_address: ${KLISI_MEDIA_NET_PREFIX:-10.253.0}.7
 
   minio-init:
     image: minio/mc:RELEASE.2025-04-16T18-13-26Z
@@ -87,7 +87,7 @@ services:
     restart: "no"
     networks:
       media:
-        ipv4_address: 10.253.0.8
+        ipv4_address: ${KLISI_MEDIA_NET_PREFIX:-10.253.0}.8
 
   egress:
     build:
@@ -116,7 +116,7 @@ services:
       timeout: 3s
       retries: 30
     # Egress shares LiveKit's network namespace so the SFU's advertised
-    # node_ip (10.253.0.3) is also the correct candidate for its own Chrome.
+    # node_ip (the .3 address below) is the correct candidate for its Chrome.
     network_mode: "service:livekit"
 
   klisi:
@@ -160,7 +160,7 @@ services:
       - /data:mode=1777
     networks:
       media:
-        ipv4_address: 10.253.0.4
+        ipv4_address: ${KLISI_MEDIA_NET_PREFIX:-10.253.0}.4
 
   runner:
     build:
@@ -193,14 +193,14 @@ services:
     shm_size: 2gb
     networks:
       media:
-        ipv4_address: 10.253.0.5
+        ipv4_address: ${KLISI_MEDIA_NET_PREFIX:-10.253.0}.5
 
 networks:
   media:
     driver: bridge
     ipam:
       config:
-        - subnet: 10.253.0.0/24
+        - subnet: ${KLISI_MEDIA_NET_PREFIX:-10.253.0}.0/24
 
 volumes:
   media-artifacts:

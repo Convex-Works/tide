@@ -12,6 +12,35 @@ run_identity="${CI_RUN_ID:-local}-${CI_JOB_ID:-media}-$$"
 project_name="$(printf '%s' "klisi-media-${run_identity}" | tr '[:upper:]_' '[:lower:]-' | tr -cd 'a-z0-9-')"
 project_name="$(printf '%.55s' "${project_name}")"
 
+# The stack pins container addresses so LiveKit can advertise a reachable
+# node-ip, which means it needs a /24 to itself. A fixed one collides whenever
+# two gate runs overlap on a runner — and every pull request produces two, one
+# for the push event and one for the pull_request event. Claim a /24 that no
+# existing network holds; Docker rejects an overlapping pool outright.
+claim_network_prefix() {
+  taken="$(docker network ls --quiet |
+    xargs -r docker network inspect --format '{{range .IPAM.Config}}{{.Subnet}} {{end}}' 2>/dev/null ||
+    true)"
+  candidate=$(( ($$ % 240) + 10 ))
+  attempt=0
+  while [ "${attempt}" -lt 240 ]; do
+    case " ${taken} " in
+      *" 10.253.${candidate}.0/24 "*) ;;
+      *)
+        printf '10.253.%s' "${candidate}"
+        return 0
+        ;;
+    esac
+    candidate=$(( (candidate % 240) + 10 ))
+    attempt=$(( attempt + 1 ))
+  done
+  echo "No free /24 remains in 10.253.0.0/16 for the media stack." >&2
+  return 1
+}
+
+KLISI_MEDIA_NET_PREFIX="$(claim_network_prefix)"
+export KLISI_MEDIA_NET_PREFIX
+
 compose() {
   docker compose --project-name "${project_name}" --file "${compose_file}" "$@"
 }
