@@ -1,0 +1,20 @@
+{
+  // SvelteKit's generated tsconfig only includes src/, so the Playwright suite
+  // was never type-checked: a missing import surfaced minutes into a Docker
+  // run instead of in `make check`. This covers e2e/ on its own.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "strict": true,
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true
+  },
+  "include": ["e2e/**/*.ts", "playwright.config.ts", "playwright.media.config.ts"]
+}

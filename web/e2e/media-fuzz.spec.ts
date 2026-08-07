@@ -268,36 +268,58 @@ class SubscriptionFailure extends MediaCommand {
       model.cameraPublished = true;
       model.cameraMuted = false;
     }
-    const before = (await probe(real.receiver)).subscriptionRetryTotals[real.cameraSid] ?? 0;
+    // Two independent insults in one command: a failure record that describes
+    // nothing (the publication is subscribed), and a subscription dropped with
+    // no event to announce it. Both must be re-derived away by the tick.
     await real.receiver.evaluate((sid) => {
-      (
+      const hook = (
         window as Window &
           typeof globalThis & {
-            __klisiMediaTest: { injectSubscriptionFailure(publicationSid: string): void };
+            __klisiMediaTest: {
+              injectSubscriptionFailure(publicationSid: string): void;
+              unsubscribeBehindBack(publicationSid: string): boolean;
+            };
           }
-      ).__klisiMediaTest.injectSubscriptionFailure(sid);
+      ).__klisiMediaTest;
+      hook.injectSubscriptionFailure(sid);
+      hook.unsubscribeBehindBack(sid);
     }, real.cameraSid);
     await real.receiver.waitForFunction(
-      ({ sid, previous }) =>
+      (sid) =>
         (
           window as Window &
             typeof globalThis & {
               __klisiMediaTest: {
                 snapshot(): Promise<{
-                  subscriptionRetryTotals: Record<string, number>;
+                  participants: {
+                    publications: Record<
+                      string,
+                      { publicationSid: string; subscribed: boolean; desired: boolean }
+                    >;
+                  }[];
+                  subscriptionFailures: Record<string, unknown>;
                 }>;
               };
             }
         ).__klisiMediaTest
           .snapshot()
-          .then((snapshot) => (snapshot.subscriptionRetryTotals[sid] ?? 0) === previous + 1),
-      { sid: real.cameraSid, previous: before },
-      { timeout: 10_000 }
+          .then((snapshot) => {
+            const camera = snapshot.participants
+              .flatMap((participant) => Object.values(participant.publications))
+              .find((publication) => publication.publicationSid === sid);
+            return (
+              snapshot.subscriptionFailures[sid] === undefined &&
+              camera?.subscribed === true &&
+              camera.desired
+            );
+          }),
+      real.cameraSid,
+      { timeout: 20_000 }
     );
     await this.converged(real);
   }
   toString(): string {
-    return 'subscription-failure-retry';
+    return 'subscription-failure-converges';
   }
 }
 
@@ -542,7 +564,7 @@ test('seeded model-based media lifecycle fuzzing', async ({ page }, testInfo) =>
                   microphonePublished: true,
                   microphoneMuted: false,
                   screenPublished: false,
-                  view: 'grid'
+                  view: 'grid' as const
                 },
                 real: {
                   publisher,

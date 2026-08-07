@@ -1,0 +1,37 @@
+# Media-gate OIDC provider. Identical in shape to deploy/dex.yaml, but the
+# issuer and redirect URI are in-network names: the media stack publishes no
+# host ports, so the browser under test reaches dex as http://dex:5556.
+issuer: http://dex:5556/dex
+
+storage:
+  type: sqlite3
+  config:
+    file: /var/dex/dex.db
+
+web:
+  http: 0.0.0.0:5556
+
+oauth2:
+  skipApprovalScreen: true
+
+enablePasswordDB: true
+
+staticClients:
+  - id: klisi
+    name: klisi
+    secret: klisi-dev-oidc-secret
+    redirectURIs:
+      - http://klisi:8080/api/auth/callback
+
+# Both users share the dev password (klisi-dev). The owner manages rooms; the
+# member is an ordinary authenticated user, so it exercises the lobby and the
+# non-host token grant.
+staticPasswords:
+  - email: host@klisi.dev
+    hash: $2y$10$F/KI0Qc6sm.Om4J4jrLBlupx3h1ybr1bg8aRdYDUQRGTKuQaIK8Vu
+    username: Klisi host
+    userID: 6f6fb3c0-86e0-4c08-85c5-cb6f5a649b4e
+  - email: member@klisi.dev
+    hash: $2y$10$F/KI0Qc6sm.Om4J4jrLBlupx3h1ybr1bg8aRdYDUQRGTKuQaIK8Vu
+    username: Klisi member
+    userID: 0d0a2f83-4a1c-4f3e-9a17-2f7f3f0c5c11

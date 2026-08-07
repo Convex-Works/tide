@@ -27,6 +27,15 @@ type ipRateLimiter struct {
 	lastCleanup     time.Time
 }
 
+// orDefault keeps a zero-valued Config (tests, embedders) from denying every
+// request: an unset ceiling means the published default, never zero.
+func orDefault(configured, fallback int) int {
+	if configured <= 0 {
+		return fallback
+	}
+	return configured
+}
+
 func newIPRateLimiter(limit int, window time.Duration) *ipRateLimiter {
 	return newIPRateLimiterWithClock(limit, window, time.Now)
 }

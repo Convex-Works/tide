@@ -31,30 +31,34 @@ enable_netem() {
     reorder 5% 50%
 }
 
+# The full gate: lifecycle and recording scenarios, the reliability suite, the
+# seeded fuzzer, and a network-chaos rerun. All of it blocks every pull request
+# rather than deferring anything to a nightly job — a regression that only a
+# nightly catches has already shipped.
+full_suite() {
+  mkdir -p "${artifacts}/deterministic" "${artifacts}/fuzz" "${artifacts}/network-chaos"
+  KLISI_MEDIA_ARTIFACTS="${artifacts}/deterministic" npm run media:e2e
+
+  if [ -z "${FC_SEED:-}" ]; then
+    FC_SEED="$(date -u +%Y%m%d)"
+    export FC_SEED
+  fi
+  KLISI_MEDIA_ARTIFACTS="${artifacts}/fuzz" npm run media:fuzz
+
+  enable_netem
+  KLISI_MEDIA_ARTIFACTS="${artifacts}/network-chaos" npm run media:chaos
+  cleanup_netem
+}
+
+artifacts="${KLISI_MEDIA_ARTIFACTS:-/artifacts}"
+
 case "${KLISI_MEDIA_SUITE:-deterministic}" in
-  deterministic)
-    npm run media:e2e
+  deterministic | nightly)
+    full_suite
     ;;
-  nightly)
-    KLISI_MEDIA_ARTIFACTS=/artifacts/deterministic \
-      npx playwright test media-reliability.spec.ts \
-      --config=playwright.media.config.ts \
-      --project=chromium \
-      --project=webkit \
-      --project=firefox
-    if [ -z "${FC_SEED:-}" ]; then
-      FC_SEED="$(date -u +%Y%m%d)"
-      export FC_SEED
-    fi
-    KLISI_MEDIA_ARTIFACTS=/artifacts/fuzz npm run media:fuzz
-    if [ "${KLISI_NETWORK_CHAOS:-false}" = "true" ]; then
-      enable_netem
-      KLISI_MEDIA_ARTIFACTS=/artifacts/network-chaos \
-        npx playwright test media-reliability.spec.ts \
-        --config=playwright.media.config.ts \
-        --project=chromium
-      cleanup_netem
-    fi
+  quick)
+    # Local shortcut only; never what CI runs.
+    npm run media:e2e
     ;;
   fuzz)
     if [ "${KLISI_NETWORK_CHAOS:-false}" = "true" ]; then

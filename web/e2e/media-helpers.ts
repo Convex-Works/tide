@@ -13,9 +13,6 @@ export interface ProbePublication {
   track?: { id: string; readyState: MediaStreamTrackState };
   failure?: {
     recoverable: boolean;
-    retrying: boolean;
-    exhausted: boolean;
-    attempts: number;
     message: string;
   };
 }
@@ -23,9 +20,16 @@ export interface ProbePublication {
 export interface MediaProbeSnapshot {
   connectionState: string;
   playback: { audio: boolean; video: boolean; error: string };
+  /**
+   * `ticks` counts reconciles (the heartbeat drives these even when idle);
+   * `revisions` counts the ones that actually republished the projection.
+   * A growing tick count with a flat revision count is the no-churn property.
+   */
+  projection: { ticks: number; revisions: number };
   participants: {
     identity: string;
     isLocal: boolean;
+    isEgress: boolean;
     publications: Record<string, ProbePublication>;
   }[];
   elements: {
@@ -50,13 +54,9 @@ export interface MediaProbeSnapshot {
     string,
     {
       recoverable: boolean;
-      retrying: boolean;
-      exhausted: boolean;
-      attempts: number;
       message: string;
     }
   >;
-  subscriptionRetryTotals: Record<string, number>;
 }
 
 type SyntheticResource =
@@ -93,8 +93,11 @@ type MediaTestWindow = Window &
       reconcile(): void;
       clearSrcObject(publicationSid: string): boolean;
       forgetLiveKitAttachment(publicationSid: string): boolean;
-      injectSubscriptionFailure(publicationSid: string, exhausted?: boolean): void;
+      injectSubscriptionFailure(publicationSid: string): void;
+      unsubscribeBehindBack(publicationSid: string): boolean;
       rejectNextPlayback(kind?: 'audio' | 'video' | 'any'): void;
+      blockPlayback(kind?: 'audio' | 'video' | 'any'): void;
+      unblockPlayback(): void;
     };
     __klisiSynthetic?: {
       resources: SyntheticResource[];
@@ -403,16 +406,21 @@ export async function expectMediaInvariant(
               publication.permissionAllowed &&
               publication.track
           );
-        const expectedElements = latest.participants
-          .filter((participant) => !participant.isLocal)
-          .flatMap((participant) => Object.values(participant.publications))
-          .filter(
-            (publication) =>
-              publication.subscribed &&
-              publication.permissionAllowed &&
-              publication.track &&
-              (publication.kind === 'audio' || !publication.muted)
-          );
+        // A publishing client renders its own camera (and screen share) in its
+        // own tile, so those elements are expected too. Local audio is never
+        // rendered — RemoteAudioRenderer skips the local participant.
+        const expectedElements = latest.participants.flatMap((participant) =>
+          Object.values(participant.publications).filter((publication) =>
+            participant.isLocal
+              ? publication.kind === 'video' &&
+                !publication.muted &&
+                publication.track !== undefined
+              : publication.subscribed &&
+                publication.permissionAllowed &&
+                publication.track !== undefined &&
+                (publication.kind === 'audio' || !publication.muted)
+          )
+        );
         const desiredSids = expectedElements
           .map((publication) => publication.publicationSid)
           .sort();
@@ -445,7 +453,10 @@ export async function expectMediaInvariant(
             publicationSid: publication.publicationSid,
             source: publication.source,
             kind: publication.kind,
-            ok: failure?.recoverable === true || (attached && advancing),
+            // A recorded failure no longer excuses a publication. Recovery is
+            // the reconcile tick re-deriving the subscription, so "recoverable"
+            // means it must actually recover inside this poll window.
+            ok: attached && advancing,
             sdk: {
               desired: publication.desired,
               subscribed: publication.subscribed,
@@ -515,10 +526,24 @@ export async function expectMediaElementTags(
   await expect.poll(() => tagMediaElements(page), { timeout: 3_000 }).toMatchObject(expected);
 }
 
+// A page that spins can emit millions of console lines, and an unbounded
+// capture then fails the *attachment* instead of reporting the spin. Keep the
+// tail and say how much was dropped.
+const maximumCapturedMessages = 4_000;
+
 export function captureBrowserDiagnostics(page: Page): string[] {
   const messages: string[] = [];
-  page.on('console', (message) => messages.push(`[console:${message.type()}] ${message.text()}`));
-  page.on('pageerror', (error) => messages.push(`[pageerror] ${error.stack ?? error.message}`));
+  let dropped = 0;
+  const record = (line: string): void => {
+    messages.push(line);
+    if (messages.length > maximumCapturedMessages) {
+      messages.splice(0, messages.length - maximumCapturedMessages);
+      dropped += 1;
+      if (dropped % 1_000 === 1) messages[0] = `[dropped ${dropped} earlier messages]`;
+    }
+  };
+  page.on('console', (message) => record(`[console:${message.type()}] ${message.text()}`));
+  page.on('pageerror', (error) => record(`[pageerror] ${error.stack ?? error.message}`));
   return messages;
 }
 

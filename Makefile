@@ -1,4 +1,4 @@
-.PHONY: dev gen server-check web-check typesync check build clean
+.PHONY: dev gen server-check web-check typesync check media media-dev build clean
 
 dev:
 	# LiveKit must advertise an address reachable by host browsers AND the
@@ -30,6 +30,17 @@ typesync: gen
 	git diff --exit-code -- web/src/lib/api/types.gen.ts
 
 check: server-check web-check typesync
+
+# The full media gate exactly as CI runs it: builds the stack, runs every
+# suite, tears down. Slow by design.
+media:
+	./scripts/run-media-tests.sh
+
+# Iteration loop: keeps the stack up between runs and rebuilds only what
+# changed. Pass through spec names and Playwright flags, for example:
+#   make media-dev ARGS="media-lifecycle.spec.ts --project=chromium"
+media-dev:
+	./scripts/media-dev.sh $(ARGS)
 
 build:
 	cd web && npm run build

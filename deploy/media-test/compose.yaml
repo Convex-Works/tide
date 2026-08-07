@@ -1,5 +1,11 @@
 name: klisi-media-test
 
+# A sealed stack on a private /24. Nothing is published to the host: the
+# browser under test runs inside `runner`, so every service is reachable only
+# by its compose DNS name. Configuration is baked into images rather than
+# bind-mounted because CI drives compose from inside a container, where host
+# bind mounts do not resolve on the daemon's filesystem.
+
 services:
   redis:
     image: redis:7.4.5-alpine
@@ -30,6 +36,89 @@ services:
       media:
         ipv4_address: 10.253.0.3
 
+  # Real OIDC. Without a session the suite cannot reach /m/[slug], the lobby,
+  # host token grants, moderation or recording — /api/dev/token mints only
+  # non-host tokens, so those paths were previously untestable.
+  dex:
+    build:
+      context: ../..
+      dockerfile: deploy/media-test/dex.Dockerfile
+    command: dex serve /etc/dex/config.yaml
+    volumes:
+      - dex-data:/var/dex
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q --spider http://localhost:5556/dex/.well-known/openid-configuration || exit 1"
+        ]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    networks:
+      media:
+        ipv4_address: 10.253.0.6
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: klisi
+      MINIO_ROOT_PASSWORD: klisi-dev-minio
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    networks:
+      media:
+        ipv4_address: 10.253.0.7
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        mc alias set local http://minio:9000 klisi klisi-dev-minio &&
+        mc mb --ignore-existing local/klisi-recordings
+    restart: "no"
+    networks:
+      media:
+        ipv4_address: 10.253.0.8
+
+  egress:
+    build:
+      context: ../..
+      dockerfile: deploy/media-test/egress.Dockerfile
+    environment:
+      EGRESS_CONFIG_FILE: /etc/egress.yaml
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - seccomp:unconfined
+    shm_size: 1gb
+    # Staging area for file egress before the S3 upload; egress runs non-root.
+    tmpfs:
+      - /recordings:mode=1777
+    depends_on:
+      livekit:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8081/ || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    # Egress shares LiveKit's network namespace so the SFU's advertised
+    # node_ip (10.253.0.3) is also the correct candidate for its own Chrome.
+    network_mode: "service:livekit"
+
   klisi:
     build:
       context: ../..
@@ -45,9 +134,28 @@ services:
       KLISI_LIVEKIT_PUBLIC_URL: ws://livekit:7880
       KLISI_LIVEKIT_API_KEY: devkey
       KLISI_LIVEKIT_API_SECRET: klisi-dev-secret-please-change-0000000000
+      KLISI_OIDC_ISSUER: http://dex:5556/dex
+      KLISI_OIDC_CLIENT_ID: klisi
+      KLISI_OIDC_CLIENT_SECRET: klisi-dev-oidc-secret
+      KLISI_S3_ENDPOINT: http://minio:9000
+      KLISI_S3_PUBLIC_ENDPOINT: http://minio:9000
+      KLISI_S3_EGRESS_ENDPOINT: http://minio:9000
+      KLISI_S3_BUCKET: klisi-recordings
+      KLISI_S3_ACCESS_KEY: klisi
+      KLISI_S3_SECRET_KEY: klisi-dev-minio
+      KLISI_EGRESS_TEMPLATE_URL: http://klisi:8080/egress-template
+      # Every browser in the suite shares the runner's single container IP, so
+      # the public per-IP defaults (10 joins/min) would throttle the gate.
+      KLISI_JOIN_RATE_LIMIT: "10000"
+      KLISI_WAIT_RATE_LIMIT: "10000"
+      KLISI_LOGIN_RATE_LIMIT: "10000"
     depends_on:
       livekit:
         condition: service_healthy
+      dex:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
     tmpfs:
       - /data:mode=1777
     networks:
@@ -61,9 +169,11 @@ services:
     environment:
       CI: "true"
       KLISI_MEDIA_BASE_URL: http://klisi:8080
+      KLISI_MEDIA_DEX_URL: http://dex:5556
       KLISI_MEDIA_ARTIFACTS: /artifacts
       KLISI_MEDIA_SUITE: ${KLISI_MEDIA_SUITE:-deterministic}
       KLISI_NETWORK_CHAOS: ${KLISI_NETWORK_CHAOS:-false}
+      KLISI_MESH_PARTICIPANTS: ${KLISI_MESH_PARTICIPANTS:-5}
       FC_SEED: ${FC_SEED:-}
       FC_COMMANDS: ${FC_COMMANDS:-75}
       FC_RUNS: ${FC_RUNS:-1}
@@ -72,12 +182,15 @@ services:
     depends_on:
       livekit:
         condition: service_healthy
+      egress:
+        condition: service_healthy
       klisi:
         condition: service_started
     cap_add:
       - NET_ADMIN
     init: true
-    shm_size: 1gb
+    # Many concurrent Chromium contexts publishing canvas/oscillator media.
+    shm_size: 2gb
     networks:
       media:
         ipv4_address: 10.253.0.5
@@ -91,3 +204,4 @@ networks:
 
 volumes:
   media-artifacts:
+  dex-data:

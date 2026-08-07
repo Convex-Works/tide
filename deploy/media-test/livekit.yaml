@@ -10,3 +10,10 @@ redis:
 
 keys:
   devkey: klisi-dev-secret-please-change-0000000000
+
+# Recording status only advances when klisi receives egress webhooks; without
+# this a recording stays "starting" forever.
+webhook:
+  api_key: devkey
+  urls:
+    - http://klisi:8080/api/webhooks/livekit

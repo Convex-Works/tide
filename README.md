@@ -50,6 +50,28 @@ cd web
 npx playwright test
 ```
 
+### Media gate
+
+The media suite runs against a real SFU in its own sealed Compose stack
+(`deploy/media-test/`) — LiveKit, Redis, Dex, MinIO, Egress, klisi, and the
+browser itself, on a private network with no published ports. It is the merge
+gate, and it runs in full on every pull request.
+
+```sh
+make media                                              # exactly what CI runs
+make media-dev ARGS="media-lifecycle.spec.ts --project=chromium"   # iterate
+```
+
+`make media-dev` keeps the stack up between runs and rebuilds only what
+changed. Note that changes under `web/src` need the klisi image rebuilt,
+because the SPA is embedded in the Go binary; the script handles that.
+
+`media-lifecycle.spec.ts` holds the scenarios where a participant is *already*
+in the room when something changes — a later joiner, a reload, a mute, a screen
+share, a departure, a reconnect. See
+[Architecture §14](docs/ARCHITECTURE.md#14-ci) for the rule those encode and
+why an assertion has to prove presence before it proves flow.
+
 ## Recording
 
 The server starts a LiveKit room-composite Egress job and includes the S3

@@ -186,7 +186,7 @@ to the egress job, not to any participant's tab.
 3. Egress lifecycle webhooks (`egress_started/updated/ended`) hit
    `POST /api/webhooks/livekit` (signature-verified) and drive the
    `recordings` table: `id, room_id, egress_id, status, started_by, started_at,
-   ended_at, duration_s, s3_key, size_bytes`.
+ended_at, duration_s, s3_key, size_bytes`.
 4. Management: `GET /api/recordings?room=`, `DELETE /api/recordings/:id`,
    `GET /api/recordings/:id/download` → presigned S3 URL. Surfaced on the
    dashboard per room.
@@ -222,6 +222,63 @@ arrives after them.
 The typed API client (`lib/api/client.ts`) is a small hand-written fetch
 wrapper importing only generated types (§11).
 
+### 9.1 Media state is a convergent projection
+
+**Client state is a convergent projection of LiveKit's own maps, never a log of
+events.** Everything the meeting UI shows is re-derived by `reconcileMedia()`
+from `room.localParticipant` + `room.remoteParticipants`. Events are only ever
+a *hint that it is time to re-derive*; they never carry the state itself.
+
+The rules that follow from it, all of them load-bearing:
+
+- **No handler may throw into livekit-client.** Every `room.on(...)` goes
+  through `RoomState.listen()`, which catches, records the fault and logs it.
+  LiveKit's emitter dispatches through a bare `ReflectApply` loop with no
+  `try`/`catch`, and `getOrCreateParticipant` emits `ParticipantConnected`
+  *before* it installs that participant's track-event forwarding — so one
+  escaped exception wires that participant to nothing for the rest of the
+  session. A bare `catch {}` is not acceptable either: the fault is recorded so
+  the next incident is attributable.
+- **Nothing reconciles inline.** Handlers call `markProjectionDirty()`;
+  reconciliation is coalesced onto a microtask. That is not only for
+  efficiency — it means the projection observes the SDK's state *after* the
+  synchronous transition that produced the events, so `handleRestarting()`
+  (which disconnects every participant before it flips the room to
+  `Reconnecting`) cannot empty the stage.
+- **A deferred reconcile is never discarded.** While the room is not
+  `Connected` the projection is frozen and the dirty flag *stays set*; the
+  transition back to `Connected` flushes it.
+- **A heartbeat is the floor.** While connected, the projection is marked dirty
+  every 2 s. This is what makes any dropped event — ours, LiveKit's, or one
+  nobody has thought of — a ≤2 s self-heal instead of a page reload. It is free
+  on an idle meeting because a reconcile whose signature is unchanged does not
+  republish.
+- **Playback recovery is attempted once, not chased.** Unblocking autoplay
+  needs a user gesture, so retrying without one cannot succeed.
+  livekit-client reports playback status from two probes that `startAudio()`
+  drives together — the media elements and the AudioContext
+  (`acquireAudioContext` emits `AudioPlaybackStatusChanged` whenever the
+  context's running state disagrees with `canPlaybackAudio`). While an attempt
+  is in flight those two disagree *by construction*: the context resumes and
+  reports healthy, the elements stay blocked and report blocked. Retrying on
+  either report is an unbounded microtask loop that pins the CPU. So: one
+  automatic attempt, re-armed only by a healthy report raised outside an
+  attempt, then the unlock control and the armed listeners wait for the
+  gesture. The gate asserts blocked playback stays quiet.
+- **Subscriptions are declarative.** `applySubscriptions()` states what should
+  be subscribed (everything except a camera the local user hid) and calls
+  `setSubscribed` only where reality differs. klisi runs no retry loop against
+  the SFU; livekit-client re-establishes subscriptions itself via
+  `sendSyncState()`. Unlocking playback must never touch subscriptions.
+- **livekit-client is pinned exactly.** It owns the media path; a caret range
+  is its own supply of regressions. Upgrade client and server as a tested pair,
+  behind the media gate (§13).
+
+`window.klisiDiagnostics()` writes a JSON file with the bounded event ledger,
+recorded handler faults and the current subscription state. It is local-only
+and exists for incident attribution; it is deliberately not a UI control, since
+the feature list is frozen (§1).
+
 ## 10. Design language
 
 Cursor-grade density with Convex Works' materials: ivory paper, near-black ink,
@@ -238,28 +295,28 @@ Tokens:
 
 ```css
 /* shell (light) */
---paper:    #F5F5F0;   /* app background */
---surface:  #ECECE6;   /* cards, inputs */
---surface-2:#E3E3DB;   /* hover, wells */
---border:   #D8D8CE;
---ink:      #171717;
---ink-2:    #6E6E64;   /* secondary text */
---accent:   #2320E6;   /* the blue — links, primary actions, focus */
---accent-hover: #1B18C4;
+--paper: #f5f5f0; /* app background */
+--surface: #ecece6; /* cards, inputs */
+--surface-2: #e3e3db; /* hover, wells */
+--border: #d8d8ce;
+--ink: #171717;
+--ink-2: #6e6e64; /* secondary text */
+--accent: #2320e6; /* the blue — links, primary actions, focus */
+--accent-hover: #1b18c4;
 
 /* stage (dark, in-meeting) */
---stage:    #0F0F0E;
---panel:    #161615;   /* side panels, control bar */
---panel-2:  #1E1E1C;
---border-d: #2A2A27;
---text:     #EDEDE6;   /* warm off-white, echoes paper */
---text-2:   #8F8F85;
---accent-d: #5B58FF;   /* accent lightened for dark ground */
+--stage: #0f0f0e;
+--panel: #161615; /* side panels, control bar */
+--panel-2: #1e1e1c;
+--border-d: #2a2a27;
+--text: #edede6; /* warm off-white, echoes paper */
+--text-2: #8f8f85;
+--accent-d: #5b58ff; /* accent lightened for dark ground */
 
 /* semantic (both surfaces) */
---rec:      #E5484D;   /* recording */
---ok:       #4FA36F;
---warn:     #D9A03F;
+--rec: #e5484d; /* recording */
+--ok: #4fa36f;
+--warn: #d9a03f;
 ```
 
 Typography: **Inter** (variable) for all UI — base 13px/20px, weights 450/550,
@@ -318,7 +375,16 @@ KLISI_S3_ENDPOINT=…              KLISI_S3_PUBLIC_ENDPOINT=…
 KLISI_S3_EGRESS_ENDPOINT=…       KLISI_S3_BUCKET / _ACCESS_KEY / _SECRET_KEY
 KLISI_S3_REGION=…                KLISI_EGRESS_TEMPLATE_URL=…
 KLISI_TRUSTED_PROXIES=…          KLISI_DEV_MODE=false
+KLISI_JOIN_RATE_LIMIT=10         KLISI_WAIT_RATE_LIMIT=20
+KLISI_LOGIN_RATE_LIMIT=10
 ```
+
+The three rate limits are per-IP ceilings over a one-minute window. They are
+configuration because the right value depends on the deployment: a public
+install wants the defaults, while the media gate — where every browser shares
+one container IP — would throttle itself without raising them. A value that is
+missing, zero, negative or unparseable falls back to the default; it never
+becomes zero, which would deny every request.
 
 Per-variable reference, defaults, and production rules: `docs/DEPLOYMENT.md`.
 
@@ -353,6 +419,27 @@ S3 has three deliberate views in development:
 | Browser | `http://localhost:9000` | Host-reachable presigned download URLs |
 | Egress | `http://minio:9000` | Uploads from the Compose network |
 
+### Media gate stack
+
+`deploy/media-test/compose.yaml` is a second, sealed stack used only by the
+media suite: redis, livekit, dex, minio, egress, klisi and a Playwright
+`runner`, on a private `10.253.0.0/24` with **no published host ports**. The
+browser under test runs inside `runner`, so services are reachable only by
+compose DNS name. Configuration is baked into images (`*.Dockerfile`) rather
+than bind-mounted, because CI drives compose from inside a container where host
+bind mounts do not resolve on the daemon's filesystem.
+
+Dex is present so the suite can hold a real session: `/api/dev/token` mints
+only non-host tokens, so without it `/m/[slug]`, the lobby, host grants,
+moderation and recording are unreachable from a test.
+
+One deliberate limitation: the stack serves plain http on a non-localhost
+origin, so pages are **not secure contexts** and `getUserMedia` does not exist.
+Actors therefore join with capture off and publish synthetic canvas/oscillator
+tracks, which take the identical `publishTrack` → SFU path. Covering local
+capture as well needs the stack served over TLS (klisi *and* LiveKit signalling,
+or the page hits mixed content).
+
 ## 14. CI
 
 Forgejo Actions (`.forgejo/workflows/ci.yml`), on every push/PR:
@@ -360,7 +447,44 @@ Forgejo Actions (`.forgejo/workflows/ci.yml`), on every push/PR:
 1. **server** — `go vet`, `go test ./...`
 2. **web** — `svelte-check`, prettier check, `vite build`
 3. **typesync** — `make gen && git diff --exit-code` (§11)
-4. **build** — full binary build (SPA embed included) as the merge gate
+4. **media-e2e** — the full real-SFU gate (below), against the sealed stack
+5. **build** — full binary build (SPA embed included) as the merge gate
+
+The media gate runs in full on every pull request; nothing is deferred to a
+nightly job, because a regression only a nightly catches has already shipped.
+It covers, in order: the lifecycle scenarios, recording, the reliability suite
+(chromium + webkit), the seeded fuzzer, and a rerun under `netem` loss/latency.
+
+**The rule the lifecycle suite encodes.** Assertions must prove *presence*
+before they prove flow. `expectMediaInvariant` only checks that whatever a
+client already knows about is attached and receiving RTP, so it passes
+vacuously when a client never learned a participant published at all — which is
+the failure mode every media incident here has had. Scenarios therefore assert
+that an *existing* participant converges on a change: a later joiner, a reload,
+a mute, a screen share, a departure, a reconnect. A test whose receiver joins
+after the publications already exist is testing what a page reload does.
+
+Handlers passed to `livekit-client` must not throw. LiveKit emits
+`ParticipantConnected` *before* it installs that participant's track-event
+forwarding and its emitter does not catch, so one escaped exception wires that
+participant to nothing for the rest of the session. `failNextParticipantEntered`
+and `failNextReconcile` inject exactly that fault; both are gate scenarios, and
+both also assert the fault was *recorded* — a guard that swallows is the same
+bug one step further from view.
+
+**The rule the convergence scenarios encode** (§9.1). A client must catch up
+from LiveKit's own maps without being told. `deafen()` removes every listener
+klisi registered while leaving the SFU connection intact, and `full-reconnect`
+does the same thing by a route that happens in production. In both, the probe
+(which reads the SDK) passes while the rendered tiles (which read klisi's
+projection) are the only witness that the state actually reached the user — so
+both are asserted, separately, in that order. The heartbeat that makes this
+work must also cost nothing when idle: a gate scenario watches an idle meeting
+for 60 s and requires the reconcile count to climb while the republish count
+stays flat.
+
+`make media` runs the gate as CI does. `make media-dev ARGS="…"` keeps the stack
+up between runs for iteration.
 
 ## 15. Security notes
 
@@ -375,6 +499,9 @@ Forgejo Actions (`.forgejo/workflows/ci.yml`), on every push/PR:
 - Presigned download URLs are short-lived (5 min) and minted per request after
   an ownership check.
 - No secrets in the SPA: the client knows only its own token and public URLs.
+- `window.klisiDiagnostics()` (§9.1) contains participant identities and display
+  names. It is written to the user's own machine by an explicit action and is
+  never transmitted anywhere; treat an exported file as personal data.
 - CSP, clickjacking, MIME-sniffing, and referrer-policy headers wrap every
   response; the SPA makes no third-party requests (fonts are self-hosted).
 

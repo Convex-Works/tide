@@ -118,3 +118,50 @@ func TestLoadParsesOIDCGroups(t *testing.T) {
 		t.Fatalf("AdminGroups = %q", got)
 	}
 }
+
+func TestLoadRateLimits(t *testing.T) {
+	t.Run("defaults when unset", func(t *testing.T) {
+		clearKlisiEnv(t)
+		t.Setenv("KLISI_DEV_MODE", "true")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.JoinRateLimit != DefaultJoinRateLimit ||
+			cfg.WaitRateLimit != DefaultWaitRateLimit ||
+			cfg.LoginRateLimit != DefaultLoginRateLimit {
+			t.Fatalf("expected published defaults, got %d/%d/%d",
+				cfg.JoinRateLimit, cfg.WaitRateLimit, cfg.LoginRateLimit)
+		}
+	})
+
+	t.Run("overridden by the environment", func(t *testing.T) {
+		clearKlisiEnv(t)
+		t.Setenv("KLISI_DEV_MODE", "true")
+		t.Setenv("KLISI_JOIN_RATE_LIMIT", "5000")
+		cfg, err := Load()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.JoinRateLimit != 5000 {
+			t.Fatalf("JoinRateLimit = %d", cfg.JoinRateLimit)
+		}
+	})
+
+	// A misconfigured ceiling must never become zero: that would deny every
+	// request rather than fall back to the published default.
+	for _, value := range []string{"0", "-1", "many"} {
+		t.Run("rejects "+value, func(t *testing.T) {
+			clearKlisiEnv(t)
+			t.Setenv("KLISI_DEV_MODE", "true")
+			t.Setenv("KLISI_JOIN_RATE_LIMIT", value)
+			cfg, err := Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.JoinRateLimit != DefaultJoinRateLimit {
+				t.Fatalf("JoinRateLimit = %d, want default", cfg.JoinRateLimit)
+			}
+		})
+	}
+}

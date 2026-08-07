@@ -41,9 +41,12 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store) (http.Handler, *r
 	minter := klisilivekit.NewMinter(cfg)
 	registry := lobby.NewRegistry(lobby.DefaultRequestTTL)
 	ips := newClientIPResolver(cfg.TrustedProxies)
-	joinLimiter := newIPRateLimiter(10, time.Minute)
-	waitLimiter := newIPRateLimiter(20, time.Minute)
-	loginLimiter := newIPRateLimiter(10, time.Minute)
+	joinLimiter := newIPRateLimiter(orDefault(cfg.JoinRateLimit, config.DefaultJoinRateLimit), time.Minute)
+	waitLimiter := newIPRateLimiter(orDefault(cfg.WaitRateLimit, config.DefaultWaitRateLimit), time.Minute)
+	loginLimiter := newIPRateLimiter(
+		orDefault(cfg.LoginRateLimit, config.DefaultLoginRateLimit),
+		time.Minute,
+	)
 	// Kick bans must outlive any cached admission token (see finding #2 in
 	// docs/REVIEW-2026-07-19.md), so the denylist TTL is the token TTL.
 	denylist := moderation.NewDenylist(lobby.TokenTTL)

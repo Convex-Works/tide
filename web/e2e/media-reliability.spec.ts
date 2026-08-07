@@ -1,4 +1,4 @@
-import { chromium, expect, test, type Browser } from '@playwright/test';
+import { chromium, expect, test, type Browser, type Page } from '@playwright/test';
 import {
   attachDiagnostics,
   captureBrowserDiagnostics,
@@ -38,7 +38,7 @@ test('media ownership converges across the deterministic lifecycle corpus', asyn
     // Sequential late join: publications already exist when the receiver
     // connects, so no TrackPublished event can be required for projection.
     await joinMediaTestRoom(page, roomName, `${testInfo.project.name}-receiver`);
-    await expect(page.getByText('Media paused', { exact: true })).toHaveCount(0);
+    await expect(page.getByTestId('playback-blocked')).toHaveCount(0);
     await expectMediaInvariant(page);
     const persistentTags = await tagMediaElements(page);
     expect(Object.keys(persistentTags).sort()).toEqual(
@@ -111,9 +111,9 @@ test('media ownership converges across the deterministic lifecycle corpus', asyn
     await expectMediaInvariant(page);
     await expectMediaElementTags(page, persistentTags);
 
-    // A transient autoplay rejection is retried without exposing recovery UI.
-    // Persistent browser policy failures are armed for the next ordinary user
-    // gesture by RoomState's capture listener.
+    // A transient autoplay rejection recovers on its own, so it must not put
+    // a control in front of the user. Only a persistent block does — see the
+    // next block.
     await page.evaluate((microphoneSid) => {
       const hook = (
         window as Window &
@@ -132,10 +132,52 @@ test('media ownership converges across the deterministic lifecycle corpus', asyn
     await expect
       .poll(async () => (await probe(page)).playback, { timeout: 10_000 })
       .toMatchObject({ audio: true, video: true });
-    await expect(page.getByText('Media paused', { exact: true })).toHaveCount(0);
+    await expect(page.getByTestId('playback-blocked')).toHaveCount(0);
 
-    // A synthetic failure receives one automatic resubscribe cycle.
-    const retriesBefore = (await probe(page)).subscriptionRetryTotals[synthetic.cameraSid] ?? 0;
+    // Persistently blocked playback is surfaced rather than left as silence,
+    // and the control clears once the browser allows it again.
+    await page.evaluate((microphoneSid) => {
+      const hook = (
+        window as Window &
+          typeof globalThis & {
+            __klisiMediaTest: {
+              blockPlayback(kind: 'audio'): void;
+              clearSrcObject(sid: string): boolean;
+              reconcile(): void;
+            };
+          }
+      ).__klisiMediaTest;
+      hook.blockPlayback('audio');
+      hook.clearSrcObject(microphoneSid);
+      hook.reconcile();
+    }, synthetic.microphoneSid);
+    await expect(page.getByTestId('playback-blocked')).toBeVisible({ timeout: 15_000 });
+
+    // Blocked playback must be *quiet*. livekit-client reports playback status
+    // from two probes that disagree while an attempt is running — the elements
+    // stay blocked, the AudioContext resumes and reports healthy — so a client
+    // that retries on either report spins at thousands of play() calls a
+    // second and starves the page. Retrying cannot help: only a gesture can.
+    const playCallsBefore = await playCalls(page);
+    await page.waitForTimeout(3_000);
+    expect(
+      (await playCalls(page)) - playCallsBefore,
+      'blocked playback must not drive a retry loop'
+    ).toBeLessThan(10);
+
+    await page.evaluate(() =>
+      (
+        window as Window & typeof globalThis & { __klisiMediaTest: { unblockPlayback(): void } }
+      ).__klisiMediaTest.unblockPlayback()
+    );
+    await page.getByTestId('playback-blocked').click();
+    await expect(page.getByTestId('playback-blocked')).toHaveCount(0, { timeout: 15_000 });
+    await expectMediaInvariant(page);
+    await expectMediaElementTags(page, persistentTags);
+
+    // A recorded subscription failure is a display fact, not a state machine.
+    // The reconcile tick re-derives it away because the publication is in
+    // fact subscribed, and nothing about the media is disturbed meanwhile.
     await page.evaluate((cameraSid) => {
       (
         window as Window &
@@ -145,34 +187,38 @@ test('media ownership converges across the deterministic lifecycle corpus', asyn
       ).__klisiMediaTest.injectSubscriptionFailure(cameraSid);
     }, synthetic.cameraSid);
     await expect
-      .poll(async () => (await probe(page)).subscriptionRetryTotals[synthetic.cameraSid] ?? 0, {
+      .poll(async () => (await probe(page)).subscriptionFailures[synthetic.cameraSid], {
         timeout: 10_000
       })
-      .toBe(retriesBefore + 1);
-    await page.waitForTimeout(750);
-    expect((await probe(page)).subscriptionRetryTotals[synthetic.cameraSid]).toBe(
-      retriesBefore + 1
-    );
+      .toBeUndefined();
+    await expect(page.getByTestId('playback-blocked')).toHaveCount(0);
     await expectMediaInvariant(page);
 
-    // A later failure is also retried in the background; recovery no longer
-    // depends on a dedicated banner button.
+    // A subscription dropped behind klisi's back — no event, no UI action —
+    // is restored by applySubscriptions on the next tick.
     await page.evaluate((cameraSid) => {
-      (
+      const hook = (
         window as Window &
           typeof globalThis & {
-            __klisiMediaTest: {
-              injectSubscriptionFailure(sid: string): void;
-            };
+            __klisiMediaTest: { unsubscribeBehindBack(sid: string): boolean };
           }
-      ).__klisiMediaTest.injectSubscriptionFailure(cameraSid);
+      ).__klisiMediaTest;
+      if (!hook.unsubscribeBehindBack(cameraSid)) {
+        throw new Error('Camera publication was not found on any remote participant.');
+      }
     }, synthetic.cameraSid);
     await expect
-      .poll(async () => (await probe(page)).subscriptionRetryTotals[synthetic.cameraSid], {
-        timeout: 10_000
-      })
-      .toBe(retriesBefore + 2);
-    await expect(page.getByText('Media paused', { exact: true })).toHaveCount(0);
+      .poll(
+        async () => {
+          const snapshot = await probe(page);
+          const camera = snapshot.participants
+            .flatMap((participant) => Object.values(participant.publications))
+            .find((publication) => publication.publicationSid === synthetic.cameraSid);
+          return camera?.subscribed === true && camera.desired;
+        },
+        { timeout: 20_000 }
+      )
+      .toBe(true);
     await expectMediaInvariant(page);
 
     // Full PC reconnect is authoritative and must converge without a reload or
@@ -198,3 +244,13 @@ test('media ownership converges across the deterministic lifecycle corpus', asyn
     await publisherBrowser?.close();
   }
 });
+
+/** Raw HTMLMediaElement.play() calls since page load — a spin detector. */
+async function playCalls(page: Page): Promise<number> {
+  return page.evaluate(
+    () =>
+      (
+        window as Window & typeof globalThis & { __klisiMediaTest: { playCalls(): number } }
+      ).__klisiMediaTest.playCalls() as number
+  );
+}

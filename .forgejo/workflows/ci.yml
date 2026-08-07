@@ -48,13 +48,16 @@ jobs:
 
   media-e2e:
     runs-on: docker
+    # The whole media gate blocks every pull request: lifecycle and recording
+    # scenarios, reliability, the seeded fuzzer and a network-chaos rerun.
+    # Nothing is deferred to a nightly job.
     needs: [checks]
-    timeout-minutes: 10
+    timeout-minutes: 90
     container:
       image: ghcr.io/catthehacker/ubuntu:act-22.04@sha256:b40b8af93baee90b83f29c834440873300c8478809535786dbf79fa836c086ac
     steps:
       - uses: actions/checkout@v4
-      - name: Deterministic real-SFU media suite
+      - name: Full real-SFU media suite
         env:
           CI_RUN_ID: ${{ github.run_id }}
           CI_JOB_ID: ${{ github.job }}
