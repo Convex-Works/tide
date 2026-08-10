@@ -52,6 +52,16 @@ interface FuzzAttemptDiagnostics {
   failureAttachmentError?: string;
 }
 
+/**
+ * The /dev join page mints the LiveKit identity as `dev:` plus the entered
+ * name (server/internal/httpapi/handler.go); only the display name stays
+ * bare. Participant requirements match identities, so they need the prefix —
+ * run 340 failed every browser instantly on the bare names.
+ */
+function devIdentity(name: string): string {
+  return `dev:${name}`;
+}
+
 function pinnedRequirements(
   model: Readonly<MediaModel>,
   real: Readonly<MediaReal>,
@@ -540,7 +550,7 @@ class ConcurrentJoinMediaChange extends MediaCommand {
     } finally {
       await context.close();
     }
-    real.departedIdentities.push(transientIdentity);
+    real.departedIdentities.push(devIdentity(transientIdentity));
     await this.renegotiated(model, real, forbiddenSids);
   }
   toString(): string {
@@ -565,7 +575,7 @@ class SequentialJoinLeave extends MediaCommand {
     await joinMediaTestRoom(page, real.roomName, transientIdentity);
     await expectMediaInvariant(page);
     await context.close();
-    real.departedIdentities.push(transientIdentity);
+    real.departedIdentities.push(devIdentity(transientIdentity));
     await this.renegotiated(model, real);
   }
   toString(): string {
@@ -684,7 +694,10 @@ test('seeded model-based media lifecycle fuzzing', async ({ page }, testInfo) =>
               await joinMediaTestRoom(receiver, roomName, receiverIdentity);
               await expectMediaInvariant(receiver, {
                 requiredSids: [synthetic.cameraSid, synthetic.microphoneSid],
-                requiredParticipantIdentities: [publisherIdentity, receiverIdentity]
+                requiredParticipantIdentities: [
+                  devIdentity(publisherIdentity),
+                  devIdentity(receiverIdentity)
+                ]
               });
               await fc.asyncModelRun(
                 () => ({
@@ -700,8 +713,8 @@ test('seeded model-based media lifecycle fuzzing', async ({ page }, testInfo) =>
                     publisher,
                     receiver,
                     roomName,
-                    publisherIdentity,
-                    receiverIdentity,
+                    publisherIdentity: devIdentity(publisherIdentity),
+                    receiverIdentity: devIdentity(receiverIdentity),
                     departedIdentities: [],
                     cameraSid: synthetic.cameraSid,
                     microphoneSid: synthetic.microphoneSid,
