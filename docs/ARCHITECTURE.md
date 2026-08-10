@@ -265,6 +265,14 @@ The rules that follow from it, all of them load-bearing:
   automatic attempt, re-armed only by a healthy report raised outside an
   attempt, then the unlock control and the armed listeners wait for the
   gesture. The gate asserts blocked playback stays quiet.
+- **A Lost participant is not shown.** The server keeps an abruptly departed
+  participant (closed tab, dead laptop) in its resume grace window and
+  re-announces them on every reconnect sync, so `remoteParticipants` alone
+  renders ghost tiles that can outlive several reconnects. The projection
+  filters remote participants whose connection quality is `Lost` — the
+  server's own signal that no connection stands behind the map entry. A resume
+  changes their quality and the tile returns. `Unknown` is never filtered: a
+  fresh joiner reports `Unknown` until the first quality update.
 - **Subscriptions are declarative.** `applySubscriptions()` states what should
   be subscribed (everything except a camera the local user hid) and calls
   `setSubscribed` only where reality differs. klisi runs no retry loop against

@@ -1,4 +1,5 @@
 import {
+  ConnectionQuality,
   ConnectionState,
   DisconnectReason,
   ParticipantKind,
@@ -273,6 +274,10 @@ export class RoomState {
     this.listen(RoomEvent.ParticipantAttributesChanged, () => this.markProjectionDirty());
     this.listen(RoomEvent.ParticipantPermissionsChanged, () => this.markProjectionDirty());
     this.listen(RoomEvent.ParticipantActive, () => this.markProjectionDirty());
+    // Quality reaching Lost is what hides a ghost (see connectedParticipants);
+    // leaving Lost is what brings a resumed participant back. The heartbeat
+    // would catch both within 2 s, but the event makes it immediate.
+    this.listen(RoomEvent.ConnectionQualityChanged, () => this.markProjectionDirty());
     this.listen(RoomEvent.RoomMetadataChanged, () => this.syncRoomMetadata());
     this.listen(RoomEvent.AudioPlaybackStatusChanged, (playing) => {
       this.canPlaybackAudio = playing;
@@ -535,10 +540,7 @@ export class RoomState {
    */
   reconcileMedia(authoritative = false): void {
     this.projectionTicks += 1;
-    const participants: Participant[] = [
-      this.room.localParticipant,
-      ...this.room.remoteParticipants.values()
-    ];
+    const participants = this.connectedParticipants();
     this.applySubscriptions();
     this.pruneSubscriptionFailures(participants);
     this.pruneHiddenCameraIdentities();
@@ -552,6 +554,26 @@ export class RoomState {
     this.projectionSignature = signature;
     this.projectionRevisions += 1;
     this.participants = projected;
+  }
+
+  /**
+   * The participants a meeting should show. `remoteParticipants` alone is not
+   * it: the server keeps an abruptly departed participant (closed tab, dead
+   * laptop) through its resume grace window and re-announces them on every
+   * reconnect sync, so projecting the raw map renders ghost tiles — the gate
+   * watched a closed tab survive several reconnects. A participant whose
+   * connection quality is Lost has no connection behind their map entry; on
+   * resume their quality changes again and the projection brings them back.
+   * Unknown is not Lost — a fresh joiner reports Unknown until the first
+   * quality update, and filtering it would blink every arrival.
+   */
+  private connectedParticipants(): Participant[] {
+    return [
+      this.room.localParticipant,
+      ...[...this.room.remoteParticipants.values()].filter(
+        (participant) => participant.connectionQuality !== ConnectionQuality.Lost
+      )
+    ];
   }
 
   /**
@@ -907,8 +929,11 @@ export class RoomState {
     >;
     subscriptionFailures: Record<string, MediaSubscriptionFailure>;
   }> {
+    // The same filtered view reconcileMedia projects: a probe that read the
+    // raw maps would report a ghost's publications as expected elements the
+    // UI (correctly) no longer renders.
     const probeParticipants = projectParticipants(
-      [this.room.localParticipant, ...this.room.remoteParticipants.values()],
+      this.connectedParticipants(),
       this.subscriptionFailures
     );
     const elements =
