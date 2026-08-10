@@ -139,12 +139,21 @@ function projectionSignature(views: ParticipantView[]): string {
 }
 
 export class RoomState {
-  // adaptiveStream is intentionally OFF: it pauses remote video layers based
-  // on the observed element size, and tiles measured mid-layout (0×0) could
-  // stay paused — the "gray tile on join" bug. klisi meetings are small by
-  // design, so we always subscribe to the full stream; dynacast still saves
-  // publisher-side layers.
-  readonly room = new Room({ adaptiveStream: false, dynacast: true });
+  // Both layer-pausing optimisations are OFF, for one reason: a paused video
+  // layer that never resumes is indistinguishable from a broken one, and klisi
+  // meetings are small by design, so neither saves anything worth that risk.
+  //
+  // adaptiveStream pauses *remote* layers by observed element size, and tiles
+  // measured mid-layout (0×0) could stay paused — the "gray tile on join" bug.
+  //
+  // dynacast pauses *publisher* layers when the last subscriber to them drops,
+  // which is exactly what a reload does. Runs 333 and 334 caught the resume
+  // going missing: after a reload the peer's camera sat at subscribed,
+  // streamState active, track live, element attached — and zero bytesReceived
+  // with zero packetsLost for 25 s, while that same peer's audio flowed
+  // normally. Video-only, publisher-side, never recovering: a layer that was
+  // paused when the subscriber left and not resumed when it came back.
+  readonly room = new Room({ adaptiveStream: false, dynacast: false });
 
   connectionState = $state<ConnectionState>(ConnectionState.Disconnected);
   participants = $state<ParticipantView[]>([]);
