@@ -547,6 +547,13 @@ class ConcurrentJoinMediaChange extends MediaCommand {
       await Promise.all([join, mediaChange]);
       model.screenPublished = !model.screenPublished;
       await expectMediaInvariant(page);
+      // As in sequential-join-leave: a clean Leave is what makes the
+      // departure broadcast prompt; an abrupt close races ICE detection.
+      await page.evaluate(() =>
+        (
+          window as Window & typeof globalThis & { __klisiRoom: { disconnect(): Promise<void> } }
+        ).__klisiRoom.disconnect()
+      );
     } finally {
       await context.close();
     }
@@ -574,6 +581,17 @@ class SequentialJoinLeave extends MediaCommand {
     const page = await context.newPage();
     await joinMediaTestRoom(page, real.roomName, transientIdentity);
     await expectMediaInvariant(page);
+    // Leave cleanly before tearing the context down. An abrupt close leaves
+    // the server discovering the death by ICE timeout (~15 s) plus the
+    // departure grace, so "absent within the window" would race dead-peer
+    // detection — which LiveKit does not promise. The departure invariant
+    // asserts that klisi converges on the departure broadcast, and a clean
+    // Leave is what makes that broadcast prompt.
+    await page.evaluate(() =>
+      (
+        window as Window & typeof globalThis & { __klisiRoom: { disconnect(): Promise<void> } }
+      ).__klisiRoom.disconnect()
+    );
     await context.close();
     real.departedIdentities.push(devIdentity(transientIdentity));
     await this.renegotiated(model, real);
