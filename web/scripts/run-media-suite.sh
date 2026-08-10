@@ -35,11 +35,19 @@ enable_netem() {
 # seeded fuzzer, and a network-chaos rerun. All of it blocks every pull request
 # rather than deferring anything to a nightly job — a regression that only a
 # nightly catches has already shipped.
+#
+# The gate replays the curated regression seeds (web/e2e/media-regression-seeds.ts)
+# and nothing else. Discovery — a seed nobody has run before — belongs to the
+# nightly job. Seeding the gate from the date instead made it a different test
+# every day: it failed run 327/328 on a finding unrelated to the branch under
+# review, and a green run proved nothing about tomorrow's seed. A nightly
+# finding earns a place in the gate by being fixed and promoted into the
+# regression list, which is what makes a red gate mean "this branch broke it".
 full_suite() {
   mkdir -p "${artifacts}/deterministic" "${artifacts}/fuzz" "${artifacts}/network-chaos"
   KLISI_MEDIA_ARTIFACTS="${artifacts}/deterministic" npm run media:e2e
 
-  if [ -z "${FC_SEED:-}" ]; then
+  if [ "${KLISI_MEDIA_SUITE:-deterministic}" = "nightly" ] && [ -z "${FC_SEED:-}" ]; then
     FC_SEED="$(date -u +%Y%m%d)"
     export FC_SEED
   fi
