@@ -1,5 +1,15 @@
 port: 7880
 
+# An abruptly departed participant (context torn down before livekit-client's
+# pagehide handler sends Leave) is held in the server's resume grace for
+# departure_timeout before departure is broadcast. The default is 20 s — the
+# exact width of the gate's departure assertion window, so the check raced
+# propagation latency and lost on whichever browser missed the clean Leave.
+# The gate asserts that klisi converges on a departure, not the server's
+# grace policy, so departures here are prompt.
+room:
+  departure_timeout: 5
+
 rtc:
   tcp_port: 7881
   udp_port: 7882
