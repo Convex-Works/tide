@@ -40,9 +40,34 @@ abstract class MediaCommand implements AsyncCommand<MediaModel, MediaReal> {
   abstract run(model: MediaModel, real: MediaReal): Promise<void>;
   abstract toString(): string;
 
+  /**
+   * The invariant against a room that is already settled: this command changed
+   * nothing about what is published, so media is flowing before it runs and the
+   * 3 s default is generous.
+   */
   protected async converged(real: MediaReal, timeout?: number): Promise<void> {
     real.trace.push(this.toString());
     await expectMediaInvariant(real.receiver, timeout);
+  }
+
+  /**
+   * The invariant after a change to what is published. Publishing,
+   * unpublishing and reconnecting all renegotiate, and RTP resumes some way
+   * after the SDK reports `subscribed`, so these get the same window a
+   * re-subscribe gets. It still fails if media never returns.
+   *
+   * Every such command must use this, because the invariant passes vacuously
+   * while a publication is still settling: it only checks publications the
+   * receiver has already subscribed to, so a publish that has not been
+   * subscribed yet is not checked at all. A command that returns early on that
+   * vacuous pass hands an unsettled room to the next one, which then fails on
+   * the tight default for a renegotiation it did not cause. That is exactly how
+   * run 328 failed: `toggle-screen-and-screen-audio` passed vacuously, and
+   * `toggle-grid-speaker` — a pure UI switch — inherited the un-flowing screen
+   * share and was blamed for it.
+   */
+  protected async renegotiated(real: MediaReal): Promise<void> {
+    await this.converged(real, resubscribeSettleTimeout);
   }
 }
 
@@ -55,12 +80,12 @@ class ToggleCamera extends MediaCommand {
       real.cameraSid = await publishReplacementCamera(real.publisher);
       model.cameraPublished = true;
       model.cameraMuted = false;
-      await this.converged(real);
+      await this.renegotiated(real);
       return;
     }
     model.cameraMuted = !model.cameraMuted;
     await setPublicationMuted(real.publisher, real.cameraSid, model.cameraMuted);
-    await this.converged(real);
+    await this.renegotiated(real);
   }
   toString(): string {
     return 'toggle-camera-mute';
@@ -76,12 +101,12 @@ class ToggleMicrophone extends MediaCommand {
       real.microphoneSid = await publishReplacementMicrophone(real.publisher);
       model.microphonePublished = true;
       model.microphoneMuted = false;
-      await this.converged(real);
+      await this.renegotiated(real);
       return;
     }
     model.microphoneMuted = !model.microphoneMuted;
     await setPublicationMuted(real.publisher, real.microphoneSid, model.microphoneMuted);
-    await this.converged(real);
+    await this.renegotiated(real);
   }
   toString(): string {
     return 'toggle-microphone-mute';
@@ -101,7 +126,7 @@ class ToggleCameraPublication extends MediaCommand {
       real.cameraSid = await publishReplacementCamera(real.publisher);
       model.cameraPublished = true;
     }
-    await this.converged(real);
+    await this.renegotiated(real);
   }
   toString(): string {
     return 'toggle-camera-publication';
@@ -121,7 +146,7 @@ class ToggleMicrophonePublication extends MediaCommand {
       real.microphoneSid = await publishReplacementMicrophone(real.publisher);
       model.microphonePublished = true;
     }
-    await this.converged(real);
+    await this.renegotiated(real);
   }
   toString(): string {
     return 'toggle-microphone-publication';
@@ -143,7 +168,7 @@ class ToggleScreen extends MediaCommand {
       );
     }
     model.screenPublished = !model.screenPublished;
-    await this.converged(real);
+    await this.renegotiated(real);
   }
   toString(): string {
     return 'toggle-screen-and-screen-audio';
@@ -199,10 +224,15 @@ class RepairAttachment extends MediaCommand {
     return true;
   }
   async run(model: MediaModel, real: MediaReal): Promise<void> {
+    // Publishing to satisfy the precondition renegotiates; re-attaching a
+    // track that is already flowing does not. Asserting tightly on the repair
+    // is the point of this command, so only the publish widens the window.
+    let published = false;
     if (!model.microphonePublished) {
       real.microphoneSid = await publishReplacementMicrophone(real.publisher);
       model.microphonePublished = true;
       model.microphoneMuted = false;
+      published = true;
     }
     await real.receiver.evaluate((sid) => {
       const hook = (
@@ -217,7 +247,8 @@ class RepairAttachment extends MediaCommand {
       hook.clearSrcObject(sid);
       hook.reconcile();
     }, real.microphoneSid);
-    await this.converged(real);
+    if (published) await this.renegotiated(real);
+    else await this.converged(real);
   }
   toString(): string {
     return 'clear-srcObject-and-reconcile';
@@ -229,10 +260,14 @@ class DelayedAttachment extends MediaCommand {
     return true;
   }
   async run(model: MediaModel, real: MediaReal): Promise<void> {
+    // As in clear-srcObject-and-reconcile: only the precondition publish
+    // renegotiates, and the delayed re-attachment is what this asserts tightly.
+    let published = false;
     if (!model.microphonePublished) {
       real.microphoneSid = await publishReplacementMicrophone(real.publisher);
       model.microphonePublished = true;
       model.microphoneMuted = false;
+      published = true;
     }
     await real.receiver.evaluate(async (sid) => {
       const hook = (
@@ -252,7 +287,8 @@ class DelayedAttachment extends MediaCommand {
       hook.attachmentDelayMs = 0;
       hook.reconcile();
     }, real.microphoneSid);
-    await this.converged(real);
+    if (published) await this.renegotiated(real);
+    else await this.converged(real);
   }
   toString(): string {
     return 'delay-attachment';
@@ -317,9 +353,7 @@ class SubscriptionFailure extends MediaCommand {
       real.cameraSid,
       { timeout: 20_000 }
     );
-    // A re-subscribe renegotiates, and the SDK reports subscribed before RTP
-    // resumes, so the invariant needs more than the settled-room default.
-    await this.converged(real, resubscribeSettleTimeout);
+    await this.renegotiated(real);
   }
   toString(): string {
     return 'subscription-failure-converges';
@@ -346,7 +380,7 @@ class SignalReconnect extends MediaCommand {
       undefined,
       { timeout: 30_000 }
     );
-    await this.converged(real);
+    await this.renegotiated(real);
   }
   toString(): string {
     return 'signal-reconnect';
@@ -373,7 +407,7 @@ class FullReconnect extends MediaCommand {
       undefined,
       { timeout: 30_000 }
     );
-    await this.converged(real);
+    await this.renegotiated(real);
   }
   toString(): string {
     return 'full-reconnect';
@@ -390,7 +424,7 @@ class ReplaceCamera extends MediaCommand {
     if (previous) await unpublishSynthetic(real.publisher, [previous]);
     model.cameraPublished = true;
     model.cameraMuted = false;
-    await this.converged(real);
+    await this.renegotiated(real);
   }
   toString(): string {
     return 'replace-camera-track';
@@ -425,7 +459,7 @@ class ConcurrentJoinMediaChange extends MediaCommand {
     } finally {
       await context.close();
     }
-    await this.converged(real);
+    await this.renegotiated(real);
   }
   toString(): string {
     return 'concurrent-join-and-screen-change';
@@ -446,7 +480,7 @@ class SequentialJoinLeave extends MediaCommand {
     await joinMediaTestRoom(page, real.roomName, `transient-${real.trace.length}`);
     await expectMediaInvariant(page);
     await context.close();
-    await this.converged(real);
+    await this.renegotiated(real);
   }
   toString(): string {
     return 'sequential-join-leave';
@@ -471,30 +505,27 @@ const commandArbitraries = [
   fc.constant(new ConcurrentJoinMediaChange())
 ];
 const commandArbitrary = fc.oneof(...commandArbitraries);
-const paddingCommands = [
-  new ToggleCamera(),
-  new ToggleMicrophone(),
-  new ToggleCameraPublication(),
-  new ToggleMicrophonePublication(),
-  new ToggleScreen(),
-  new ToggleLayout(),
-  new SpeakerStorm(),
-  new RepairAttachment(),
-  new DelayedAttachment(),
-  new SubscriptionFailure(),
-  new SignalReconnect(),
-  new FullReconnect(),
-  new ReplaceCamera(),
-  new SequentialJoinLeave(),
-  new ConcurrentJoinMediaChange()
-];
+
+// A lifecycle only gets interesting after enough operations have piled state
+// on each other, so every run executes at least this many. It is the
+// arbitrary's own minimum rather than a deterministic tail appended after
+// generation: padding is invisible to fast-check, so it cannot shrink it and
+// does not report it. Run 328 shrank to the one-command counterexample
+// `[subscription-failure-converges]` while the assertion that actually failed
+// was `toggle-grid-speaker`, five appended commands later — the counterexample
+// named a command that had passed. Shrinking now reduces which commands run,
+// never how many, and what it reports is what ran.
+const minimumOperations = 50;
 
 test('seeded model-based media lifecycle fuzzing', async ({ page }, testInfo) => {
   test.setTimeout(900_000);
   const seedInput = process.env.FC_SEED?.trim();
   const configuredSeed = seedInput ? Number(seedInput) : Number.NaN;
   const seeds = Number.isSafeInteger(configuredSeed) ? [configuredSeed] : mediaRegressionSeeds;
-  const maxCommands = Math.min(200, Math.max(50, Number(process.env.FC_COMMANDS) || 75));
+  const maxCommands = Math.min(
+    200,
+    Math.max(minimumOperations, Number(process.env.FC_COMMANDS) || 75)
+  );
   const numRuns = Math.max(1, Number(process.env.FC_RUNS) || 1);
   const roomName = `media-fuzz-${testInfo.project.name}-${Date.now()}`;
   const receiverConsoles: string[][] = [captureBrowserDiagnostics(page)];
@@ -522,7 +553,7 @@ test('seeded model-based media lifecycle fuzzing', async ({ page }, testInfo) =>
       console.log(`KLISI_MEDIA_FUZZ seed=${seed} maxCommands=${maxCommands} runs=${numRuns}`);
       await fc.assert(
         fc.asyncProperty(
-          fc.array(commandArbitrary, { minLength: 1, maxLength: maxCommands }),
+          fc.array(commandArbitrary, { minLength: minimumOperations, maxLength: maxCommands }),
           async (commands) => {
             const trace: string[] = [];
             traces[seed] = trace;
@@ -555,10 +586,6 @@ test('seeded model-based media lifecycle fuzzing', async ({ page }, testInfo) =>
               `${testInfo.project.name}-fuzz-receiver-${receiverAttempts}`
             );
             await expectMediaInvariant(receiver);
-            const lifecycle = [...commands];
-            while (lifecycle.length < 50) {
-              lifecycle.push(paddingCommands[lifecycle.length % paddingCommands.length]);
-            }
             await fc.asyncModelRun(
               () => ({
                 model: {
@@ -579,7 +606,7 @@ test('seeded model-based media lifecycle fuzzing', async ({ page }, testInfo) =>
                   trace
                 }
               }),
-              lifecycle
+              commands
             );
             finalReceiverProbe = await probe(receiver);
           }
