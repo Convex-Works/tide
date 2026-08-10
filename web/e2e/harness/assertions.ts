@@ -103,7 +103,10 @@ export async function expectConverged(
     // RTP lags SDK-level convergence after a re-join: the publisher's dynacast
     // pauses a video layer the moment its last subscriber drops, and resuming
     // it after the fresh subscription can take longer than signalling did.
-    await expectMediaInvariant(actor.page, timeout);
+    await expectMediaInvariant(actor.page, {
+      structureTimeout: timeout,
+      flowTimeout: timeout
+    });
   } catch (cause) {
     // The invariant only reports ok:false, which cannot be acted on. Attach the
     // per-stage view — signalling, subscription, track, element, RTP — so a

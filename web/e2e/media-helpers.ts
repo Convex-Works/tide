@@ -388,127 +388,381 @@ export async function probe(page: Page): Promise<MediaProbeSnapshot> {
 /**
  * A publication that has just been re-subscribed has to renegotiate before RTP
  * flows again, and the SDK reports `subscribed` well before the first frames
- * arrive. Invariant checks that directly follow a re-subscribe need this rather
- * than the 3 s default, which suits a settled room. It still fails if media
- * never returns — it only stops the assertion racing the renegotiation.
+ * arrive. RTP assertions need this even when the DOM has already converged. It
+ * still fails if media never returns — it only stops the assertion racing the
+ * renegotiation or the browser's stats cadence.
  */
 export const resubscribeSettleTimeout = 20_000;
 
+const mediaPollIntervals = [200, 300, 500];
+
+function expectedMediaElements(snapshot: MediaProbeSnapshot): ProbePublication[] {
+  // A publishing client renders its own camera (and screen share) in its own
+  // tile, so those elements are expected too. Local audio is never rendered —
+  // RemoteAudioRenderer skips the local participant.
+  return snapshot.participants.flatMap((participant) =>
+    Object.values(participant.publications).filter((publication) =>
+      participant.isLocal
+        ? publication.kind === 'video' && !publication.muted && publication.track !== undefined
+        : publication.subscribed &&
+          publication.permissionAllowed &&
+          publication.track !== undefined &&
+          (publication.kind === 'audio' || !publication.muted)
+    )
+  );
+}
+
+function expectedFlowingPublications(snapshot: MediaProbeSnapshot): ProbePublication[] {
+  return snapshot.participants
+    .filter((participant) => !participant.isLocal)
+    .flatMap((participant) => Object.values(participant.publications))
+    .filter(
+      (publication) =>
+        publication.desired &&
+        publication.subscribed &&
+        !publication.muted &&
+        publication.permissionAllowed &&
+        publication.track
+    );
+}
+
+function remotePublications(snapshot: MediaProbeSnapshot): ProbePublication[] {
+  return snapshot.participants
+    .filter((participant) => !participant.isLocal)
+    .flatMap((participant) => Object.values(participant.publications));
+}
+
+export interface MediaPublicationRequirements {
+  /** Remote publications that must be subscribed and match their expected mute state. */
+  requiredSids?: readonly string[];
+  /** Required publications expected to be muted; all other required SIDs must be unmuted. */
+  requiredMutedSids?: readonly string[];
+  /** Remote publications that must be unsubscribed and absent from the DOM. */
+  forbiddenSids?: readonly string[];
+  /** Participants that must be present, including the local participant when required. */
+  requiredParticipantIdentities?: readonly string[];
+  /** Participants that must be absent after their departure has been signalled. */
+  forbiddenParticipantIdentities?: readonly string[];
+}
+
+function participantRequirementDiagnostics(
+  snapshot: MediaProbeSnapshot,
+  requirements: MediaPublicationRequirements
+) {
+  const participants = snapshot.participants
+    .map(({ identity, isLocal, isEgress }) => ({ identity, isLocal, isEgress }))
+    .sort((left, right) => left.identity.localeCompare(right.identity));
+  const requiredIdentities = [...new Set(requirements.requiredParticipantIdentities ?? [])].sort();
+  const forbiddenIdentities = [
+    ...new Set(requirements.forbiddenParticipantIdentities ?? [])
+  ].sort();
+  const required = requiredIdentities.map((identity) => {
+    const participant = participants.find((candidate) => candidate.identity === identity);
+    return { identity, ok: participant !== undefined, participant: participant ?? null };
+  });
+  const forbidden = forbiddenIdentities.map((identity) => {
+    const participant = participants.find((candidate) => candidate.identity === identity);
+    return { identity, ok: participant === undefined, participant: participant ?? null };
+  });
+  return {
+    // This is deliberately not an exact-set comparison. Recording egress and
+    // other unmodelled participants may coexist with the identities pinned by
+    // a caller; only an explicitly forbidden identity is rejected.
+    ok:
+      required.every((participant) => participant.ok) &&
+      forbidden.every((participant) => participant.ok),
+    actual: participants,
+    required,
+    forbidden
+  };
+}
+
+function publicationRequirementDiagnostics(
+  snapshot: MediaProbeSnapshot,
+  requirements: MediaPublicationRequirements
+) {
+  const publications = remotePublications(snapshot);
+  const requiredSids = [...new Set(requirements.requiredSids ?? [])].sort();
+  const requiredMutedSids = new Set(requirements.requiredMutedSids ?? []);
+  const forbiddenSids = [...new Set(requirements.forbiddenSids ?? [])].sort();
+  const required = requiredSids.map((publicationSid) => {
+    const publication = publications.find(
+      (candidate) => candidate.publicationSid === publicationSid
+    );
+    const element = snapshot.elements.find(
+      (candidate) => candidate.publicationSid === publicationSid
+    );
+    const expectedMuted = requiredMutedSids.has(publicationSid);
+    // Remote audio keeps its renderer while muted. Muted video does not, so
+    // its pinned state is a subscribed publication with no media element.
+    const elementExpected =
+      publication === undefined ? null : publication.kind === 'audio' || !expectedMuted;
+    const attached = element?.attachedInLiveKit === true && element.srcObjectTrackIds.length > 0;
+    const elementOk = elementExpected === true ? attached : elementExpected === false && !element;
+    return {
+      publicationSid,
+      ok:
+        publication !== undefined &&
+        publication.subscribed &&
+        publication.permissionAllowed &&
+        publication.track !== undefined &&
+        publication.muted === expectedMuted &&
+        elementOk,
+      expectedMuted,
+      elementExpected,
+      sdk: publication
+        ? {
+            desired: publication.desired,
+            subscribed: publication.subscribed,
+            muted: publication.muted,
+            permissionAllowed: publication.permissionAllowed,
+            subscriptionStatus: publication.subscriptionStatus,
+            streamState: publication.streamState,
+            track: publication.track
+          }
+        : null,
+      dom: element ?? null,
+      recoverableError: snapshot.subscriptionFailures[publicationSid] ?? null
+    };
+  });
+  const forbidden = forbiddenSids.map((publicationSid) => {
+    const publication = publications.find(
+      (candidate) => candidate.publicationSid === publicationSid
+    );
+    const element = snapshot.elements.find(
+      (candidate) => candidate.publicationSid === publicationSid
+    );
+    return {
+      publicationSid,
+      ok: publication?.subscribed !== true && element === undefined,
+      subscribed: publication?.subscribed ?? false,
+      sdk: publication ?? null,
+      dom: element ?? null
+    };
+  });
+  return {
+    ok:
+      required.every((publication) => publication.ok) &&
+      forbidden.every((publication) => publication.ok),
+    required,
+    forbidden
+  };
+}
+
+function publicationElementSet(
+  snapshot: MediaProbeSnapshot,
+  expected: ProbePublication[]
+): {
+  exact: boolean;
+  diagnostics: {
+    expected: string[];
+    actual: string[];
+    missing: string[];
+    unexpected: string[];
+  };
+} {
+  const expectedSids = expected.map((publication) => publication.publicationSid).sort();
+  const actualSids = snapshot.elements.map((element) => element.publicationSid).sort();
+  return {
+    exact:
+      expectedSids.length === actualSids.length &&
+      expectedSids.every((sid, index) => sid === actualSids[index]),
+    diagnostics: {
+      expected: expectedSids,
+      actual: actualSids,
+      missing: expectedSids.filter((sid) => !actualSids.includes(sid)),
+      unexpected: actualSids.filter((sid) => !expectedSids.includes(sid))
+    }
+  };
+}
+
+export interface MediaStructureOptions extends MediaPublicationRequirements {
+  timeout?: number;
+}
+
+function mediaPollError(phase: 'structure' | 'flow', cause: unknown, diagnostics: unknown): Error {
+  const assertion = cause instanceof Error ? cause.message : String(cause);
+  return new Error(
+    `Media ${phase} invariant did not converge.\nLast diagnostics:\n${JSON.stringify(diagnostics, null, 2)}\n\nPlaywright assertion:\n${assertion}`,
+    { cause }
+  );
+}
+
+export async function expectMediaStructure(
+  page: Page,
+  options: MediaStructureOptions = {}
+): Promise<MediaProbeSnapshot> {
+  const timeout = options.timeout ?? 3_000;
+  let latest = await probe(page);
+  let latestDiagnostics: unknown = { ok: false, status: 'not-polled' };
+  try {
+    await expect
+      .poll(
+        async () => {
+          latest = await probe(page);
+          const expected = expectedMediaElements(latest);
+          const elementSet = publicationElementSet(latest, expected);
+          const requirements = publicationRequirementDiagnostics(latest, options);
+          const participantRequirements = participantRequirementDiagnostics(latest, options);
+          const publicationDiagnostics = expected.map((publication) => {
+            const element = latest.elements.find(
+              (candidate) => candidate.publicationSid === publication.publicationSid
+            );
+            const attached =
+              element?.attachedInLiveKit === true && element.srcObjectTrackIds.length > 0;
+            return {
+              publicationSid: publication.publicationSid,
+              source: publication.source,
+              kind: publication.kind,
+              ok: attached,
+              sdk: {
+                desired: publication.desired,
+                subscribed: publication.subscribed,
+                muted: publication.muted,
+                permissionAllowed: publication.permissionAllowed,
+                subscriptionStatus: publication.subscriptionStatus,
+                streamState: publication.streamState,
+                track: publication.track
+              },
+              dom: element ?? null,
+              recoverableError: latest.subscriptionFailures[publication.publicationSid] ?? null
+            };
+          });
+          latestDiagnostics = {
+            ok:
+              elementSet.exact &&
+              publicationDiagnostics.every((publication) => publication.ok) &&
+              requirements.ok &&
+              participantRequirements.ok,
+            publicationElementSet: elementSet.diagnostics,
+            requirements,
+            participantRequirements,
+            publications: publicationDiagnostics
+          };
+          return latestDiagnostics;
+        },
+        { timeout, intervals: mediaPollIntervals }
+      )
+      .toMatchObject({ ok: true });
+  } catch (cause) {
+    throw mediaPollError('structure', cause, latestDiagnostics);
+  }
+  return latest;
+}
+
+export interface MediaInvariantOptions extends MediaPublicationRequirements {
+  structureTimeout?: number;
+  flowTimeout?: number;
+}
+
 export async function expectMediaInvariant(
   page: Page,
-  timeout = 3_000
+  options: MediaInvariantOptions = {}
 ): Promise<MediaProbeSnapshot> {
   const baseline = await probe(page);
+  const structureTimeout = options.structureTimeout ?? 3_000;
+  const flowTimeout = options.flowTimeout ?? resubscribeSettleTimeout;
+  await expectMediaStructure(page, {
+    timeout: structureTimeout,
+    requiredSids: options.requiredSids,
+    requiredMutedSids: options.requiredMutedSids,
+    forbiddenSids: options.forbiddenSids,
+    requiredParticipantIdentities: options.requiredParticipantIdentities,
+    forbiddenParticipantIdentities: options.forbiddenParticipantIdentities
+  });
   let latest = baseline;
-  await expect
-    .poll(
-      async () => {
-        latest = await probe(page);
-        const desired = latest.participants
-          .filter((participant) => !participant.isLocal)
-          .flatMap((participant) => Object.values(participant.publications))
-          .filter(
+  let latestDiagnostics: unknown = { ok: false, status: 'not-polled' };
+  try {
+    await expect
+      .poll(
+        async () => {
+          latest = await probe(page);
+          const requiredSids = new Set(options.requiredSids ?? []);
+          const requiredMutedSids = new Set(options.requiredMutedSids ?? []);
+          const flowingSids = new Set(
+            expectedFlowingPublications(latest).map((publication) => publication.publicationSid)
+          );
+          const desired = remotePublications(latest).filter(
             (publication) =>
-              publication.desired &&
-              publication.subscribed &&
-              !publication.muted &&
-              publication.permissionAllowed &&
-              publication.track
+              flowingSids.has(publication.publicationSid) ||
+              (requiredSids.has(publication.publicationSid) &&
+                !requiredMutedSids.has(publication.publicationSid))
           );
-        // A publishing client renders its own camera (and screen share) in its
-        // own tile, so those elements are expected too. Local audio is never
-        // rendered — RemoteAudioRenderer skips the local participant.
-        const expectedElements = latest.participants.flatMap((participant) =>
-          Object.values(participant.publications).filter((publication) =>
-            participant.isLocal
-              ? publication.kind === 'video' &&
-                !publication.muted &&
-                publication.track !== undefined
-              : publication.subscribed &&
-                publication.permissionAllowed &&
-                publication.track !== undefined &&
-                (publication.kind === 'audio' || !publication.muted)
-          )
-        );
-        const desiredSids = expectedElements
-          .map((publication) => publication.publicationSid)
-          .sort();
-        const elementSids = latest.elements.map((element) => element.publicationSid).sort();
-        const publicationDiagnostics = desired.map((publication) => {
-          const element = latest.elements.find(
-            (candidate) => candidate.publicationSid === publication.publicationSid
-          );
-          const failure = latest.subscriptionFailures[publication.publicationSid];
-          const before = baseline.inbound[publication.publicationSid] ?? {
-            bytesReceived: 0,
-            framesDecoded: 0,
-            packetsLost: 0,
-            jitter: 0,
-            audioLevel: 0,
-            totalAudioEnergy: 0
+          const elementSet = publicationElementSet(latest, expectedMediaElements(latest));
+          const requirements = publicationRequirementDiagnostics(latest, options);
+          const publicationDiagnostics = desired.map((publication) => {
+            const element = latest.elements.find(
+              (candidate) => candidate.publicationSid === publication.publicationSid
+            );
+            const failure = latest.subscriptionFailures[publication.publicationSid];
+            const before = baseline.inbound[publication.publicationSid] ?? {
+              bytesReceived: 0,
+              framesDecoded: 0,
+              packetsLost: 0,
+              jitter: 0,
+              audioLevel: 0,
+              totalAudioEnergy: 0
+            };
+            const after = latest.inbound[publication.publicationSid];
+            const advancing =
+              after !== undefined &&
+              (publication.kind === 'video'
+                ? after.bytesReceived > before.bytesReceived ||
+                  after.framesDecoded > before.framesDecoded
+                : after.bytesReceived > before.bytesReceived ||
+                  after.totalAudioEnergy > before.totalAudioEnergy ||
+                  after.audioLevel > 0);
+            const attached =
+              element?.attachedInLiveKit === true && element.srcObjectTrackIds.length > 0;
+            return {
+              publicationSid: publication.publicationSid,
+              source: publication.source,
+              kind: publication.kind,
+              // A recorded failure no longer excuses a publication. Recovery is
+              // the reconcile tick re-deriving the subscription, so "recoverable"
+              // means it must actually recover inside this flow poll window.
+              ok: advancing,
+              attached,
+              sdk: {
+                desired: publication.desired,
+                subscribed: publication.subscribed,
+                muted: publication.muted,
+                permissionAllowed: publication.permissionAllowed,
+                subscriptionStatus: publication.subscriptionStatus,
+                streamState: publication.streamState,
+                track: publication.track
+              },
+              dom: element ?? null,
+              recoverableError: failure ?? null,
+              stats: {
+                before,
+                after: after ?? null,
+                delta: after
+                  ? {
+                      bytesReceived: after.bytesReceived - before.bytesReceived,
+                      framesDecoded: after.framesDecoded - before.framesDecoded,
+                      packetsLost: after.packetsLost - before.packetsLost,
+                      jitter: after.jitter - before.jitter,
+                      audioEnergy: after.totalAudioEnergy - before.totalAudioEnergy
+                    }
+                  : null
+              }
+            };
+          });
+          latestDiagnostics = {
+            ok: requirements.ok && publicationDiagnostics.every((publication) => publication.ok),
+            publicationElementSet: elementSet.diagnostics,
+            requirements,
+            publications: publicationDiagnostics
           };
-          const after = latest.inbound[publication.publicationSid];
-          const advancing =
-            after !== undefined &&
-            (publication.kind === 'video'
-              ? after.bytesReceived > before.bytesReceived ||
-                after.framesDecoded > before.framesDecoded
-              : after.bytesReceived > before.bytesReceived ||
-                after.totalAudioEnergy > before.totalAudioEnergy ||
-                after.audioLevel > 0);
-          const attached =
-            element?.attachedInLiveKit === true && element.srcObjectTrackIds.length > 0;
-          return {
-            publicationSid: publication.publicationSid,
-            source: publication.source,
-            kind: publication.kind,
-            // A recorded failure no longer excuses a publication. Recovery is
-            // the reconcile tick re-deriving the subscription, so "recoverable"
-            // means it must actually recover inside this poll window.
-            ok: attached && advancing,
-            sdk: {
-              desired: publication.desired,
-              subscribed: publication.subscribed,
-              muted: publication.muted,
-              permissionAllowed: publication.permissionAllowed,
-              subscriptionStatus: publication.subscriptionStatus,
-              streamState: publication.streamState,
-              track: publication.track
-            },
-            dom: element ?? null,
-            recoverableError: failure ?? null,
-            stats: {
-              before,
-              after: after ?? null,
-              delta: after
-                ? {
-                    bytesReceived: after.bytesReceived - before.bytesReceived,
-                    framesDecoded: after.framesDecoded - before.framesDecoded,
-                    packetsLost: after.packetsLost - before.packetsLost,
-                    jitter: after.jitter - before.jitter,
-                    audioEnergy: after.totalAudioEnergy - before.totalAudioEnergy
-                  }
-                : null
-            }
-          };
-        });
-        const exactElements =
-          desiredSids.length === elementSids.length &&
-          desiredSids.every((sid, index) => sid === elementSids[index]);
-        return {
-          ok: exactElements && publicationDiagnostics.every((publication) => publication.ok),
-          publicationElementSet: {
-            expected: desiredSids,
-            actual: elementSids,
-            missing: desiredSids.filter((sid) => !elementSids.includes(sid)),
-            unexpected: elementSids.filter((sid) => !desiredSids.includes(sid))
-          },
-          publications: publicationDiagnostics
-        };
-      },
-      { timeout, intervals: [200, 300, 500] }
-    )
-    .toMatchObject({ ok: true });
+          return latestDiagnostics;
+        },
+        { timeout: flowTimeout, intervals: mediaPollIntervals }
+      )
+      .toMatchObject({ ok: true });
+  } catch (cause) {
+    throw mediaPollError('flow', cause, latestDiagnostics);
+  }
   return latest;
 }
 
