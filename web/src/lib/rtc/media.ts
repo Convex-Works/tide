@@ -5,13 +5,16 @@ import {
   type RemoteTrackPublication
 } from 'livekit-client';
 
+/**
+ * A subscription the SFU refused. `recoverable` means the request still
+ * stands — the publication exists, we want it, we are allowed to have it — so
+ * the next reconcile tick re-derives it. There is no attempt counter because
+ * there is no retry loop: livekit-client re-establishes subscriptions itself.
+ */
 export interface MediaSubscriptionFailure {
   publicationSid: string;
   message: string;
   recoverable: boolean;
-  retrying: boolean;
-  exhausted: boolean;
-  attempts: number;
   occurredAt: number;
 }
 

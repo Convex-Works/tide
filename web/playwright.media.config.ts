@@ -4,7 +4,7 @@ const artifactRoot = process.env.KLISI_MEDIA_ARTIFACTS ?? '../artifacts/media';
 
 export default defineConfig({
   testDir: './e2e',
-  testMatch: /media-(reliability|fuzz)\.spec\.ts/,
+  testMatch: /media-(lifecycle|recording|reliability|fuzz)\.spec\.ts/,
   timeout: 180_000,
   expect: { timeout: 10_000 },
   workers: 1,

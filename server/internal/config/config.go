@@ -48,7 +48,20 @@ type Config struct {
 	// the TCP peer address is always the client.
 	TrustedProxies []*net.IPNet
 	DevMode        bool
+	// Per-IP request ceilings, each over a one-minute window. A zero value
+	// means "unset" and callers fall back to the Default* constants, so a
+	// zero-valued Config never silently denies every request.
+	JoinRateLimit  int
+	WaitRateLimit  int
+	LoginRateLimit int
 }
+
+// Public per-IP defaults, over a one-minute window.
+const (
+	DefaultJoinRateLimit  = 10
+	DefaultWaitRateLimit  = 20
+	DefaultLoginRateLimit = 10
+)
 
 // Load reads configuration from the environment. Dev mode is opt-in
 // (KLISI_DEV_MODE=true); outside it, secrets have no defaults and Load
@@ -87,6 +100,9 @@ func Load() (Config, error) {
 		S3Region:          env("KLISI_S3_REGION", "us-east-1"),
 		EgressTemplateURL: env("KLISI_EGRESS_TEMPLATE_URL", baseURL+"/egress-template"),
 		DevMode:           dev,
+		JoinRateLimit:     envPositiveInt("KLISI_JOIN_RATE_LIMIT", DefaultJoinRateLimit),
+		WaitRateLimit:     envPositiveInt("KLISI_WAIT_RATE_LIMIT", DefaultWaitRateLimit),
+		LoginRateLimit:    envPositiveInt("KLISI_LOGIN_RATE_LIMIT", DefaultLoginRateLimit),
 	}
 	trusted, err := parseTrustedProxies(env("KLISI_TRUSTED_PROXIES", ""))
 	if err != nil {
@@ -187,6 +203,22 @@ func env(name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+// envPositiveInt reads a positive integer, falling back on anything unusable.
+// Rate limits are deployment configuration: a single-tenant install behind a
+// VPN, and the media gate where every browser shares one container IP, both
+// need higher ceilings than the public default.
+func envPositiveInt(name string, fallback int) int {
+	value, ok := os.LookupEnv(name)
+	if !ok {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil || parsed <= 0 {
+		return fallback
+	}
+	return parsed
 }
 
 func envBool(name string, fallback bool) bool {

@@ -250,6 +250,26 @@ OIDC group membership is captured when the Klisi session is created. Providers
 that do not push group-change or back-channel logout events cannot revoke that
 cached authorization before the signed session expires.
 
+## Diagnose a media incident
+
+When a participant reports that they could not see or hear someone, ask them to
+run `klisiDiagnostics()` in the browser console **on the affected tab, before
+reloading**. A reload discards the evidence, which is why these incidents have
+been hard to attribute.
+
+It saves a JSON file containing the bounded event ledger (what livekit-client
+actually told that client), any listener exceptions klisi caught, and the
+current subscription state per publication. Nothing is transmitted; the file
+stays on their machine until they send it to you. It contains participant
+identities and display names, so handle it as personal data.
+
+Read it against `docs/ARCHITECTURE.md` §9.1. An entry sequence that stops after
+`ParticipantConnected` means LiveKit stopped forwarding for that participant. A
+complete sequence with stale UI means the projection failed to converge.
+
+Upgrade `livekit-client` and LiveKit server as a tested pair, behind the media
+gate. The client version is pinned exactly for that reason.
+
 ## Back up state
 
 Back up the SQLite database on the klisi PVC. The database uses WAL mode, so do

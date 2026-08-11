@@ -6,16 +6,17 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json && tsc -p tsconfig.e2e.json",
     "lint": "prettier --check .",
     "format": "prettier --write .",
-    "media:e2e": "playwright test media-reliability.spec.ts --config=playwright.media.config.ts --project=chromium --project=webkit",
-    "media:fuzz": "playwright test media-fuzz.spec.ts --config=playwright.media.config.ts"
+    "media:e2e": "playwright test media-lifecycle.spec.ts media-recording.spec.ts media-reliability.spec.ts --config=playwright.media.config.ts --project=chromium --project=webkit",
+    "media:fuzz": "playwright test media-fuzz.spec.ts --config=playwright.media.config.ts",
+    "media:chaos": "playwright test media-lifecycle.spec.ts media-reliability.spec.ts --config=playwright.media.config.ts --project=chromium"
   },
   "dependencies": {
     "bits-ui": "^2.18.1",
     "cuelume": "file:vendor/cuelume-0.1.2-14a71236.tgz",
-    "livekit-client": "^2.15.0",
+    "livekit-client": "2.20.1",
     "phosphor-svelte": "^3.0.1"
   },
   "devDependencies": {
@@ -26,6 +27,7 @@
     "@sveltejs/kit": "^2.20.0",
     "@sveltejs/vite-plugin-svelte": "^5.0.3",
     "@tailwindcss/vite": "^4.3.3",
+    "@types/node": "^22.20.1",
     "fast-check": "^4.9.0",
     "prettier": "^3.5.3",
     "prettier-plugin-svelte": "^3.3.3",

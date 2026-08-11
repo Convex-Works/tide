@@ -137,6 +137,19 @@
   <header class="stage-header">
     <div class="room-status">
       {#if rtc.isRecording}<span class="rec-chip mono" data-testid="recording-chip">REC</span>{/if}
+      <!-- Autoplay policy blocks playback until a gesture. Without this the
+           participant gets silence and no explanation, and recovery depends on
+           them happening to click something. -->
+      {#if rtc.playbackBlocked}
+        <button
+          type="button"
+          class="playback-unlock"
+          data-testid="playback-blocked"
+          onclick={() => rtc.activateMediaPlayback()}
+        >
+          {rtc.canPlaybackAudio ? 'Tap to play video' : 'Tap to hear audio'}
+        </button>
+      {/if}
     </div>
     {#if rtc.connectionState !== 'connected'}
       <span class="connection">{rtc.connectionState}</span>
@@ -260,6 +273,21 @@
     letter-spacing: 0.06em;
     background: var(--rec);
     border-radius: 999px;
+  }
+
+  .playback-unlock {
+    padding: 2px 8px;
+    color: white;
+    font-size: 12px;
+    line-height: 20px;
+    background: var(--accent-d);
+    border: none;
+    border-radius: var(--radius-control);
+    cursor: pointer;
+  }
+
+  .playback-unlock:hover {
+    background: var(--accent);
   }
 
   .connection {
