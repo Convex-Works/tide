@@ -7,11 +7,19 @@
     denyLobby,
     joinRoom,
     lobbyWait,
+    logout,
     me,
     roomInfo,
     roomLobby
   } from '$lib/api/client';
-  import type { LobbyAdmittedSSE, LobbyRequestInfo, PublicRoomInfo } from '$lib/api/types.gen';
+  import {
+    AuthLoginPath,
+    type LobbyAdmittedSSE,
+    type LobbyRequestInfo,
+    type Me,
+    type PublicRoomInfo
+  } from '$lib/api/types.gen';
+  import { SignIn, SignOut } from 'phosphor-svelte';
   import { ConnectionState, DisconnectReason } from 'livekit-client';
   import PreJoin from '$lib/rtc/PreJoin.svelte';
   import RoomStage from '$lib/rtc/RoomStage.svelte';
@@ -41,6 +49,7 @@
   let name = $state('');
   let error = $state('');
   let canManage = $state(false);
+  let currentUser = $state<Me>();
   let pending = $state<LobbyRequestInfo[]>([]);
   let peopleOpen = $state(false);
   let lobbyError = $state('');
@@ -93,12 +102,31 @@
 
     canManage = details.can_manage;
     try {
-      const user = await me();
-      name = user.name;
+      currentUser = await me();
+      name = currentUser.name;
     } catch {
       // Signed-out guests have no profile; they type a name in prejoin.
+      currentUser = undefined;
     }
     meetingState = 'prejoin';
+  }
+
+  const signInHref = $derived(
+    `${AuthLoginPath}?next=${encodeURIComponent(`/m/${encodeURIComponent(slug)}`)}`
+  );
+
+  async function signOut(): Promise<void> {
+    error = '';
+    try {
+      await logout();
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : 'Could not sign out. Try again.';
+      return;
+    }
+    // Management rights come only from the session, so without one this
+    // browser is a guest. The server re-checks at join regardless.
+    currentUser = undefined;
+    canManage = false;
   }
 
   async function connect(admission: LobbyAdmittedSSE, options: PreJoinOptions): Promise<void> {
@@ -238,6 +266,29 @@
   <meta name="description" content="Join a klisi meeting" />
 </svelte:head>
 
+{#snippet account()}
+  {#if currentUser}
+    <div class="account">
+      <span class="account-name" title={currentUser.email}>{currentUser.name}</span>
+      {#if canManage}<span class="host-badge">Host</span>{/if}
+      <button
+        class="account-action"
+        type="button"
+        aria-label="Sign out"
+        title="Sign out"
+        onclick={() => void signOut()}
+      >
+        <SignOut size={16} weight="regular" aria-hidden="true" />
+      </button>
+    </div>
+  {:else}
+    <a class="account-link" href={signInHref} data-sveltekit-reload>
+      <SignIn size={16} weight="regular" aria-hidden="true" />
+      Sign in
+    </a>
+  {/if}
+{/snippet}
+
 {#if meetingState === 'connected'}
   <RoomStage
     {rtc}
@@ -259,6 +310,7 @@
     heading={details.name}
     onactivateplayback={() => rtc.activateMediaPlayback()}
     onjoin={join}
+    {account}
   />
 {:else if meetingState === 'loading'}
   <main class="meeting-state" aria-live="polite"><p>Loading room…</p></main>
@@ -368,7 +420,7 @@
     border-radius: 999px;
   }
 
-  button,
+  .meeting-state button,
   .state-action {
     display: inline-flex;
     height: var(--control-height);
@@ -382,9 +434,71 @@
     border-radius: var(--radius-control);
   }
 
-  button:hover,
+  .meeting-state button:hover,
   .state-action:hover {
     background: var(--accent-hover);
     border-color: var(--accent-hover);
+  }
+
+  .account {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 6px;
+    color: var(--ink-2);
+    font-size: 12px;
+  }
+
+  .account-name {
+    overflow: hidden;
+    color: var(--ink);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .host-badge {
+    flex-shrink: 0;
+    padding: 0 6px;
+    color: var(--accent);
+    font-size: 11px;
+    line-height: 18px;
+    font-weight: 550;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+  }
+
+  .account-action {
+    display: grid;
+    flex-shrink: 0;
+    width: var(--control-height);
+    height: var(--control-height);
+    padding: 0;
+    place-items: center;
+    color: var(--ink-2);
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: var(--radius-control);
+    transition:
+      color var(--motion-fast),
+      background var(--motion-fast);
+  }
+
+  .account-action:hover {
+    color: var(--ink);
+    background: var(--surface-2);
+  }
+
+  .account-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    color: var(--accent);
+    font-size: 12px;
+    font-weight: 550;
+    text-decoration: none;
+  }
+
+  .account-link:hover {
+    color: var(--accent-hover);
   }
 </style>
