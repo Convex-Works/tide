@@ -120,7 +120,12 @@ export function defaultState(): ApiState {
       }
     ],
     recordings: [],
-    machines: { machines: [], bundle, moil_url: 'https://klisi.example.com/moil' },
+    machines: {
+      machines: [],
+      bundle,
+      moil_url: 'https://klisi.example.com/moil',
+      app_url: 'https://git.convex.works/ConvexWorks/moil/releases/latest'
+    },
     pairings: {}
   };
 }

@@ -233,7 +233,10 @@ name another. The moil SDK
 `/moil/` — the moil base URL is `<KLISI_BASE_URL>/moil` — and each machine keeps
 one WebSocket open to `/moil/v1/connect`. Paired machines live in the
 `machines` table, which stores only the SHA-256 of a machine's token. `/machines`
-lists the host's own machines and unpairs them. A machine is `idle`, `busy`,
+lists the host's own machines and unpairs them. A host with no machine sees
+three steps there instead: get the moil app (its latest release, which the moil
+SDK names as `moil.AppURL`), pair it, and approve the transcribe bundle, by
+name, version and the hash prefix the app shows. A machine is `idle`, `busy`,
 `paused` or `offline`; a state klisi doesn't know, which only a newer moil SDK
 could report, shows as `busy`, since moil offers jobs only to idle machines.
 

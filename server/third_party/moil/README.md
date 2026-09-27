@@ -53,6 +53,26 @@ implement `moil.Store` over your database and check it with
 `moiltest.TestStore`. Timing knobs (`BidWindow`, `LeaseTTL`, `MaxAttempts`,
 `PingInterval`, …) default to the spec's values.
 
+## Onboard your users
+
+Most of your users have never heard of moil. Where they first meet
+machines, say in three short steps what to do, and what it means for their
+data:
+
+1. **Get the moil app** on the computer that will do the work:
+   `moil.AppURL` links to its latest release.
+2. **Pair it** with your service: a link to
+   `moil://pair?url=<your moil base URL>` opens the app with your address
+   filled in; show the address too, to paste into the app on another
+   computer.
+3. **Approve your bundle** in the app, after reading it. Name the bundle
+   and the start of its hash (`bundle.Hash()[:12]`, as the app shows it),
+   and say that a new version asks again.
+
+Then say what happens next in your own terms: which jobs the machine
+will receive, whose data they carry, and how to stop (unpair, or pause in
+the app).
+
 ## Confirm pairings
 
 Pairing is a device-code flow: the app shows a code like `WDJB-MJHT` and

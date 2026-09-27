@@ -182,10 +182,43 @@ test.describe('pairing a machine', () => {
 
     await page.getByRole('button', { name: 'Your machines' }).click();
     await expect(page.getByRole('heading', { name: 'Machines', exact: true })).toBeFocused();
-    await expect(page.getByText('No machines yet.')).toBeVisible();
+    await expect(page.getByTestId('onboarding')).toBeVisible();
 
     await page.reload();
     await expect(page.getByRole('heading', { name: 'Machines', exact: true })).toBeVisible();
+  });
+
+  test('a host without machines is shown how to start, until they have one', async ({ page }) => {
+    const api = await mockApi(page);
+    const { app_url, moil_url } = api.state.machines;
+
+    await page.goto('/machines');
+    const onboarding = page.getByTestId('onboarding');
+    await expect(onboarding.getByRole('listitem')).toHaveCount(3);
+    // 1: where to get the app, the latest release moil names, in a new tab.
+    const download = onboarding.getByRole('link', { name: 'Download moil' });
+    await expect(download).toHaveAttribute('href', app_url);
+    await expect(download).toHaveAttribute('target', '_blank');
+    await expect(page.getByRole('link', { name: 'Get moil' })).toHaveCount(0);
+    // 2: the pairing it refers to is the deep link, and the address to paste.
+    await expect(page.getByRole('link', { name: 'Add a machine' })).toHaveAttribute(
+      'href',
+      `moil://pair?url=${encodeURIComponent(moil_url)}`
+    );
+    await expect(page.getByLabel('Or paste this address into the moil app')).toHaveValue(moil_url);
+    // 3: which bundle to approve, by the hash prefix the app shows.
+    const approve = onboarding.getByRole('listitem').nth(2);
+    await expect(approve).toContainText(`${bundle.name} bundle, version ${bundle.version}`);
+    await expect(approve).toContainText(`(${bundle.hash.slice(0, 12)})`);
+    await expect(approve).not.toContainText(bundle.hash);
+
+    // With a machine paired, the steps give way to the list, and the app
+    // is still a link away.
+    api.state.machines.machines = [machine({ id: 'm-first', name: 'Studio' })];
+    await page.reload();
+    await expect(page.getByText('Studio')).toBeVisible();
+    await expect(page.getByTestId('onboarding')).toHaveCount(0);
+    await expect(page.getByRole('link', { name: 'Get moil' })).toHaveAttribute('href', app_url);
   });
 
   test('a code that does not work can be entered again', async ({ page }) => {
@@ -341,9 +374,10 @@ test.describe('your machines', () => {
       'moil://pair?url=https%3A%2F%2Fklisi.example.com%2Fmoil'
     );
     await expect(page.getByText('Each machine needs the moil app.')).toBeVisible();
+    // The app is linked where the server says moil's latest release is.
     await expect(page.getByRole('link', { name: 'Get moil' })).toHaveAttribute(
       'href',
-      'https://git.convex.works/ConvexWorks/moil'
+      api.state.machines.app_url
     );
     await expect(page.getByLabel('Or paste this address into the moil app')).toHaveValue(
       'https://klisi.example.com/moil'
@@ -498,7 +532,7 @@ test.describe('your machines', () => {
     await expect(page.getByRole('alert')).toHaveText('Could not load your machines. Try again.');
     await page.getByRole('button', { name: 'Try again' }).click();
     await expect(page.getByRole('heading', { name: 'Machines', exact: true })).toBeFocused();
-    await expect(page.getByText('No machines yet.')).toBeVisible();
+    await expect(page.getByTestId('onboarding')).toBeVisible();
   });
 
   test('an expired session on Unpair asks to sign in again', async ({ page }) => {

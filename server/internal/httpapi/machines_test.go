@@ -47,6 +47,10 @@ func TestPairingAMachineEndToEnd(t *testing.T) {
 	if page.MoilURL != k.url+"/moil" {
 		t.Fatalf("moil_url = %q, want %q", page.MoilURL, k.url+"/moil")
 	}
+	// Where a host without the app gets it: moil's latest release.
+	if page.AppURL != moil.AppURL || !strings.HasPrefix(page.AppURL, "https://") {
+		t.Fatalf("app_url = %q, want moil's %q", page.AppURL, moil.AppURL)
+	}
 
 	// The moil app pairs with that URL and opens the page with its code; the
 	// host checks it's their machine.

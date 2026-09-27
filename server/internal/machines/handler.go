@@ -104,6 +104,7 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		Machines: make([]api.MachineInfo, 0, len(machines)),
 		Bundle:   api.BundleInfo{Name: h.bundle.Name(), Version: h.bundle.Version(), Hash: h.bundle.Hash()},
 		MoilURL:  h.moilURL,
+		AppURL:   moil.AppURL,
 	}
 	for _, machine := range machines {
 		response.Machines = append(response.Machines, h.machineInfo(machine))

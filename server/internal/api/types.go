@@ -193,6 +193,9 @@ type MachinesResponse struct {
 	// MoilURL is the address the moil app pairs with, e.g.
 	// https://klisi.example.com/moil.
 	MoilURL string `json:"moil_url"`
+	// AppURL is where hosts get the moil app: its latest release, as the
+	// moil SDK names it (moil.AppURL).
+	AppURL string `json:"app_url"`
 }
 
 type MachineInfo struct {

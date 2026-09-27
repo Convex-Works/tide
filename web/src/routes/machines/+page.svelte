@@ -41,7 +41,6 @@
   // Machines come online, go offline and get approved in the moil app while
   // this page is open, so the list refreshes itself quietly.
   const refreshIntervalMs = 10_000;
-  const moilHome = 'https://git.convex.works/ConvexWorks/moil';
 
   const accentButton =
     'inline-flex h-7 shrink-0 items-center gap-1.5 rounded-control border border-accent bg-accent px-2.5 text-[12px] font-[550] text-white no-underline transition-colors hover:border-accent-hover hover:bg-accent-hover disabled:opacity-60';
@@ -548,10 +547,15 @@
           <h2 id="machines-heading" tabindex="-1" class="m-0 text-[13px] font-[550] text-ink">
             Your machines
           </h2>
-          <p class="m-0 mt-0.5 text-[12px] text-ink-2">
-            Each machine needs the moil app.
-            <a class="text-accent" href={moilHome} target="_blank" rel="noreferrer">Get moil</a>
-          </p>
+          {#if data.machines.length > 0}
+            <!-- Without a machine yet, the steps below say this. -->
+            <p class="m-0 mt-0.5 text-[12px] text-ink-2">
+              Each machine needs the moil app.
+              <a class="text-accent" href={data.app_url} target="_blank" rel="noreferrer"
+                >Get moil</a
+              >
+            </p>
+          {/if}
         </div>
         <a class={accentButton} href={pairHref} title="Opens the moil app on this computer">
           <Plus size={16} weight="regular" aria-hidden="true" /> Add a machine
@@ -559,11 +563,43 @@
       </div>
 
       {#if data.machines.length === 0}
-        <p
-          class="m-0 mt-3 rounded-card border border-border bg-surface px-3 py-6 text-center text-[12px] text-ink-2"
+        <!-- Onboarding: most hosts have never heard of moil. -->
+        <div
+          class="mt-3 rounded-card border border-border bg-surface px-3 py-3 text-[12px] text-ink"
+          data-testid="onboarding"
         >
-          No machines yet. Add one to start transcribing your recordings.
-        </p>
+          <p class="m-0 text-[13px] font-[550]">Transcribe on a computer of your own</p>
+          <ol class="m-0 mt-2 grid list-none gap-2 p-0">
+            <li class="flex gap-2">
+              <span class="mono w-4 shrink-0 text-ink-2" aria-hidden="true">1</span>
+              <span>
+                Get the moil app on the computer that will transcribe.
+                <a class="text-accent" href={data.app_url} target="_blank" rel="noreferrer"
+                  >Download moil</a
+                >
+              </span>
+            </li>
+            <li class="flex gap-2">
+              <span class="mono w-4 shrink-0 text-ink-2" aria-hidden="true">2</span>
+              <span>
+                Pair it with klisi: choose <strong class="font-[550]">Add a machine</strong> on that computer,
+                or paste the address below into its moil app.
+              </span>
+            </li>
+            <li class="flex gap-2">
+              <span class="mono w-4 shrink-0 text-ink-2" aria-hidden="true">3</span>
+              <span>
+                In moil, review and approve the {data.bundle.name} bundle, version
+                <span class="mono">{data.bundle.version}</span>
+                (<span class="mono" title={data.bundle.hash}>{shortHash(data.bundle.hash)}</span>).
+              </span>
+            </li>
+          </ol>
+          <p class="m-0 mt-2 text-ink-2">
+            It then transcribes each new recording of rooms you own. Recordings go only to your own
+            machines, and you can unpair one here at any time.
+          </p>
+        </div>
       {:else}
         <ul
           class="m-0 mt-3 list-none overflow-hidden rounded-card border border-border bg-surface p-0"

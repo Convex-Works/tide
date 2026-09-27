@@ -212,6 +212,11 @@ export interface MachinesResponse {
    * https://klisi.example.com/moil.
    */
   moil_url: string;
+  /**
+   * AppURL is where hosts get the moil app: its latest release, as the
+   * moil SDK names it (moil.AppURL).
+   */
+  app_url: string;
 }
 export interface MachineInfo {
   id: string;
