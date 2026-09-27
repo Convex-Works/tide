@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import { ArrowRight, Check, Copy } from 'phosphor-svelte';
+  import { ArrowRight, Check, Copy, Desktop } from 'phosphor-svelte';
   import { AuthRequiredError, createRoom, listRooms, logout, me } from '$lib/api/client';
   import { AuthLoginPath, type Me, type RoomInfo } from '$lib/api/types.gen';
   import { compactAgo } from '$lib/format';
@@ -147,6 +147,9 @@
     <header>
       <a class="wordmark" href="/">klisi</a>
       <div class="account">
+        <a class="icon-link" href="/machines" aria-label="Machines" title="Machines">
+          <Desktop size={16} weight="regular" aria-hidden="true" />
+        </a>
         <span>{currentUser?.name}</span>
         <button type="button" onclick={() => void signOut()}>Sign out</button>
       </div>
@@ -331,6 +334,23 @@
   }
 
   .account button:hover {
+    background: var(--surface-2);
+  }
+
+  .icon-link {
+    display: grid;
+    width: var(--control-height);
+    height: var(--control-height);
+    place-items: center;
+    color: var(--ink-2);
+    border-radius: var(--radius-control);
+    transition:
+      color var(--motion-fast),
+      background var(--motion-fast);
+  }
+
+  .icon-link:hover {
+    color: var(--ink);
     background: var(--surface-2);
   }
 
