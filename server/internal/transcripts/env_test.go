@@ -294,7 +294,7 @@ func (e *env) deleteRecording(recording store.Recording, as *auth.Session) *http
 
 // sidecars are where the recording's transcript formats are stored.
 func sidecars(recording store.Recording) (txt, vtt string) {
-	return recording.TranscriptKey("txt"), recording.TranscriptKey("vtt")
+	return recording.TranscriptKey(store.TranscriptFormats[0]), recording.TranscriptKey(store.TranscriptFormats[1])
 }
 
 // finish plays a successful transcription: the machine uploads both

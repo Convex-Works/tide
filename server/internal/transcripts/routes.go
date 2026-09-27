@@ -17,13 +17,6 @@ import (
 // (ARCHITECTURE.md §15).
 const downloadExpiry = 5 * time.Minute
 
-// contentTypes are the transcript formats a download serves, by the format
-// query parameter.
-var contentTypes = map[string]string{
-	api.TranscriptFormatText: "text/plain; charset=utf-8",
-	api.TranscriptFormatVTT:  "text/vtt; charset=utf-8",
-}
-
 // Request serves POST api.RecordingTranscriptPath: requests a transcript of
 // an available recording, or retries a failed one, and returns its
 // api.TranscriptInfo.
@@ -99,8 +92,7 @@ func (s *Service) Download(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	format := r.URL.Query().Get("format")
-	contentType, ok := contentTypes[format]
+	format, ok := store.TranscriptFormatByExtension(r.URL.Query().Get("format"))
 	if !ok {
 		httpx.WriteError(w, http.StatusBadRequest, "Choose a transcript format: txt or vtt.")
 		return
@@ -116,7 +108,7 @@ func (s *Service) Download(w http.ResponseWriter, r *http.Request) {
 	}
 	// The file is named like the recording: "2026-09-27 14-00 - Standup.vtt".
 	key := recording.TranscriptKey(format)
-	location, err := s.cfg.Objects.PresignedDownload(r.Context(), key, downloadExpiry, path.Base(key), contentType)
+	location, err := s.cfg.Objects.PresignedDownload(r.Context(), key, downloadExpiry, path.Base(key), format.ContentType)
 	if err != nil {
 		httpx.WriteError(w, http.StatusBadGateway, "Could not prepare the download. Try again.")
 		return
@@ -127,21 +119,5 @@ func (s *Service) Download(w http.ResponseWriter, r *http.Request) {
 // requireManager loads the recording a transcript route names, and checks
 // the session may manage its room: its owner, or an administrator.
 func (s *Service) requireManager(w http.ResponseWriter, r *http.Request) (store.Recording, store.Room, auth.Session, bool) {
-	if _, ok := auth.SessionFromContext(r.Context()); !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "Authentication required.")
-		return store.Recording{}, store.Room{}, auth.Session{}, false
-	}
-	recording, err := s.cfg.Store.RecordingByID(r.Context(), r.PathValue("id"))
-	if errors.Is(err, sql.ErrNoRows) {
-		httpx.WriteError(w, http.StatusNotFound, "Recording not found.")
-		return store.Recording{}, store.Room{}, auth.Session{}, false
-	}
-	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "Could not load the recording. Try again.")
-		return store.Recording{}, store.Room{}, auth.Session{}, false
-	}
-	room, session, ok := httpx.RequireRoomManager(
-		w, r, s.cfg.Store, recording.RoomSlug, "Only a room administrator can manage transcripts.",
-	)
-	return recording, room, session, ok
+	return httpx.RequireRecordingManager(w, r, s.cfg.Store, r.PathValue("id"), "Only a room administrator can manage transcripts.")
 }

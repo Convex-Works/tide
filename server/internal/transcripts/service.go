@@ -253,10 +253,10 @@ func inputName(recording store.Recording) string {
 
 // outputName is the file the bundle writes a transcript format to: it goes
 // by the extension.
-func outputName(format string) string { return "transcript." + format }
+func outputName(format store.TranscriptFormat) string { return "transcript." + format.Extension }
 
 func transcribable(recording store.Recording) bool {
-	return recording.Status == "completed" && recording.S3Key != nil && *recording.S3Key != ""
+	return recording.Status == "completed" && recording.HasFile()
 }
 
 // follow keeps what a run reports, for the recording list, and records its
