@@ -17,6 +17,10 @@ import (
 // maxMessage bounds, in characters, the messages from machines klisi shows.
 const maxMessage = 300
 
+// expired is the error of a transcript no machine made within pendingFor
+// of its request.
+const expired = "No machine transcribed it within 14 days. Check that a paired machine is online and has approved the transcribe bundle in the moil app, then request it again."
+
 // The errors of a job that succeeded with files klisi won't keep.
 const (
 	missingOutputs = "The machine finished without uploading the transcript. Try again."

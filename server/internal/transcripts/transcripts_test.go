@@ -52,7 +52,7 @@ func TestTranscribesRecordingOnOwnersMachine(t *testing.T) {
 		t.Fatalf("attempt = job %q, title %q, bundle %s", a.JobID, a.Title, a.BundleHash)
 	}
 	// The job's files: the recording in, the two sidecars out. Its time
-	// limit is an hour plus twice the recording's ten minutes.
+	// limit is three hours, the least any attempt gets.
 	if names := slices.Sorted(maps.Keys(a.Inputs)); !slices.Equal(names, []string{"recording.ogg"}) {
 		t.Fatalf("inputs = %v", names)
 	}
@@ -71,7 +71,7 @@ func TestTranscribesRecordingOnOwnersMachine(t *testing.T) {
 	if input := e.s3.Key(t, a.Inputs["recording.ogg"].URL); input != *rec.S3Key {
 		t.Fatalf("the machine downloads %q", input)
 	}
-	if a.Timeout != time.Hour+20*time.Minute {
+	if a.Timeout != 3*time.Hour {
 		t.Fatalf("timeout = %v", a.Timeout)
 	}
 	audio, _ := e.s3.Object(*rec.S3Key)

@@ -68,6 +68,9 @@ const (
 	stagingPrefix = "transcripts-staging"
 	// maxTranscriptBytes is the largest transcript file klisi keeps.
 	maxTranscriptBytes = 16 << 20
+	// pendingFor is how long a transcript waits for a machine to make it,
+	// from its request, before it fails.
+	pendingFor = 14 * 24 * time.Hour
 	// sweepMargin is how long after its URL expires a staging key is
 	// removed: for an upload that began just before, and for storage's
 	// clock running behind klisi's.
@@ -172,8 +175,17 @@ func (s *Service) reconcile(ctx context.Context) {
 		log.Printf("transcripts: list pending transcripts: %v", err)
 		return
 	}
+	now := s.cfg.Now()
 	wanted := make(map[string]bool, len(pending))
 	for _, transcript := range pending {
+		if now.Sub(time.Unix(transcript.RequestedAt, 0)) >= pendingFor && !s.busy(transcript.ID) {
+			// Not wanted any more: its job, if any, is cancelled below.
+			err := s.cfg.Store.FailTranscript(ctx, transcript.ID, expired, now.Unix())
+			if err == nil {
+				continue
+			}
+			log.Printf("transcripts: recording %s: fail it for waiting too long: %v", transcript.ID, err)
+		}
 		wanted[transcript.ID] = true
 		if followed[transcript.ID] {
 			continue
@@ -193,6 +205,16 @@ func (s *Service) reconcile(ctx context.Context) {
 	for _, run := range unwanted {
 		run.Cancel()
 	}
+}
+
+// busy reports whether a machine is working on a transcript's job, or has
+// finished it and its end is about to be recorded: a transcript doesn't
+// fail for waiting too long then.
+func (s *Service) busy(recordingID string) bool {
+	s.mu.Lock()
+	j := s.jobs[recordingID]
+	s.mu.Unlock()
+	return j != nil && j.run.State() != moil.Queued
 }
 
 // followed is the recording IDs of the jobs followed now.
@@ -239,13 +261,16 @@ func (s *Service) submit(ctx context.Context, transcript store.PendingTranscript
 	return nil
 }
 
-// attemptTimeout is how long a machine may spend on an attempt: an hour,
-// plus twice the recording's duration, or three hours when that's unknown.
+// attemptTimeout is how long a machine may spend on an attempt: an hour
+// plus twice the recording's duration, and at least three hours, since a
+// machine's first attempt also downloads 2.9 GB of models. It is three
+// hours when the duration is unknown.
 func attemptTimeout(durationS *int64) time.Duration {
-	if durationS == nil || *durationS <= 0 {
-		return 3 * time.Hour
+	timeout := 3 * time.Hour
+	if durationS != nil && *durationS > 0 {
+		timeout = max(timeout, time.Hour+2*time.Duration(*durationS)*time.Second)
 	}
-	return time.Hour + 2*time.Duration(*durationS)*time.Second
+	return timeout
 }
 
 // files mints an attempt's URLs as a machine takes it, rather than at
