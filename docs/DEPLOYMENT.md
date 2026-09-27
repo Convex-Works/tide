@@ -243,15 +243,20 @@ own origin, under `/moil/`. Three things must hold:
   timeout of a minute or more is enough.
 - `KLISI_S3_PUBLIC_ENDPOINT` is HTTPS and reachable from hosts' own networks,
   not only from their browsers. Machines download the recording and upload
-  `.txt` and `.vtt` sidecars beside it with URLs klisi presigns for one
-  attempt, so the S3 key also needs `PutObject` on `recordings/*`. Egress
-  already uploads with it.
+  the transcript to staging keys under `transcripts-staging/` with URLs klisi
+  presigns for one attempt; klisi then copies the files beside the recording.
+  The S3 key therefore needs `GetObject`, `PutObject` and `DeleteObject` on
+  `transcripts-staging/*` as well as on `recordings/*`. klisi removes staging
+  objects itself; a lifecycle rule that expires `transcripts-staging/` after 8
+  days is a harmless backstop.
 - `KLISI_TRUSTED_PROXIES` names the ingress, so that the pairing rate limit
   counts clients rather than the proxy.
 
-Paired machines and transcript state live in SQLite with the rest of klisi's
-records. Transcript files live in the bucket next to their recordings, and
-deleting a recording deletes them.
+Paired machines, transcript state and the queue of objects to remove live in
+SQLite with the rest of klisi's records. Transcript files live in the bucket
+next to their recordings. Deleting a recording or a room queues all of their
+files for removal and removes them at once; klisi retries any removal that
+fails, every minute.
 
 ## Configure OIDC
 

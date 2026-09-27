@@ -200,7 +200,7 @@ to the egress job, not to any participant's tab.
    `POST /api/webhooks/livekit` (signature-verified) and drive the
    `recordings` table: `id, room_id, egress_id, status, started_by, started_at,
 ended_at, duration_s, s3_key, size_bytes`.
-4. Management: `GET /api/recordings?room=`, `DELETE /api/recordings/:id`,
+4. Management: `GET /api/rooms/:slug/recordings`, `DELETE /api/recordings/:id`,
    `GET /api/recordings/:id/download` → presigned S3 URL. Surfaced on the
    dashboard per room.
 5. In-room, everyone sees recording state (webhook → LiveKit room metadata
@@ -252,19 +252,34 @@ is deleted, a transcript is requested):
 3. It cancels every job whose row is gone or no longer `pending`.
 
 A job is eligible only for the room owner's machines
-(`moil.OwnedBy(rooms.owner_sub)`); administrators can request a transcript for
-any room they manage, but it still runs on that room owner's machines. Each
-attempt may run for one hour plus twice the recording's duration (three hours
-when the duration is unknown). When a job succeeds its row becomes `completed`
-with the speaker count; when it fails, `failed` with an error the UI can show.
-Cancellation and server shutdown leave the row as it is.
+(`moil.OwnedBy(rooms.owner_sub)`, the room found by ID); administrators can
+request a transcript for any room they manage, but it still runs on that room
+owner's machines, and `Prepare` checks again that the machine taking an
+attempt belongs to the room's current owner. Each attempt may run for three
+hours or for one hour plus twice the recording's duration, whichever is
+longer: a machine's first attempt also downloads 2.9 GB of models. When a job
+succeeds its row becomes `completed` with the speaker count; when it fails,
+`failed` with an error the UI can show. Cancellation and server shutdown leave
+the row as it is. A `pending` row no machine has finished within 14 days of
+its request fails ("No machine transcribed it within 14 days"); requesting it
+again retries. The end of a job is recorded even if klisi is stopping; if the
+write fails, the row stays `pending` and is retried rather than re-run.
 
 **Files.** Presigned URLs are minted when a machine takes an attempt
 (`moil.Job.Prepare`), not at submission, because a job can wait days for a
-laptop to wake. They last for the attempt's time limit plus 15 minutes: a GET
-for the recording (input `recording.ogg` or `recording.mp4`) and a PUT for
-each output. The outputs are stored beside the recording under its basename,
-as a video player expects sidecar captions:
+laptop to wake. They last for the attempt's time limit plus 15 minutes, at
+most S3's 7 days: a GET for the recording (input `recording.ogg` or
+`recording.mp4`) and a PUT for each output. Machines never write where klisi
+serves from: each attempt uploads to keys of its own,
+
+```
+transcripts-staging/<recording-id>/<attempt>/transcript.txt
+transcripts-staging/<recording-id>/<attempt>/transcript.vtt
+```
+
+and when the job succeeds klisi checks each file (at most 16 MiB), copies it
+beside the recording under the recording's basename, as a video player
+expects sidecar captions, and removes the staged copy:
 
 ```
 recordings/<room>/<recording-id>/2026-09-27 14-00 - Standup.ogg
@@ -272,25 +287,40 @@ recordings/<room>/<recording-id>/2026-09-27 14-00 - Standup.txt   transcript
 recordings/<room>/<recording-id>/2026-09-27 14-00 - Standup.vtt   WebVTT captions
 ```
 
-`store.Recording.ObjectKeys()` names all of a recording's files, and every
-path that deletes a recording (its own delete, its room's) removes them all. A
-job that ends after its recording was deleted removes whatever it uploaded.
+**Removing files.** The `object_removals` table lists objects to remove, each
+from a due time. Deleting a recording, or its room, deletes the rows and
+queues every file of every recording (`store.Recording.ObjectKeys()`) in one
+transaction, then removes them at once; the recording reconciler retries any
+removal that failed, so a deleted recording never keeps its files, even when
+S3 is briefly down. `Prepare` queues each staging key for when its URL
+expires, so an upload that arrives late, from a machine that lost klisi but
+not S3, is removed too. A transcript copied beside a recording that was
+deleted meanwhile is removed again.
 
 **Status.** `RecordingInfo.transcript` combines the row with the live job:
 
 | `status` | Meaning |
 |---|---|
 | *(null)* | No transcript, and none possible: the recording isn't completed, or the owner has no machine |
-| `available` | Completed recording, the owner has a machine, nothing requested yet |
-| `waiting` | Pending, and no machine is on it. `message` says why: none of the owner's machines approved the current bundle, none is online, or they're busy |
+| `available` | Completed recording, the owner has a machine, nothing requested yet, and the reconciler won't request one on its own (the recording ended before the owner paired a machine) |
+| `waiting` | Pending, or about to be. `message` says why no machine is on it: no machine is paired, none approved the current bundle, the paired machines are paused, offline or busy, or one is about to start |
 | `running` | A machine is working on it; `progress` (0–1) and `message` when it reports them |
-| `completed` | `GET /api/recordings/:id/transcript/download?format=txt\|vtt` redirects to a 5-minute presigned URL |
-| `failed` | `error` says why |
+| `completed` | `GET /api/recordings/:id/transcript/download?format=txt\|vtt` redirects to a 5-minute presigned URL that downloads as a file named after the recording, as text |
+| `failed` | `error` says what happened and what to do |
 
 `POST /api/recordings/:id/transcript` requests a transcript for an `available`
-recording or retries a `failed` one. Transcripts appear only in recording
+recording or retries a `failed` one, and answers a request for a `pending` one
+with its current status. When `KLISI_S3_PUBLIC_ENDPOINT` is plain `http` and
+klisi isn't on loopback, machines would refuse its URLs, so jobs fail at once
+with an error naming the setting. Transcripts appear only in recording
 management; there is nothing in the meeting itself: no live captions,
 summaries or editing.
+
+**Limits.** A host can pair at most 10 machines. Looking up, confirming and
+denying pairing codes is rate limited per host. Text machines report (names,
+progress, errors) is shown without control or format characters. A job keeps
+at most 4 MiB of data events, and a finished job leaves moil's memory after 5
+minutes; the transcript itself travels as files.
 
 ## 9. Frontend
 
@@ -600,19 +630,25 @@ up between runs for iteration.
 - Session cookies: HttpOnly, Secure, SameSite=Lax, HMAC-signed, short expiry.
 - Per-IP token buckets limit guest joins (10/min), lobby wait streams (20/min),
   login redirects (10/min) and machines starting a pairing (10/min,
-  `POST /moil/v1/pair`, the one moil endpoint that takes no credentials); stale
-  buckets are cleaned in memory.
+  `POST /moil/v1/pair`, the one moil endpoint without credentials that creates
+  state, which must be JSON so a web page can't post one without a CORS
+  preflight); stale buckets are cleaned in memory. IPv6 clients are counted by
+  their /64.
 - JSON request bodies are limited to 1 MB before decoding; lobby requests
   expire after 10 minutes.
 - Presigned download URLs are short-lived (5 min) and minted per request after
   an ownership check.
 - Machines (§8.1): pairing is confirmed only by a signed-in session with the
-  CSRF header, and the machine's owner is always that session. Machine tokens
-  are stored as SHA-256 hashes. Transcript jobs go only to the room owner's
-  machines. A machine gets presigned URLs for one attempt: a GET for the
-  recording and a PUT for each sidecar, valid for the attempt's time limit. The
-  moil app refuses plain-http URLs unless klisi itself is on loopback, so
-  production needs an https `KLISI_S3_PUBLIC_ENDPOINT`.
+  CSRF header, and the machine's owner is always that session; code lookups
+  are rate limited. The confirm page shows klisi's moil address, which the
+  moil app must be pairing with. Machine tokens are stored as SHA-256 hashes.
+  Transcript jobs go only to the room owner's machines. A machine gets
+  presigned URLs for one attempt, valid for its time limit plus 15 minutes: a
+  GET for the recording, and a PUT for each output to a staging key klisi
+  never serves from; klisi checks the size and copies the file beside the
+  recording, and removes staging keys when their URLs expire. The moil app
+  accepts plain http only to loopback storage and only when klisi itself is on
+  loopback, so production needs an https `KLISI_S3_PUBLIC_ENDPOINT`.
 - The transcript bundle runs with the machine owner's permissions and no
   sandbox (moil's alpha). Owners read and approve it in the moil app; klisi
   pins its hash so it cannot change silently.

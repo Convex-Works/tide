@@ -84,12 +84,16 @@ meeting name, with identifying recording metadata stored alongside the file.
 ## Transcripts
 
 Hosts can pair their own computer with klisi through the
-[moil](https://git.convex.works/ConvexWorks/moil) app. From then on, each of
-their recordings is transcribed on that computer, never on the server: the
-machine downloads the recording, runs the transcription bundle klisi publishes
-(Nemotron 3 Diarization and Parakeet), and uploads a plain-text transcript and
-WebVTT captions beside the recording. Jobs only go to the room owner's own
-machines, and the owner approves the bundle's exact code in the app first.
+[moil](https://git.convex.works/ConvexWorks/moil) app. From then on, each
+recording of a room they own is transcribed on that computer, never on the
+server: the machine downloads the recording, runs the transcription bundle
+klisi publishes (Nemotron 3 Diarization and Parakeet), and returns a
+plain-text transcript and WebVTT captions, which klisi keeps beside the
+recording. Older recordings can be transcribed on request. Jobs only go to the
+room owner's own machines, and the owner approves the bundle's exact code in
+the app first. A machine's first transcript downloads 2.9 GB of models, and
+transcribing uses up to 10 GB of memory. On an M3 Max an hour of meeting takes
+about a minute and a half on the GPU, or four minutes on the CPU.
 
 To try it in development, open `/machines` and choose **Add a machine**, or
 pair from a terminal with the moil CLI:

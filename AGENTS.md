@@ -21,6 +21,7 @@ Rules that bite:
 - `server/third_party/moil` is a vendored copy of the moil Go SDK. Never edit
   it in place: fix moil upstream, then refresh with `scripts/vendor-moil.sh`.
 - The transcribe bundle's hash is pinned by a test. Changing any byte of
+  `job.py`, `job.py.lock` or `manifest.json` in
   `server/internal/transcripts/bundle/` makes every machine owner review and
   approve it again, so do it only on purpose.
 - Design tokens and density rules are in ARCHITECTURE.md §10 — small paddings,
