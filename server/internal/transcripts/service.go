@@ -39,6 +39,8 @@ type Config struct {
 	Bundle  *moil.Bundle
 	Store   *store.Store
 	Objects ObjectStore
+	// Now is the time; nil means time.Now.
+	Now func() time.Time
 }
 
 const (
@@ -61,19 +63,22 @@ var (
 	errOwnerChanged = errors.New("the room's owner changed")
 )
 
+// settleTimeout bounds how long recording a run's end may take, storage
+// and database included: it goes on while klisi stops.
+const settleTimeout = 2 * time.Minute
+
 // Service runs transcript jobs and serves the transcript routes.
 type Service struct {
-	cfg   Config
-	nudge chan struct{}
-
-	// pass is held by a reconcile pass, and while a run's end is recorded,
-	// so that a pass never finds a pending row whose run has ended without
-	// its end being recorded yet: it would run the job again.
-	pass      sync.Mutex
+	cfg       Config
+	nudge     chan struct{}
 	followers sync.WaitGroup
 
-	mu   sync.Mutex
-	jobs map[string]*job // the runs followed, by recording ID
+	mu sync.Mutex
+	// jobs are the runs followed, by recording ID. A job leaves only once
+	// its run's end is recorded on its row, and a pass takes stock of the
+	// jobs before it reads the pending rows: so a pass never finds a row
+	// pending whose run ended unrecorded, and never runs a job twice.
+	jobs map[string]*job
 }
 
 // A job is a transcript's moil run, as the service follows it.
@@ -84,22 +89,32 @@ type job struct {
 	// recording can be gone by the time the job ends.
 	keys []string
 
-	// What the current attempt last reported, guarded by Service.mu.
-	attempt  int
-	progress *float64
-	message  string
+	// Guarded by Service.mu: what the current attempt last reported, and
+	// whether the run ended without its end recorded, for the next pass to
+	// record.
+	attempt    int
+	progress   *float64
+	message    string
+	unrecorded bool
 }
 
 func New(cfg Config) *Service {
+	if cfg.Now == nil {
+		cfg.Now = time.Now
+	}
 	return &Service{cfg: cfg, nudge: make(chan struct{}, 1), jobs: make(map[string]*job)}
 }
 
 // Run reconciles transcript rows with moil jobs at once, then every
 // interval and whenever nudged, until ctx is done. It returns once it has
-// stopped following jobs. A job that ends after that leaves its row pending,
-// and the next Run submits it again.
+// stopped following jobs, and has tried once more to record the ends that
+// failed to be. A job still running then leaves its row pending, and the
+// next Run submits it again.
 func (s *Service) Run(ctx context.Context, interval time.Duration) {
-	defer s.followers.Wait()
+	defer func() {
+		s.followers.Wait()
+		s.recordUnrecorded(ctx)
+	}()
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -122,13 +137,15 @@ func (s *Service) Nudge() {
 	}
 }
 
-// reconcile adds the transcripts that pairing a machine opted into, submits
-// a job for every pending transcript it isn't following yet, and cancels the
-// jobs whose transcripts are gone or no longer pending.
+// reconcile records the ends that failed to be recorded, adds the
+// transcripts that pairing a machine opted into, submits a job for every
+// pending transcript it isn't following yet, and cancels the jobs whose
+// transcripts are gone or no longer pending.
 func (s *Service) reconcile(ctx context.Context) {
-	s.pass.Lock()
-	defer s.pass.Unlock()
-	if _, err := s.cfg.Store.CreateTranscripts(ctx, time.Now().Unix()); err != nil {
+	s.recordUnrecorded(ctx)
+	// Before reading the rows: see Service.jobs.
+	followed := s.followed()
+	if _, err := s.cfg.Store.CreateTranscripts(ctx, s.cfg.Now().Unix()); err != nil {
 		log.Printf("transcripts: add transcripts: %v", err)
 	}
 	pending, err := s.cfg.Store.PendingTranscripts(ctx)
@@ -139,7 +156,7 @@ func (s *Service) reconcile(ctx context.Context) {
 	wanted := make(map[string]bool, len(pending))
 	for _, transcript := range pending {
 		wanted[transcript.ID] = true
-		if s.following(transcript.ID) {
+		if followed[transcript.ID] {
 			continue
 		}
 		if err := s.submit(ctx, transcript); err != nil {
@@ -159,10 +176,15 @@ func (s *Service) reconcile(ctx context.Context) {
 	}
 }
 
-func (s *Service) following(recordingID string) bool {
+// followed is the recording IDs of the jobs followed now.
+func (s *Service) followed() map[string]bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.jobs[recordingID] != nil
+	ids := make(map[string]bool, len(s.jobs))
+	for id := range s.jobs {
+		ids[id] = true
+	}
+	return ids
 }
 
 // submit hands a pending transcript's job to moil, which offers it to the
@@ -264,8 +286,9 @@ func transcribable(recording store.Recording) bool {
 	return recording.Status == "completed" && recording.HasFile()
 }
 
-// follow keeps what a run reports, for the recording list, and records its
-// end on its row, until the run ends or ctx is done.
+// follow keeps what a run reports, for the recording list, until the run
+// ends, and then records its end. If ctx ends first, klisi is stopping: moil
+// ends the run with ErrClosed, and its row stays pending for the next start.
 func (s *Service) follow(ctx context.Context, j *job) {
 	defer s.followers.Done()
 	for event := range j.run.Events(ctx) {
@@ -273,18 +296,48 @@ func (s *Service) follow(ctx context.Context, j *job) {
 		j.observe(event)
 		s.mu.Unlock()
 	}
-	s.pass.Lock()
-	defer s.pass.Unlock()
-	if ctx.Err() == nil {
-		s.ended(ctx, j)
+	select {
+	case <-j.run.Done():
+		s.settle(ctx, j)
+	default:
 	}
+}
+
+// settle records how j's run ended, even while klisi stops, and forgets the
+// job. If it can't, it keeps the job for the next pass to record: its row
+// stays pending meanwhile, and the job isn't submitted again, which would
+// run hours of work again.
+func (s *Service) settle(ctx context.Context, j *job) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), settleTimeout)
+	defer cancel()
+	err := s.ended(ctx, j)
 	s.mu.Lock()
-	if s.jobs[j.recordingID] == j {
+	j.unrecorded = err != nil
+	if err == nil && s.jobs[j.recordingID] == j {
 		delete(s.jobs, j.recordingID)
 	}
 	s.mu.Unlock()
+	if err != nil {
+		log.Printf("transcripts: recording %s: record how its job ended, again next pass: %v", j.recordingID, err)
+		return
+	}
 	// A row the run left pending gets its next job without waiting a tick.
 	s.Nudge()
+}
+
+// recordUnrecorded tries again to record the ends that failed to be.
+func (s *Service) recordUnrecorded(ctx context.Context) {
+	var unrecorded []*job
+	s.mu.Lock()
+	for _, j := range s.jobs {
+		if j.unrecorded {
+			unrecorded = append(unrecorded, j)
+		}
+	}
+	s.mu.Unlock()
+	for _, j := range unrecorded {
+		s.settle(ctx, j)
+	}
 }
 
 func (j *job) observe(event moil.Event) {
@@ -310,31 +363,32 @@ func (j *job) observe(event moil.Event) {
 	}
 }
 
-// ended records how a job ended on its row: completed, or failed with an
-// error the recording list shows. A job cancelled because its row is gone or
-// no longer pending, or ended by a shutdown, leaves the row as it is.
-func (s *Service) ended(ctx context.Context, j *job) {
-	result, err := j.run.Wait(context.Background()) // the run has ended
-	now := time.Now().Unix()
+// ended records how a run ended on its row: completed, or failed with an
+// error the recording list shows. A run cancelled because its row is gone or
+// no longer pending, or ended by a shutdown, leaves the row as it is. It
+// fails only if the row couldn't be written.
+func (s *Service) ended(ctx context.Context, j *job) error {
+	result, err := j.run.Wait(ctx) // the run has ended
+	now := s.cfg.Now().Unix()
 	switch {
 	case errors.Is(err, moil.ErrClosed):
 		// klisi is shutting down; the pending row is submitted again at the
 		// next start.
-		return
+		return nil
 	case errors.Is(err, moil.ErrCancelled), errors.Is(err, errRecordingGone), errors.Is(err, errOwnerChanged):
 	case err != nil:
 		log.Printf("transcripts: recording %s: %v", j.recordingID, err)
 		if err := s.cfg.Store.FailTranscript(ctx, j.recordingID, failure(err), now); err != nil {
-			log.Printf("transcripts: recording %s: record the failure: %v", j.recordingID, err)
+			return err
 		}
 	case !uploaded(result):
 		log.Printf("transcripts: recording %s: machine %s succeeded without uploading every sidecar", j.recordingID, result.Machine)
 		if err := s.cfg.Store.FailTranscript(ctx, j.recordingID, missingOutputs, now); err != nil {
-			log.Printf("transcripts: recording %s: record the failure: %v", j.recordingID, err)
+			return err
 		}
 	default:
 		if err := s.cfg.Store.CompleteTranscript(ctx, j.recordingID, speakers(result.Meta), now); err != nil {
-			log.Printf("transcripts: recording %s: record the transcript: %v", j.recordingID, err)
+			return err
 		}
 	}
 	// A job can end after its recording was deleted, with sidecars uploaded
@@ -349,6 +403,7 @@ func (s *Service) ended(ctx context.Context, j *job) {
 	} else if err != nil {
 		log.Printf("transcripts: recording %s: check it still exists: %v", j.recordingID, err)
 	}
+	return nil
 }
 
 // uploaded reports whether a succeeded job uploaded every sidecar: a script

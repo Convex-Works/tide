@@ -53,7 +53,7 @@ func (s *Service) Request(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusConflict, message)
 		return
 	}
-	now := time.Now().Unix()
+	now := s.cfg.Now().Unix()
 	var changed bool
 	if exists {
 		changed, err = s.cfg.Store.RetryTranscript(r.Context(), recording.ID, now)

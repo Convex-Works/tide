@@ -96,7 +96,7 @@ func (e *env) start() {
 		e.t.Fatal(err)
 	}
 	server.AddBundle(e.bundle)
-	service := transcripts.New(transcripts.Config{Moil: server, Bundle: e.bundle, Store: e.db, Objects: e.s3})
+	service := transcripts.New(transcripts.Config{Moil: server, Bundle: e.bundle, Store: e.db, Objects: e.s3, Now: e.clock.Now})
 	recordings := recording.NewHandler(e.db, noEgress{}, noRoomService{}, e.s3, "", nil)
 	recordings.SetClock(e.clock.Now)
 	recordings.SetTranscripts(service)

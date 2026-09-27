@@ -40,3 +40,44 @@ func TestDeletedFilesAreRemovedOnceStorageIsBack(t *testing.T) {
 	e.s3.Mend(opRemove)
 	waitFor(t, "the files to be removed", func() bool { return len(e.s3.Keys("recordings/")) == 0 })
 }
+
+// A job whose end the database refuses to record isn't run again: the row
+// stays pending, the job is kept, and each pass tries to record its end
+// until the database takes it.
+func TestAnEndTheDatabaseRefusedIsRecordedLaterNotRunAgain(t *testing.T) {
+	e := newEnv(t)
+	room := e.room("alice", "Standup")
+	machine := e.machine("alice")
+	rec := e.record(room, time.Now())
+	a := machine.NextAttempt()
+	run, _ := e.moil.Run("recording-" + rec.ID)
+
+	e.sql(`CREATE TRIGGER refuse_ends BEFORE UPDATE ON transcripts
+		BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END`)
+	finish(t, a, 3)
+	for range 20 {
+		e.service.Nudge()
+		time.Sleep(5 * time.Millisecond)
+	}
+	machine.Sync()
+	if offers := machine.Offers(); len(offers) != 1 {
+		t.Fatalf("the machine was offered %+v", offers)
+	}
+	if current, _ := e.moil.Run("recording-" + rec.ID); current != run {
+		t.Fatal("the job was submitted again")
+	}
+	if row, ok := e.row(rec); !ok || row.Status != "pending" {
+		t.Fatalf("row while the database refuses = %+v, %t", row, ok)
+	}
+
+	e.sql(`DROP TRIGGER refuse_ends`)
+	e.service.Nudge()
+	info := e.waitStatus(room, rec, api.TranscriptCompleted)
+	if info.Speakers == nil || *info.Speakers != 3 {
+		t.Fatalf("transcript = %+v", info)
+	}
+	machine.Sync()
+	if offers := machine.Offers(); len(offers) != 1 {
+		t.Fatalf("the machine was offered %+v", offers)
+	}
+}
