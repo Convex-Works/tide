@@ -276,8 +276,11 @@ or until the staged files' URLs expire if that's sooner, then fails the row,
 blaming its storage. klisi cancelling a job and server shutdown leave the row
 as it is. A `pending` row no machine has finished within 14 days of
 its request fails ("No machine transcribed it within 14 days"); requesting it
-again retries. The end of a job is recorded even if klisi is stopping; if the
-write fails, the row stays `pending` and is retried rather than re-run.
+again retries. The end of a job is recorded even if klisi is stopping, for up
+to 10 seconds in all once it starts to. If the write fails while klisi runs, the
+row stays `pending` and each pass tries to record the end again, rather than run
+the job again; an end klisi couldn't record by the time it stopped leaves the row
+`pending`, and the next start submits the job again.
 
 **Files.** Presigned URLs are minted when a machine takes an attempt
 (`moil.Job.Prepare`), not at submission, because a job can wait days for a

@@ -99,15 +99,21 @@ var (
 	errOwnerChanged = errors.New("the room's owner changed")
 )
 
-// settleTimeout bounds how long recording a run's end may take, storage
-// and database included: it goes on while klisi stops.
-const settleTimeout = 2 * time.Minute
+const (
+	// settleTimeout bounds how long recording a run's end may take, storage
+	// and database included.
+	settleTimeout = 2 * time.Minute
+	// stopGrace is how long recording runs' ends goes on once klisi starts
+	// stopping, all of them together.
+	stopGrace = 10 * time.Second
+)
 
 // Service runs transcript jobs and serves the transcript routes.
 type Service struct {
 	cfg       Config
 	nudge     chan struct{}
 	followers sync.WaitGroup
+	stopGrace time.Duration
 
 	mu sync.Mutex
 	// jobs are the runs followed, by recording ID. A job leaves only once
@@ -158,26 +164,32 @@ func New(cfg Config) *Service {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
-	return &Service{cfg: cfg, nudge: make(chan struct{}, 1), jobs: make(map[string]*job)}
+	return &Service{cfg: cfg, nudge: make(chan struct{}, 1), stopGrace: stopGrace, jobs: make(map[string]*job)}
 }
 
 // Run reconciles transcript rows with moil jobs at once, then every
 // interval and whenever nudged, until ctx is done. It returns once it has
 // stopped following jobs, and has tried once more to record the ends that
-// failed to be. A job still running then leaves its row pending, and the
-// next Run submits it again.
+// failed to be, spending at most stopGrace on runs' ends after ctx is done.
+// A job still running then leaves its row pending, and the next Run submits
+// it again; so does one whose end klisi couldn't record by then.
 func (s *Service) Run(ctx context.Context, interval time.Duration) {
+	// ends is what runs' ends are recorded with: it outlives ctx, by
+	// stopGrace.
+	ends, stopEnds := context.WithCancel(context.WithoutCancel(ctx))
+	defer stopEnds()
+	stopping := context.AfterFunc(ctx, func() { time.AfterFunc(s.stopGrace, stopEnds) })
+	defer stopping()
 	defer func() {
 		s.followers.Wait()
-		s.recordUnrecorded(ctx)
+		s.recordUnrecorded(ends)
 	}()
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	for {
-		s.reconcile(ctx)
+	for ctx.Err() == nil { // a nudge may be waiting as ctx ends
+		s.reconcile(ctx, ends)
 		select {
 		case <-ctx.Done():
-			return
 		case <-ticker.C:
 		case <-s.nudge:
 		}
@@ -196,9 +208,10 @@ func (s *Service) Nudge() {
 // reconcile records the ends that failed to be recorded, adds the
 // transcripts that pairing a machine opted into, submits a job for every
 // pending transcript it isn't following yet, and cancels the jobs whose
-// transcripts are gone or no longer pending.
-func (s *Service) reconcile(ctx context.Context) {
-	s.recordUnrecorded(ctx)
+// transcripts are gone or no longer pending. Runs' ends are recorded with
+// ends.
+func (s *Service) reconcile(ctx, ends context.Context) {
+	s.recordUnrecorded(ends)
 	// Before reading the rows: see Service.jobs.
 	followed := s.followed()
 	if _, err := s.cfg.Store.CreateTranscripts(ctx, s.cfg.Now().Unix()); err != nil {
@@ -234,7 +247,7 @@ func (s *Service) reconcile(ctx context.Context) {
 			}
 			continue
 		}
-		if err := s.submit(ctx, transcript); err != nil {
+		if err := s.submit(ctx, ends, transcript); err != nil {
 			log.Printf("transcripts: recording %s: submit its job: %v", transcript.ID, err)
 		}
 	}
@@ -276,9 +289,10 @@ func (s *Service) followed() map[string]bool {
 }
 
 // submit hands a pending transcript's job to moil, which offers it to the
-// machines of the room's owner only, and follows it. The room is the
-// recording's by ID: its slug may change meanwhile, and name another room.
-func (s *Service) submit(ctx context.Context, transcript store.PendingTranscript) error {
+// machines of the room's owner only, and follows it, recording its end
+// with ends. The room is the recording's by ID: its slug may change
+// meanwhile, and name another room.
+func (s *Service) submit(ctx, ends context.Context, transcript store.PendingTranscript) error {
 	recording := transcript.Recording
 	timeout := attemptTimeout(recording.DurationS)
 	j := &job{
@@ -309,7 +323,7 @@ func (s *Service) submit(ctx context.Context, transcript store.PendingTranscript
 	s.jobs[id] = j
 	s.mu.Unlock()
 	s.followers.Add(1)
-	go s.follow(ctx, j)
+	go s.follow(ctx, ends, j)
 	return nil
 }
 
@@ -443,9 +457,10 @@ func transcribable(recording store.Recording) bool {
 }
 
 // follow keeps what a run reports, for the recording list, until the run
-// ends, and then records its end. If ctx ends first, klisi is stopping: moil
-// ends the run with ErrClosed, and its row stays pending for the next start.
-func (s *Service) follow(ctx context.Context, j *job) {
+// ends, and then records its end with ends. If ctx ends first, klisi is
+// stopping: moil ends the run with ErrClosed, and its row stays pending for
+// the next start.
+func (s *Service) follow(ctx, ends context.Context, j *job) {
 	defer s.followers.Done()
 	for event := range j.run.Events(ctx) {
 		s.mu.Lock()
@@ -454,17 +469,17 @@ func (s *Service) follow(ctx context.Context, j *job) {
 	}
 	select {
 	case <-j.run.Done():
-		s.settle(ctx, j)
+		s.settle(ends, j)
 	default:
 	}
 }
 
-// settle records how j's run ended, even while klisi stops, and forgets the
-// job. If it can't, it keeps the job for the next pass to record: its row
-// stays pending meanwhile, and the job isn't submitted again, which would
-// run hours of work again.
+// settle records how j's run ended, within ctx and settleTimeout, and
+// forgets the job. If it can't, it keeps the job for the next pass to
+// record: its row stays pending meanwhile, and the job isn't submitted
+// again, which would run hours of work again.
 func (s *Service) settle(ctx context.Context, j *job) {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), settleTimeout)
+	ctx, cancel := context.WithTimeout(ctx, settleTimeout)
 	defer cancel()
 	resubmit, err := s.ended(ctx, j)
 	s.mu.Lock()
