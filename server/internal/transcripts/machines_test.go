@@ -2,6 +2,7 @@ package transcripts_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"path"
 	"slices"
@@ -10,34 +11,39 @@ import (
 	"time"
 
 	"git.convex.works/ConvexWorks/moil/sdk/go/moil"
-	"git.convex.works/ConvexWorks/moil/sdk/go/moiltest"
 
 	"klisi/internal/api"
 )
 
 // These tests play machines that misbehave, within what moil lets through.
 
-// A machine that ends an attempt as cancelled when klisi never asked it to
-// doesn't make klisi submit the job again, which a machine answering every
-// attempt so would turn into a loop as fast as it answers, each turn
-// minting URLs and queueing staging keys. The transcript fails, saying what
-// happened and what to do, and requesting it again retries it.
+// A machine that ends every attempt as cancelled, when klisi never asked it
+// to, can't make klisi submit the job again and again, each turn minting
+// URLs and queueing staging keys, as fast as it answers. moil counts each
+// such attempt as interrupted, so the job ends after its three attempts,
+// having queued one set of staging keys, and the transcript fails, saying
+// what happened and what to do. Requesting it again retries it.
 func TestAMachineThatCancelsUnaskedFailsTheTranscript(t *testing.T) {
 	e := newEnv(t)
 	room := e.room("alice", "Standup")
 	machine := e.machine("alice")
 	rec := e.record(room, time.Now())
-	a := machine.NextAttempt()
+	for attempt := 1; attempt <= 3; attempt++ {
+		a := machine.NextAttempt()
+		if a.Number != attempt {
+			t.Fatalf("attempt %d, want %d", a.Number, attempt)
+		}
+		a.CancelUnasked()
+	}
 	run, _ := e.moil.Run("recording-" + rec.ID)
-
-	cancelUnasked(machine, a)
 	ctx, cancel := context.WithTimeout(context.Background(), waitTimeout)
 	defer cancel()
-	if _, err := run.Wait(ctx); err != moil.ErrCancelled {
-		t.Fatalf("the job ended with %v, want moil.ErrCancelled", err)
+	var failure *moil.JobError
+	if _, err := run.Wait(ctx); !errors.As(err, &failure) || failure.Code != moil.CodeInterrupted {
+		t.Fatalf("the job ended with %v, want an interrupted attempt", err)
 	}
 	info := e.waitStatus(room, rec, api.TranscriptFailed)
-	if info.Error != "Transcription was stopped on the machine before it finished. Try again, and if it keeps stopping, check the room owner's machine in the moil app." {
+	if !strings.HasPrefix(info.Error, "Transcription was stopped on the machine") {
 		t.Fatalf("error = %q", info.Error)
 	}
 	// Nothing was submitted again, and the machine, idle, was offered
@@ -45,8 +51,8 @@ func TestAMachineThatCancelsUnaskedFailsTheTranscript(t *testing.T) {
 	e.service.Nudge()
 	e.reconciled()
 	machine.Sync()
-	if offers := machine.Offers(); len(offers) != 1 {
-		t.Fatalf("the machine was offered %d jobs", len(offers))
+	if offers := machine.Offers(); len(offers) != 3 {
+		t.Fatalf("the machine was offered %d attempts, want 3", len(offers))
 	}
 	if current, _ := e.moil.Run("recording-" + rec.ID); current != run {
 		t.Fatal("the job was submitted again")
@@ -60,19 +66,6 @@ func TestAMachineThatCancelsUnaskedFailsTheTranscript(t *testing.T) {
 	}
 	finish(t, machine.NextAttempt(), 2)
 	e.waitStatus(room, rec, api.TranscriptCompleted)
-}
-
-// cancelUnasked makes a machine end an attempt that hasn't reported
-// anything yet as cancelled, which only an attempt the service cancelled
-// may do: a done message, outcome cancelled, with the attempt's first
-// sequence number, sent raw, since moiltest sends one only when the
-// service cancels. The attempt then fails in the fake machine too, with a
-// done moil takes for a replay of the first, so that the machine is idle
-// again.
-func cancelUnasked(m *moiltest.Machine, a *moiltest.Attempt) {
-	m.Send(map[string]any{"type": "done", "job_id": a.JobID, "attempt": a.Number, "seq": 1, "outcome": "cancelled"})
-	a.Fail(moil.CodeInternal, "the machine ended the attempt as cancelled")
-	a.WaitAcked()
 }
 
 // A machine's error goes into klisi's log quoted, on one line: a message

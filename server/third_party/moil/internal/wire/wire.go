@@ -539,6 +539,8 @@ func (m Done) validate() error {
 			return fmt.Errorf("stderr_tail is %d bytes, over the 8 KiB limit", len(m.Error.StderrTail))
 		}
 	case OutcomeCancelled:
+		// Valid only in answer to the service's cancel (spec §7.6), which
+		// a message alone can't tell; the scheduler checks it.
 	default:
 		return fmt.Errorf("unknown outcome %q", m.Outcome)
 	}

@@ -61,10 +61,13 @@ type Config struct {
 	// before its lease runs out.
 	LeaseTTL time.Duration
 	// MaxAttempts is how many attempts a job may use. Default 3.
-	// Attempts a machine refused before starting them (it was busy or
-	// lacked the bundle, spec §7.2) don't count, but a job fails after 10
-	// of those, so that a machine that keeps bidding and then refusing
-	// can't hold it forever.
+	// Attempts that never started don't count: those a machine refused (it
+	// was busy or lacked the bundle, spec §7.2), and those whose machine
+	// backed out while Job.Prepare made them (it left, reported busy or
+	// paused, or withdrew its approval). But a job fails after 10 of
+	// those, with the last one's *JobError (CodeBusy or CodeNotApproved),
+	// so that a machine that keeps bidding and then refusing or backing
+	// out can't hold it, or keep Job.Prepare running, forever.
 	MaxAttempts int
 	// PingInterval is how often the Server pings each machine; a machine
 	// that doesn't answer before the next ping is disconnected. It also

@@ -112,9 +112,10 @@ func (r *Run) Done() <-chan struct{} { return r.done }
 
 // Wait blocks until the run ends or ctx is done. A succeeded job returns
 // its Result. A failed one returns a *JobError, the error from
-// Job.Prepare, or an error wrapping ErrTooMuchData or ErrBundleRemoved; a
-// cancelled one ErrCancelled, and one the Server gave up on when closing
-// ErrClosed.
+// Job.Prepare, or an error wrapping ErrTooMuchData or ErrBundleRemoved;
+// one cancelled with Cancel ErrCancelled, and one the Server gave up on
+// when closing ErrClosed. A machine can't end a run as cancelled: an
+// attempt it reports cancelled unasked is a failure (see ErrCancelled).
 func (r *Run) Wait(ctx context.Context) (*Result, error) {
 	select {
 	case <-r.done:

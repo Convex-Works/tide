@@ -176,7 +176,9 @@ res, err := run.Wait(ctx)
   `Prepare` instead of `Inputs` and `Outputs`: it makes each attempt's URLs
   as the attempt is assigned. A `*moil.JobError` with `Retryable` set
   tries again later, counting toward `MaxAttempts`; any other error ends
-  the job.
+  the job. If the machine leaves, pauses, goes busy or withdraws its
+  approval while `Prepare` runs, the attempt is given up unsent, like one
+  the machine refused.
 - **JSON values, not bytes.** `Params`, `ev.Data` and `Result.Meta` reach
   the other side as the same JSON value, but machines re-encode them, so
   key order, whitespace and the spelling of numbers may change. Keep them
@@ -185,8 +187,8 @@ res, err := run.Wait(ctx)
 - **Results.** `Wait` returns a `*moil.Result` (the script's `Meta`, and the
   size and SHA-256 of each uploaded output), or an error: a
   `*moil.JobError` with the spec's error code, the error `Prepare`
-  returned, `moil.ErrTooMuchData`, `moil.ErrCancelled` or
-  `moil.ErrClosed`.
+  returned, `moil.ErrTooMuchData`, `moil.ErrCancelled` (only after
+  `run.Cancel()`) or `moil.ErrClosed`.
 - **Events** replay from the first for every reader and end with the run;
   the Server never waits for slow readers. Besides the script's `phase`,
   `progress`, `log` and `data`, you get `queued`, `assigned` (with the
@@ -198,11 +200,14 @@ res, err := run.Wait(ctx)
 - **Leases and retries.** An attempt whose machine goes quiet for
   `LeaseTTL` fails with `lease_expired`; a machine that restarts without its
   attempt loses it (`lost`). Retryable failures are retried up to
-  `MaxAttempts`, not counting attempts machines refused before starting
-  them, of which a job tolerates ten.
+  `MaxAttempts`, not counting attempts that never started, because
+  machines refused them or backed out while `Prepare` ran; a job
+  tolerates ten of those.
 - `run.Cancel()` stops a job: at once if it's waiting or its machine is
   offline, otherwise when the machine confirms. It ends as cancelled
-  unless its attempt succeeded before the machine saw the request.
+  unless its attempt succeeded before the machine saw the request. A
+  machine that reports an attempt cancelled when you didn't cancel it has
+  failed the attempt, as `interrupted`, and the job is retried.
 
 Jobs live in memory. If the service restarts, unfinished jobs are gone and
 machines drop their attempts; resubmit what must finish, by the same ID,
@@ -244,12 +249,13 @@ func TestTranscriptionReachesTheRoom(t *testing.T) {
 ```
 
 Attempts can also fail (`a.Fail`, `a.ScriptError`), go silent until the
-lease runs out (`a.GoSilent`), or carry on across `m.Disconnect()` and
-`m.Connect()`; `m.Crash()` restarts the app without its attempts. Use
-`m.OnOffer` to answer offers yourself, `m.Sync()` before asserting that
-something didn't happen, and `moiltest.At(url)` to reach the Server
-through your own router. Every message your service sends is checked
-against the protocol.
+lease runs out (`a.GoSilent`), end cancelled unasked as a machine breaking
+the protocol would (`a.CancelUnasked`), or carry on across
+`m.Disconnect()` and `m.Connect()`; `m.Crash()` restarts the app without
+its attempts. Use `m.OnOffer` to answer offers yourself, `m.Sync()` before
+asserting that something didn't happen, and `moiltest.At(url)` to reach
+the Server through your own router. Every message your service sends is
+checked against the protocol.
 
 The fake holds your service to what real machines do: it refuses to pair
 unless your confirmation page is on the origin it reaches the Server at

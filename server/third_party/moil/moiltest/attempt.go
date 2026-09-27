@@ -332,6 +332,18 @@ func (a *Attempt) FailWith(e moil.JobError) {
 	}})
 }
 
+// CancelUnasked ends the attempt with outcome cancelled although the
+// service didn't cancel it, as a machine that breaks spec §7.6 would. A
+// machine following the spec reports a job its owner stopped as
+// moil.CodeInterrupted (see Fail).
+func (a *Attempt) CancelUnasked() {
+	a.m.t.Helper()
+	a.m.mu.Lock()
+	defer a.m.mu.Unlock()
+	a.mustRunLocked()
+	a.doneLocked(wire.Done{Outcome: wire.OutcomeCancelled})
+}
+
 func (a *Attempt) doneLocked(d wire.Done) {
 	a.sendLocked(d)
 	a.finished = true

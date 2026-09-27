@@ -80,7 +80,7 @@ type jobState struct {
 	phase    jobPhase
 	attempts int // attempts assigned so far
 	counted  int // attempts that count toward maxAttempts
-	refused  int // attempts machines refused before starting them
+	refused  int // attempts that never started: machines refused them, or backed out while Prepare ran
 	round    *offerRound
 	prep     *preparation
 	cur      *attemptState
@@ -90,7 +90,7 @@ type jobState struct {
 	// this job.
 	skip map[string]uint64
 	// failedOn holds the machines an attempt of this job failed on, or
-	// that refused one.
+	// that refused or backed out of one.
 	failedOn map[string]bool
 	forget   *time.Timer
 }
@@ -291,7 +291,8 @@ func (sc *scheduler) disconnected(sess *session) {
 }
 
 // dropLive forgets a machine's control channel. Its open offer counts as
-// unanswered, and an attempt being prepared for it goes back to the queue.
+// unanswered, and an attempt being prepared for it goes back to the queue,
+// as one the machine refused.
 func (sc *scheduler) dropLive(lm *liveMachine) {
 	delete(sc.machines, lm.m.ID)
 	if j := lm.offer; j != nil {
@@ -299,7 +300,9 @@ func (sc *scheduler) dropLive(lm *liveMachine) {
 		sc.answer(j, lm.m.ID, false)
 	}
 	if j := sc.preparing[lm.m.ID]; j != nil {
+		p := j.prep
 		sc.endPreparation(j)
+		sc.unprepared(j, p, errLeftDuringPreparation())
 	}
 	sc.dirty = true
 }
@@ -633,10 +636,46 @@ func (sc *scheduler) prepared(j *jobState, p *preparation, inputs map[string]Dow
 		return
 	}
 	lm := sc.machines[p.machine]
-	if lm == nil || !sc.canTake(j, lm) {
-		return // the machine left or changed meanwhile; offer the job again
+	switch {
+	case lm == nil:
+		// dropLive ends the preparation of a machine that leaves, so this
+		// can't happen; if it did, the machine would have left.
+		sc.unprepared(j, p, errLeftDuringPreparation())
+	case lm.m.State != Idle:
+		// The machine would refuse the attempt (spec §7.2).
+		sc.unprepared(j, p, &JobError{Code: CodeBusy, Message: fmt.Sprintf("the machine reported %s while the attempt was being prepared", lm.m.State), Retryable: true})
+	case !lm.approved[j.bundle.Hash()]:
+		sc.unprepared(j, p, &JobError{Code: CodeNotApproved, Message: "the machine withdrew its approval of the bundle while the attempt was being prepared", Retryable: true})
+	case !sc.canTake(j, lm):
+		// The service's Eligible no longer allows the machine. Only the
+		// service's policy changed, so the machine isn't charged; the job
+		// waits for another.
+	default:
+		sc.assign(j, lm, p.n, ins, outs)
 	}
-	sc.assign(j, lm, p.n, ins, outs)
+}
+
+// unprepared puts back in the queue a job whose attempt Job.Prepare made,
+// or was making, for a machine that backed out meanwhile: it left,
+// reported busy or paused, or withdrew its approval. e is the refusal the
+// machine would have answered the attempt with (spec §7.2), CodeBusy or
+// CodeNotApproved. The attempt never reached the machine, so, like a
+// refusal, it counts toward maxRefusals rather than MaxAttempts, and a
+// machine that keeps bidding and backing out can't make Prepare run
+// forever.
+func (sc *scheduler) unprepared(j *jobState, p *preparation, e *JobError) {
+	e.Machine, e.Attempt = p.machine, p.n
+	j.failedOn[p.machine] = true
+	sc.retry(j, e)
+}
+
+// errLeftDuringPreparation is why an attempt is given up whose machine
+// disconnected while Job.Prepare made it. It's CodeBusy, as for a paused
+// machine: an offline machine can't take the attempt either, and the
+// attempt never started. CodeLost is for attempts a machine had, and
+// counts toward MaxAttempts.
+func errLeftDuringPreparation() *JobError {
+	return &JobError{Code: CodeBusy, Message: "the machine disconnected while the attempt was being prepared", Retryable: true}
 }
 
 func (sc *scheduler) endPreparation(j *jobState) {
@@ -737,7 +776,23 @@ func (sc *scheduler) attemptDone(j *jobState, a *attemptState, m wire.Done) {
 			StderrTail: e.StderrTail,
 		})
 	case wire.OutcomeCancelled:
-		sc.finish(j, Cancelled, nil, ErrCancelled)
+		if j.cancelled {
+			sc.finish(j, Cancelled, nil, ErrCancelled)
+			return
+		}
+		// A machine may report cancelled only after the service's cancel
+		// (spec §7.6). Taken at its word, an unasked one would end the job
+		// as if the service had cancelled it, and a service that resubmits
+		// jobs it didn't cancel would do so for as long as the machine
+		// answers that way. The attempt did stop on the machine, which the
+		// spec calls interrupted: a retryable failure that counts toward
+		// MaxAttempts.
+		sc.log.Warn("moil: a machine reported an attempt cancelled that the service didn't cancel; counting it as interrupted", "job", j.id, "attempt", a.n, "machine", a.machine)
+		sc.attemptFailed(j, &JobError{
+			Code:      CodeInterrupted,
+			Message:   "the machine reported the attempt cancelled, but the service didn't cancel it",
+			Retryable: true,
+		})
 	}
 }
 
@@ -750,10 +805,11 @@ func (sc *scheduler) attemptFailed(j *jobState, e *JobError) {
 	sc.retry(j, e)
 }
 
-// maxRefusals is how many attempts machines may refuse before starting
-// them (busy, not_approved) before the job fails. Refusals don't count
+// maxRefusals is how many attempts may end before they start before the
+// job fails: attempts machines refused (busy, not_approved), and attempts
+// whose machines backed out while Job.Prepare made them. They don't count
 // toward MaxAttempts, but a machine that keeps bidding and then refusing
-// mustn't hold a job forever.
+// or backing out mustn't hold a job, or keep Prepare running, forever.
 const maxRefusals = 10
 
 // retry puts a job whose attempt failed with e back in the queue, or ends
