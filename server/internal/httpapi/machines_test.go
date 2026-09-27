@@ -237,14 +237,15 @@ func TestStartingAPairingIsRateLimited(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The refusal is in moil's error format (moil spec §3), which the moil
-	// app reads and shows its owner.
+	// app reads and shows its owner, with the code the SDK refuses a
+	// pairing with when too many are waiting.
 	var refusal struct{ Error, Message string }
 	decodeErr := json.NewDecoder(response.Body).Decode(&refusal)
 	_ = response.Body.Close()
 	if response.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("third pairing from one address = %d, want 429", response.StatusCode)
 	}
-	if decodeErr != nil || refusal.Error != "rate_limited" || refusal.Message == "" ||
+	if decodeErr != nil || refusal.Error != "temporarily_unavailable" || refusal.Message == "" ||
 		response.Header.Get("Retry-After") == "" {
 		t.Fatalf("refusal = %+v (%v), Retry-After %q; want moil's error format",
 			refusal, decodeErr, response.Header.Get("Retry-After"))
@@ -347,7 +348,8 @@ const shutdownGrace = time.Minute
 
 // startKlisi serves klisi with a fresh database. configure, if set, adjusts
 // the configuration and the HTTP server before klisi starts. The test's end
-// stops klisi, then closes the database, as main does.
+// stops klisi, then closes the database, as main does. The rate limiters'
+// clock stands still until then.
 func startKlisi(t *testing.T, configure func(*config.Config, *http.Server)) *klisiServer {
 	t.Helper()
 	db, dbPath := openStore(t)
@@ -373,6 +375,7 @@ func openStore(t *testing.T) (*store.Store, string) {
 // startKlisiOn is startKlisi on a database the test opened with openStore.
 func startKlisiOn(t *testing.T, db *store.Store, dbPath string, configure func(*config.Config, *http.Server)) *klisiServer {
 	t.Helper()
+	stopLimiterClock(t)
 	// The listener comes first, so that klisi knows the base URL it's
 	// served at, and tells machines the moil URL they can reach.
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
@@ -437,6 +440,14 @@ func (k *klisiServer) stopped(within time.Duration) (error, bool) {
 	}
 }
 
+// stopLimiterClock stops the rate limiters' clock until the test ends, so
+// that no bucket refills while it runs.
+func stopLimiterClock(t *testing.T) {
+	stopped := time.Now()
+	limiterClock = func() time.Time { return stopped }
+	t.Cleanup(func() { limiterClock = time.Now })
+}
+
 // transcribeBundle is the bundle main hands klisi.
 func transcribeBundle(t *testing.T) *moil.Bundle {
 	t.Helper()
@@ -453,12 +464,22 @@ func (k *klisiServer) moilURL() string { return k.url + api.MoilBasePath }
 // the CSRF header the SPA adds, if csrf.
 func (k *klisiServer) request(method, path, body string, cookie *http.Cookie, csrf bool) (int, http.Header, string) {
 	k.t.Helper()
+	return k.requestFrom("", method, path, body, cookie, csrf)
+}
+
+// requestFrom is request from a client at address, as the reverse proxy in
+// front of klisi forwards it, or from the test itself if address is "".
+func (k *klisiServer) requestFrom(address, method, path, body string, cookie *http.Cookie, csrf bool) (int, http.Header, string) {
+	k.t.Helper()
 	request, err := http.NewRequest(method, k.url+path, strings.NewReader(body))
 	if err != nil {
 		k.t.Fatal(err)
 	}
 	if body != "" {
 		request.Header.Set("Content-Type", "application/json")
+	}
+	if address != "" {
+		request.Header.Set("X-Forwarded-For", address)
 	}
 	if cookie != nil {
 		request.AddCookie(cookie)
@@ -483,6 +504,9 @@ type host struct {
 	k      *klisiServer
 	sub    string
 	cookie *http.Cookie
+	// from is the host's address, as klisi's reverse proxy forwards it, or
+	// "" for the test's own.
+	from string
 }
 
 func (k *klisiServer) signIn(session auth.Session) *host {
@@ -494,7 +518,7 @@ func (k *klisiServer) signIn(session auth.Session) *host {
 // set, and returns it.
 func (h *host) call(method, path string, want int, out any) string {
 	h.k.t.Helper()
-	status, header, body := h.k.request(method, path, "", h.cookie, true)
+	status, header, body := h.k.requestFrom(h.from, method, path, "", h.cookie, true)
 	if status != want {
 		h.k.t.Fatalf("%s %s as %s = %d %s, want %d", method, path, h.sub, status, body, want)
 	}
