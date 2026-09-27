@@ -298,11 +298,13 @@ func TestConfirmingCodesAtOnceKeepsToTheLimit(t *testing.T) {
 
 	// The disk turns slow as the studio reports in: klisi's one database
 	// connection waits for it, and each confirmation waits for the
-	// connection. When the disk recovers, they get it in no set order.
+	// connection, to check alice's session. When the disk recovers, they
+	// get it in no set order.
 	release := lockDatabase(t, k.dbPath)
 	studio.Approve(transcribeBundle(t))
 	studio.Sync()
 	waitUntilBusy(t, k.db)
+	waits := k.db.Stats().WaitCount
 	statuses := make([]int, len(codes))
 	var confirming sync.WaitGroup
 	for i, code := range codes {
@@ -318,7 +320,15 @@ func TestConfirmingCodesAtOnceKeepsToTheLimit(t *testing.T) {
 			}
 		}()
 	}
-	time.Sleep(200 * time.Millisecond) // for them all to reach klisi
+	// Every confirmation has reached klisi, and waits, before the disk
+	// recovers.
+	deadline := time.Now().Add(10 * time.Second)
+	for k.db.Stats().WaitCount < waits+int64(len(codes)) {
+		if time.Now().After(deadline) {
+			t.Fatalf("%d of %d confirmations wait for the database", k.db.Stats().WaitCount-waits, len(codes))
+		}
+		time.Sleep(time.Millisecond)
+	}
 	release()
 	confirming.Wait()
 
