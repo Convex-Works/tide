@@ -74,9 +74,10 @@ func (o object) etag() string {
 
 // The operations klisi asks of storage, for Break and Hold.
 const (
-	opRemove = "remove"
-	opStat   = "stat"
-	opCopy   = "copy"
+	opRemove  = "remove"
+	opStat    = "stat"
+	opCopy    = "copy"
+	opPresign = "presign" // any presigned URL
 )
 
 // fakeS3 is the ObjectStore of the transcripts service, the recording
@@ -251,17 +252,26 @@ func (s *fakeS3) Copy(ctx context.Context, src, etag, dst, contentType string) e
 	return nil
 }
 
-func (s *fakeS3) PresignedGet(_ context.Context, key string, expiry time.Duration) (string, error) {
+func (s *fakeS3) PresignedGet(ctx context.Context, key string, expiry time.Duration) (string, error) {
+	if err := s.enter(ctx, opPresign); err != nil {
+		return "", err
+	}
 	return s.presign(http.MethodGet, key, expiry, nil), nil
 }
 
-func (s *fakeS3) PresignedPut(_ context.Context, key string, expiry time.Duration) (string, error) {
+func (s *fakeS3) PresignedPut(ctx context.Context, key string, expiry time.Duration) (string, error) {
+	if err := s.enter(ctx, opPresign); err != nil {
+		return "", err
+	}
 	return s.presign(http.MethodPut, key, expiry, nil), nil
 }
 
 // PresignedDownload signs S3's response overrides into the URL, as
 // MinIOStore does.
-func (s *fakeS3) PresignedDownload(_ context.Context, key string, expiry time.Duration, filename, contentType string) (string, error) {
+func (s *fakeS3) PresignedDownload(ctx context.Context, key string, expiry time.Duration, filename, contentType string) (string, error) {
+	if err := s.enter(ctx, opPresign); err != nil {
+		return "", err
+	}
 	return s.presign(http.MethodGet, key, expiry, url.Values{
 		"response-content-disposition": {mime.FormatMediaType("attachment", map[string]string{"filename": filename})},
 		"response-content-type":        {contentType},
@@ -292,6 +302,20 @@ func (s *fakeS3) sign(key string, query url.Values) string {
 	mac := hmac.New(sha256.New, s.secret)
 	mac.Write([]byte(key + "\n" + signed.Encode()))
 	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// Expires is when a URL this storage presigned expires.
+func (s *fakeS3) Expires(t *testing.T, location string) time.Time {
+	t.Helper()
+	parsed, err := url.Parse(location)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expires, err := time.Parse(time.RFC3339Nano, parsed.Query().Get("X-Expires"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return expires
 }
 
 // Key is the object a URL this storage presigned names.

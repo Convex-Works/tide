@@ -279,12 +279,21 @@ write fails, the row stays `pending` and is retried rather than re-run.
 laptop to wake. They last for the attempt's time limit plus 15 minutes, at
 most S3's 7 days: a GET for the recording (input `recording.ogg` or
 `recording.mp4`) and a PUT for each output. Machines never write where klisi
-serves from: each attempt uploads to keys of its own,
+serves from: each attempt uploads to a staging directory of its own,
 
 ```
-transcripts-staging/<recording-id>/<attempt>/transcript.txt
-transcripts-staging/<recording-id>/<attempt>/transcript.vtt
+transcripts-staging/<recording-id>/<attempt>-<16 hex digits>/transcript.txt
+transcripts-staging/<recording-id>/<attempt>-<16 hex digits>/transcript.vtt
 ```
+
+named for the attempt klisi made it for, and unique by its random part: moil
+numbers the attempts of a job submitted again from 1 once it has forgotten the
+last run, as it has after klisi restarts. A machine that takes the job again
+within ten minutes of klisi making its directory, having let it go before
+starting, is handed the same directory, with URLs that expire when the first
+ones do; another machine, or the same one later, gets a new one. A machine that
+keeps taking a job and letting it go so costs klisi at most one directory every
+ten minutes.
 
 and when the job succeeds klisi checks each file (at most 16 MiB), copies it
 beside the recording under the recording's basename, as a video player

@@ -78,6 +78,10 @@ const (
 	// removed: for an upload that began just before, and for storage's
 	// clock running behind klisi's.
 	sweepMargin = 10 * time.Minute
+	// reuseGrace is how long a staging directory's URLs must outlast a
+	// whole attempt for the machine it was made for to be handed them
+	// again: with urlGrace, for ten minutes after klisi made it.
+	reuseGrace = 5 * time.Minute
 )
 
 var (
@@ -112,17 +116,29 @@ type Service struct {
 type job struct {
 	recordingID string
 	run         *moil.Run
+	// timeout is how long each attempt may take, and valid how long the
+	// URLs of a staging directory last from when klisi makes it.
+	timeout, valid time.Duration
 
-	// Guarded by Service.mu: each attempt's staging directory, by attempt
-	// number; what the current attempt last reported; whether klisi
-	// cancelled the run; and whether the run ended without its end
-	// recorded, for the next pass to record.
-	staging    map[int]string
+	// Guarded by Service.mu: the staging directory of each attempt, by
+	// attempt number, and the one klisi made last; what the current
+	// attempt last reported; whether klisi cancelled the run; and whether
+	// the run ended without its end recorded, for the next pass to record.
+	staging    map[int]*staging
+	last       *staging
 	attempt    int
 	progress   *float64
 	message    string
 	cancelled  bool
 	unrecorded bool
+}
+
+// staging is a directory klisi made for a machine's uploads of a job's
+// transcript, its keys queued for removal once their URLs expire.
+type staging struct {
+	machine string // the machine it was made for
+	dir     string
+	until   time.Time // when its URLs expire
 }
 
 func New(cfg Config) *Service {
@@ -252,8 +268,10 @@ func (s *Service) followed() map[string]bool {
 func (s *Service) submit(ctx context.Context, transcript store.PendingTranscript) error {
 	recording := transcript.Recording
 	timeout := attemptTimeout(recording.DurationS)
-	valid := min(timeout+urlGrace, maxURLValidity)
-	j := &job{recordingID: recording.ID, staging: make(map[int]string)}
+	j := &job{
+		recordingID: recording.ID, timeout: timeout, valid: min(timeout+urlGrace, maxURLValidity),
+		staging: make(map[int]*staging),
+	}
 	run, err := s.cfg.Moil.Submit(ctx, moil.Job{
 		ID:       "recording-" + recording.ID,
 		Bundle:   s.cfg.Bundle,
@@ -261,7 +279,7 @@ func (s *Service) submit(ctx context.Context, transcript store.PendingTranscript
 		Eligible: moil.OwnedBy(transcript.RoomOwner),
 		Timeout:  timeout,
 		Prepare: func(ctx context.Context, a moil.Assignment) (map[string]moil.Download, map[string]moil.Upload, error) {
-			return s.files(ctx, j, a, valid)
+			return s.files(ctx, j, a)
 		},
 	})
 	if err != nil {
@@ -295,9 +313,10 @@ func attemptTimeout(durationS *int64) time.Duration {
 // submission: a job can wait days for a laptop to wake. They are a GET for
 // the recording and a PUT for each transcript format, valid for as long as
 // the attempt may take. Only a machine of the room's current owner gets
-// them, and it uploads to staging keys of the attempt's own, which klisi
-// never serves from: it checks and copies them when the job succeeds.
-func (s *Service) files(ctx context.Context, j *job, a moil.Assignment, valid time.Duration) (map[string]moil.Download, map[string]moil.Upload, error) {
+// them, and it uploads to staging keys of its own (stagingFor), which
+// klisi never serves from: it checks and copies them when the job
+// succeeds.
+func (s *Service) files(ctx context.Context, j *job, a moil.Assignment) (map[string]moil.Download, map[string]moil.Upload, error) {
 	recording, err := s.cfg.Store.RecordingByID(ctx, j.recordingID)
 	var room store.Room
 	if err == nil {
@@ -312,26 +331,21 @@ func (s *Service) files(ctx context.Context, j *job, a moil.Assignment, valid ti
 	if a.Machine.Owner != room.OwnerSub {
 		return nil, nil, errOwnerChanged
 	}
-	dir, err := stagingDir(recording.ID, a.Attempt)
+	now := s.cfg.Now()
+	dir, err := s.stagingFor(ctx, j, a, now)
 	if err != nil {
 		return nil, nil, prepareError(err)
 	}
-	// The staging keys are queued before a machine can write them, to be
-	// removed once their URLs expire: whatever arrives, however late.
-	staged := make([]string, 0, len(store.TranscriptFormats))
-	for _, format := range store.TranscriptFormats {
-		staged = append(staged, stagedKey(dir, format))
-	}
-	if err := s.cfg.Store.QueueRemovals(ctx, staged, s.cfg.Now().Add(valid+sweepMargin).Unix()); err != nil {
-		return nil, nil, prepareError(err)
-	}
+	// Every URL expires with the directory's, when its keys are due for
+	// removal.
+	valid := dir.until.Sub(now)
 	input, err := s.cfg.Objects.PresignedGet(ctx, *recording.S3Key, valid)
 	if err != nil {
 		return nil, nil, prepareError(err)
 	}
 	outputs := make(map[string]moil.Upload, len(store.TranscriptFormats))
-	for i, format := range store.TranscriptFormats {
-		output, err := s.cfg.Objects.PresignedPut(ctx, staged[i], valid)
+	for _, format := range store.TranscriptFormats {
+		output, err := s.cfg.Objects.PresignedPut(ctx, stagedKey(dir.dir, format), valid)
 		if err != nil {
 			return nil, nil, prepareError(err)
 		}
@@ -343,10 +357,45 @@ func (s *Service) files(ctx context.Context, j *job, a moil.Assignment, valid ti
 	return map[string]moil.Download{inputName(recording): {URL: input}}, outputs, nil
 }
 
+// stagingFor is where the machine taking attempt a of j uploads: a new
+// staging directory, queued for removal once its URLs expire, or the one
+// klisi made last, if it was made for the same machine and its URLs would
+// outlast the whole attempt by reuseGrace. A machine that keeps taking a
+// job and letting it go before it starts, which moil lets it do, costs
+// klisi no more than a directory every ten minutes.
+func (s *Service) stagingFor(ctx context.Context, j *job, a moil.Assignment, now time.Time) (*staging, error) {
+	s.mu.Lock()
+	last := j.last
+	s.mu.Unlock()
+	if last != nil && last.machine == a.Machine.ID && last.until.Sub(now) >= j.timeout+reuseGrace {
+		return last, nil
+	}
+	dir, err := stagingDir(j.recordingID, a.Attempt)
+	if err != nil {
+		return nil, err
+	}
+	// The staging keys are queued before a machine can write them, to be
+	// removed once their URLs expire: whatever arrives, however late.
+	until := now.Add(j.valid)
+	staged := make([]string, 0, len(store.TranscriptFormats))
+	for _, format := range store.TranscriptFormats {
+		staged = append(staged, stagedKey(dir, format))
+	}
+	if err := s.cfg.Store.QueueRemovals(ctx, staged, until.Add(sweepMargin).Unix()); err != nil {
+		return nil, err
+	}
+	made := &staging{machine: a.Machine.ID, dir: dir, until: until}
+	s.mu.Lock()
+	j.last = made
+	s.mu.Unlock()
+	return made, nil
+}
+
 // stagingDir is a new directory for an attempt's uploads. Its name starts
 // with the attempt's number, and ends with a random part: moil numbers the
 // attempts of a job submitted again from 1 again once it has forgotten the
-// last run, as it has after a restart.
+// last run, as it has after a restart, and a directory may serve the
+// machine's next attempts too (stagingFor).
 func stagingDir(recordingID string, attempt int) (string, error) {
 	random := make([]byte, 8)
 	if _, err := rand.Read(random); err != nil {
@@ -502,7 +551,10 @@ func (s *Service) ended(ctx context.Context, j *job) (resubmit bool, err error) 
 		return false, s.cfg.Store.FailTranscript(ctx, j.recordingID, failure(err), now)
 	}
 	s.mu.Lock()
-	dir := j.staging[result.Attempt]
+	var dir string
+	if staged := j.staging[result.Attempt]; staged != nil {
+		dir = staged.dir
+	}
 	s.mu.Unlock()
 	return false, s.promote(ctx, j.recordingID, dir, result, now)
 }
