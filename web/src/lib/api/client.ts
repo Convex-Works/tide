@@ -5,13 +5,20 @@ import {
   LobbyApprovePath,
   LobbyDenyPath,
   LobbyWaitPath,
+  MachinePath,
+  MachinesPath,
   MeetingEndPath,
   MePath,
   MutePath,
+  PairingConfirmPath,
+  PairingDenyPath,
+  PairingPath,
   RecordingDownloadPath,
   RecordingPath,
   RecordingStartPath,
   RecordingStopPath,
+  RecordingTranscriptDownloadPath,
+  RecordingTranscriptPath,
   RoomJoinPath,
   RoomLobbyPath,
   RoomPath,
@@ -25,12 +32,18 @@ import {
   type LobbyDeniedSSE,
   type LobbyPendingSSE,
   type LobbyWaitingSSE,
+  type MachineInfo,
+  type MachinesResponse,
   type Me,
+  type PairingInfo,
   type PublicRoomInfo,
   type RecordingInfo,
   type RecordingStartRequest,
   type RoomInfo,
   type TokenResponse,
+  type TranscriptFormatText,
+  type TranscriptFormatVTT,
+  type TranscriptInfo,
   type UpdateRoomRequest
 } from './types.gen';
 
@@ -165,6 +178,49 @@ export function deleteRecording(id: string): Promise<void> {
 
 export function recordingDownloadURL(id: string): string {
   return pathWith(RecordingDownloadPath, 'id', id);
+}
+
+export function requestTranscript(id: string): Promise<TranscriptInfo> {
+  return requestJSON<TranscriptInfo>(pathWith(RecordingTranscriptPath, 'id', id), {
+    method: 'POST',
+    headers: csrfHeaders
+  });
+}
+
+export type TranscriptFormat = typeof TranscriptFormatText | typeof TranscriptFormatVTT;
+
+export function transcriptDownloadURL(id: string, format: TranscriptFormat): string {
+  const query = new URLSearchParams({ format });
+  return `${pathWith(RecordingTranscriptDownloadPath, 'id', id)}?${query}`;
+}
+
+export function listMachines(): Promise<MachinesResponse> {
+  return requestJSON<MachinesResponse>(MachinesPath);
+}
+
+export function removeMachine(id: string): Promise<void> {
+  return requestEmpty(pathWith(MachinePath, 'id', id), {
+    method: 'DELETE',
+    headers: csrfHeaders
+  });
+}
+
+export function pairing(code: string): Promise<PairingInfo> {
+  return requestJSON<PairingInfo>(pathWith(PairingPath, 'code', code));
+}
+
+export function confirmPairing(code: string): Promise<MachineInfo> {
+  return requestJSON<MachineInfo>(pathWith(PairingConfirmPath, 'code', code), {
+    method: 'POST',
+    headers: csrfHeaders
+  });
+}
+
+export function denyPairing(code: string): Promise<void> {
+  return requestEmpty(pathWith(PairingDenyPath, 'code', code), {
+    method: 'POST',
+    headers: csrfHeaders
+  });
 }
 
 export function joinRoom(slug: string, name: string): Promise<JoinResponse> {
