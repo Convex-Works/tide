@@ -34,10 +34,7 @@ import (
 func TestPairingAMachineEndToEnd(t *testing.T) {
 	k := startKlisi(t, nil)
 	alice := k.signIn(auth.Session{Sub: "alice"})
-	bundle, err := transcripts.Bundle()
-	if err != nil {
-		t.Fatal(err)
-	}
+	bundle := transcribeBundle(t)
 
 	// Before pairing, the page has no machines but knows what to tell the
 	// host: which bundle to approve, and where the moil app pairs.
@@ -275,10 +272,7 @@ func TestMachineChannelOutlivesServerTimeouts(t *testing.T) {
 		server.WriteTimeout = timeout
 	})
 	alice := k.signIn(auth.Session{Sub: "alice"})
-	bundle, err := transcripts.Bundle()
-	if err != nil {
-		t.Fatal(err)
-	}
+	bundle := transcribeBundle(t)
 
 	// The timeouts are in force: an ordinary connection that outstays them
 	// is closed.
@@ -357,7 +351,7 @@ func startKlisi(t *testing.T, configure func(*config.Config, *http.Server)) *kli
 	if configure != nil {
 		configure(&cfg, server.Config)
 	}
-	handler, background, err := New(cfg, nil, db)
+	handler, background, err := New(cfg, nil, db, transcribeBundle(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -370,6 +364,16 @@ func startKlisi(t *testing.T, configure func(*config.Config, *http.Server)) *kli
 	client := &http.Client{Transport: &http.Transport{}, Timeout: 10 * time.Second}
 	t.Cleanup(client.CloseIdleConnections)
 	return &klisiServer{t: t, cfg: cfg, url: server.URL, client: client, moil: background.moil}
+}
+
+// transcribeBundle is the bundle main hands klisi.
+func transcribeBundle(t *testing.T) *moil.Bundle {
+	t.Helper()
+	bundle, err := transcripts.Bundle()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return bundle
 }
 
 func (k *klisiServer) moilURL() string { return k.url + api.MoilBasePath }
