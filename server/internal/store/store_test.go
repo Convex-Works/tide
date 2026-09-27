@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 )
@@ -44,8 +45,8 @@ func TestRoomCRUD(t *testing.T) {
 		t.Fatalf("old slug should be unavailable, err = %v", err)
 	}
 
-	if err := db.DeleteRoom(ctx, want.ID); err != nil {
-		t.Fatal(err)
+	if keys, err := db.DeleteRoom(ctx, want.ID, 1); err != nil || len(keys) != 0 {
+		t.Fatalf("DeleteRoom() = %q, %v", keys, err)
 	}
 	if _, err := db.RoomBySlug(ctx, want.Slug); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("RoomBySlug after delete error = %v", err)
@@ -120,8 +121,9 @@ func TestRecordingCRUD(t *testing.T) {
 	if err != nil || len(list) != 1 || list[0].ID != recording.ID {
 		t.Fatalf("recording list = %#v, %v", list, err)
 	}
-	if err := db.DeleteRecording(ctx, recording.ID); err != nil {
-		t.Fatal(err)
+	keys, err := db.DeleteRecording(ctx, recording.ID, 1)
+	if want := []string{key, "recordings/calm-otter-412/100.txt", "recordings/calm-otter-412/100.vtt"}; err != nil || !slices.Equal(keys, want) {
+		t.Fatalf("DeleteRecording() = %q, %v; want %q", keys, err, want)
 	}
 	if _, err := db.RecordingByID(ctx, recording.ID); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("RecordingByID after delete error = %v", err)

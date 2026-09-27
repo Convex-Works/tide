@@ -100,13 +100,26 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 		VerificationURL: baseURL + "/machines",
 		Store:           roomStore,
 		Logger:          slog.Default(),
+		// A transcript travels as files, and klisi ignores data events: a
+		// machine may make a job hold 4 MiB of them at most, and a finished
+		// job leaves moil's memory after 5 minutes (ARCHITECTURE.md §8.1).
+		MaxDataBytes: 4 << 20,
+		KeepFinished: 5 * time.Minute,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("start moil: %w", err)
 	}
 	moilServer.AddBundle(transcribe)
+	// Machines refuse plain http storage unless klisi and storage are both
+	// on loopback. klisi still starts (the media gate runs that way), but
+	// every transcript fails at once, naming the setting.
+	storageProblem := transcripts.StorageWarning(cfg.BaseURL, cfg.S3PublicEndpoint)
+	if storageProblem != "" {
+		log.Printf("WARNING: every transcript will fail: %s", storageProblem)
+	}
 	transcriptService := transcripts.New(transcripts.Config{
 		Moil: moilServer, Bundle: transcribe, Store: roomStore, Objects: recording.NewMinIOStore(cfg),
+		StorageProblem: storageProblem,
 	})
 	recordingHandler.SetTranscripts(transcriptService)
 	recordingHandler.SetRecordingsChangedHook(transcriptService.Nudge)
@@ -120,11 +133,13 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 			log.Printf("rooms: touch active for %q: %v", roomName, err)
 		}
 	})
+	roomsHandler := rooms.NewHandler(roomStore, recording.NewMinIOStore(cfg), rooms.NewLiveKitSource(cfg), registry)
+	roomsHandler.SetRoomDeletedHook(transcriptService.Nudge)
 	handler := &Handler{
 		web:        web,
 		sessions:   sessions,
 		oidc:       auth.NewOIDC(cfg, sessions),
-		rooms:      rooms.NewHandler(roomStore, recording.NewMinIOStore(cfg), rooms.NewLiveKitSource(cfg), registry),
+		rooms:      roomsHandler,
 		lobby:      lobby.NewHandler(roomStore, registry, minter),
 		moderation: moderationHandler,
 		recording:  recordingHandler,

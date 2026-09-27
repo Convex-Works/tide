@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	_ "modernc.org/sqlite"
+
+	"klisi/internal/api"
 )
 
 //go:embed schema.sql
@@ -44,26 +46,54 @@ type Recording struct {
 	SizeBytes *int64
 }
 
-// TranscriptFormats are the transcript sidecars a recording can have
-// (ARCHITECTURE.md §8.1), by file extension.
-var TranscriptFormats = []string{"txt", "vtt"}
+// HasFile reports whether egress stored a file for the recording.
+func (r Recording) HasFile() bool {
+	return r.S3Key != nil && *r.S3Key != ""
+}
 
-// TranscriptKey is where the recording's transcript in format (one of
-// TranscriptFormats) is stored: beside the recording, under its basename, as
-// players expect sidecar captions. It is "" when the recording has no file.
-func (r Recording) TranscriptKey(format string) string {
-	if r.S3Key == nil || *r.S3Key == "" {
+// A TranscriptFormat is one of the files a transcript is kept as, beside
+// its recording (ARCHITECTURE.md §8.1).
+type TranscriptFormat struct {
+	// Extension is the file's extension, and the format's name in the
+	// download route's format parameter.
+	Extension string
+	// ContentType is what the file is stored and downloaded as.
+	ContentType string
+}
+
+// TranscriptFormats are the files every transcript is kept as.
+var TranscriptFormats = []TranscriptFormat{
+	{Extension: api.TranscriptFormatText, ContentType: "text/plain; charset=utf-8"},
+	{Extension: api.TranscriptFormatVTT, ContentType: "text/vtt; charset=utf-8"},
+}
+
+// TranscriptFormatByExtension returns the transcript format with the given
+// extension, if there is one.
+func TranscriptFormatByExtension(extension string) (TranscriptFormat, bool) {
+	for _, format := range TranscriptFormats {
+		if format.Extension == extension {
+			return format, true
+		}
+	}
+	return TranscriptFormat{}, false
+}
+
+// TranscriptKey is where the recording's transcript in format is stored:
+// beside the recording, under its basename, as players expect sidecar
+// captions. It is "" when the recording has no file.
+func (r Recording) TranscriptKey(format TranscriptFormat) string {
+	if !r.HasFile() {
 		return ""
 	}
 	key := *r.S3Key
-	return strings.TrimSuffix(key, path.Ext(key)) + "." + format
+	return strings.TrimSuffix(key, path.Ext(key)) + "." + format.Extension
 }
 
 // ObjectKeys names every file stored for the recording: the recording itself
 // and its transcript sidecars, whether or not they exist yet. Whatever
 // deletes a recording removes all of them.
 func (r Recording) ObjectKeys() []string {
-	if r.S3Key == nil || *r.S3Key == "" {
+	if !r.HasFile() {
 		return nil
 	}
 	keys := []string{*r.S3Key}
@@ -217,6 +247,13 @@ func (s *Store) RoomBySlug(ctx context.Context, slug string) (Room, error) {
 		`SELECT `+roomColumns+` FROM rooms WHERE slug = ?`, slug))
 }
 
+// RoomByID returns the room with the given ID, which unlike its slug never
+// changes.
+func (s *Store) RoomByID(ctx context.Context, id string) (Room, error) {
+	return scanRoom(s.db.QueryRowContext(ctx,
+		`SELECT `+roomColumns+` FROM rooms WHERE id = ?`, id))
+}
+
 func (s *Store) RoomsByOwner(ctx context.Context, ownerSub string) ([]Room, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT `+roomColumns+` FROM rooms WHERE owner_sub = ? ORDER BY created_at DESC, slug`, ownerSub)
@@ -292,12 +329,47 @@ func (s *Store) UpdateRoom(ctx context.Context, room Room) error {
 	return tx.Commit()
 }
 
-func (s *Store) DeleteRoom(ctx context.Context, id string) error {
-	result, err := s.db.ExecContext(ctx, "DELETE FROM rooms WHERE id = ?", id)
+// DeleteRoom deletes a room, and with it its recordings and their
+// transcripts, and queues every file of those recordings for removal from
+// storage by now, all in one transaction. It returns the keys it queued.
+func (s *Store) DeleteRoom(ctx context.Context, id string, now int64) ([]string, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return requireChanged(result)
+	defer func() { _ = tx.Rollback() }()
+	rows, err := tx.QueryContext(ctx, `SELECT `+recordingColumns+` FROM recordings WHERE room_id = ?`, id)
+	if err != nil {
+		return nil, err
+	}
+	keys := make([]string, 0)
+	for rows.Next() {
+		recording, err := scanRecording(rows)
+		if err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		keys = append(keys, recording.ObjectKeys()...)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := queueRemovals(ctx, tx, keys, now); err != nil {
+		return nil, err
+	}
+	// Recording and transcript rows go with the room via ON DELETE CASCADE
+	// (foreign_keys=ON).
+	result, err := tx.ExecContext(ctx, "DELETE FROM rooms WHERE id = ?", id)
+	if err != nil {
+		return nil, err
+	}
+	if err := requireChanged(result); err != nil {
+		return nil, err
+	}
+	return keys, tx.Commit()
 }
 
 func (s *Store) InsertRecording(ctx context.Context, recording Recording) error {
@@ -430,27 +502,48 @@ func (s *Store) ActiveRecordingByRoomID(ctx context.Context, roomID string) (Rec
 		ORDER BY started_at DESC LIMIT 1`, roomID))
 }
 
-func (s *Store) DeleteRecording(ctx context.Context, id string) error {
-	result, err := s.db.ExecContext(ctx, "DELETE FROM recordings WHERE id = ?", id)
+// DeleteRecording deletes a recording and its transcript, and queues its
+// files for removal from storage by now, in one transaction. It returns the
+// keys it queued.
+func (s *Store) DeleteRecording(ctx context.Context, id string, now int64) ([]string, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return requireChanged(result)
+	defer func() { _ = tx.Rollback() }()
+	recording, err := scanRecording(tx.QueryRowContext(ctx,
+		`SELECT `+recordingColumns+` FROM recordings WHERE id = ?`, id))
+	if err != nil {
+		return nil, err
+	}
+	keys := recording.ObjectKeys()
+	if err := queueRemovals(ctx, tx, keys, now); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM recordings WHERE id = ?", id); err != nil {
+		return nil, err
+	}
+	return keys, tx.Commit()
 }
+
+const recordingColumns = `id, room_id, room_slug, egress_id, status, started_by, started_at,
+	audio_only, ended_at, duration_s, s3_key, size_bytes`
 
 type recordingScanner interface {
 	Scan(...any) error
 }
 
-func scanRecording(scanner recordingScanner) (Recording, error) {
+// scanRecording scans a row of recordingColumns, followed by any extra
+// columns into extra.
+func scanRecording(scanner recordingScanner, extra ...any) (Recording, error) {
 	var recording Recording
 	var endedAt, durationS, sizeBytes sql.NullInt64
 	var s3Key sql.NullString
-	err := scanner.Scan(
+	err := scanner.Scan(append([]any{
 		&recording.ID, &recording.RoomID, &recording.RoomSlug, &recording.EgressID,
 		&recording.Status, &recording.StartedBy, &recording.StartedAt,
 		&recording.AudioOnly, &endedAt, &durationS, &s3Key, &sizeBytes,
-	)
+	}, extra...)...)
 	if err != nil {
 		return Recording{}, err
 	}

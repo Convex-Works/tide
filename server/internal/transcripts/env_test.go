@@ -2,7 +2,9 @@ package transcripts_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +21,7 @@ import (
 	"klisi/internal/api"
 	"klisi/internal/auth"
 	"klisi/internal/recording"
+	"klisi/internal/rooms"
 	"klisi/internal/store"
 	"klisi/internal/transcripts"
 )
@@ -28,14 +31,16 @@ const waitTimeout = 10 * time.Second
 
 // An env is klisi's transcript pipeline, composed of its real pieces: a
 // moil server that fake machines reach over HTTP and WebSocket, SQLite on
-// disk, the recording handler whose list shows transcripts, the transcripts
-// service, and object storage over HTTP.
+// disk, the recording and rooms handlers, the transcripts service, both
+// reconcilers, and object storage over HTTP, all on one clock.
 //
 // Machines reach moil through a front door that stays put when klisi
 // restarts, as klisi's own address does.
 type env struct {
 	t      *testing.T
+	path   string // the database's file
 	db     *store.Store
+	clock  *clock
 	s3     *fakeS3
 	bundle *moil.Bundle
 	front  *httptest.Server
@@ -43,15 +48,19 @@ type env struct {
 	mu   sync.Mutex
 	moil *moil.Server // the one the front door serves
 
-	service     *transcripts.Service
-	recordings  *recording.Handler
-	stopService func()
-	recorded    int
+	service       *transcripts.Service
+	recordings    *recording.Handler
+	rooms         *rooms.Handler
+	cancelService func() // klisi starts stopping
+	waitService   func() // and has stopped
+	recorded      int
+	configure     []func(*transcripts.Config)
 }
 
-func newEnv(t *testing.T) *env {
+func newEnv(t *testing.T, configure ...func(*transcripts.Config)) *env {
 	t.Helper()
-	db, err := store.Open(filepath.Join(t.TempDir(), "klisi.db"))
+	path := filepath.Join(t.TempDir(), "klisi.db")
+	db, err := store.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +69,8 @@ func newEnv(t *testing.T) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := &env{t: t, db: db, s3: newFakeS3(t), bundle: bundle}
+	clock := newClock()
+	e := &env{t: t, path: path, db: db, clock: clock, s3: newFakeS3(t, clock), bundle: bundle, configure: configure}
 	e.front = httptest.NewServer(http.StripPrefix(api.MoilBasePath, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		e.mu.Lock()
 		server := e.moil
@@ -73,41 +83,81 @@ func newEnv(t *testing.T) *env {
 	return e
 }
 
-// start starts klisi's side: a moil server with the transcribe bundle, and
-// the transcripts service reconciling beside it. Only nudges and the pass at
-// start drive the reconciler, as its tick is an hour away.
+// start starts klisi's side: a moil server with the transcribe bundle, the
+// transcripts service reconciling beside it, and the recording reconciler.
+// Only nudges and the pass at start drive the transcripts reconciler, as its
+// tick is an hour away; the recording reconciler runs every few
+// milliseconds, on the env's clock.
 func (e *env) start() {
 	e.t.Helper()
 	server, err := moil.NewServer(moil.Config{
 		Name: "klisi", VerificationURL: e.front.URL + "/machines", Store: e.db,
+		MaxDataBytes: 4 << 20, KeepFinished: 5 * time.Minute,
 	})
 	if err != nil {
 		e.t.Fatal(err)
 	}
 	server.AddBundle(e.bundle)
-	service := transcripts.New(transcripts.Config{Moil: server, Bundle: e.bundle, Store: e.db, Objects: e.s3})
-	recordings := recording.NewHandler(e.db, nil, noRoomService{}, e.s3, "", nil)
+	cfg := transcripts.Config{Moil: server, Bundle: e.bundle, Store: e.db, Objects: e.s3, Now: e.clock.Now}
+	for _, configure := range e.configure {
+		configure(&cfg)
+	}
+	service := transcripts.New(cfg)
+	recordings := recording.NewHandler(e.db, noEgress{}, noRoomService{}, e.s3, "", nil)
+	recordings.SetClock(e.clock.Now)
 	recordings.SetTranscripts(service)
 	recordings.SetRecordingsChangedHook(service.Nudge)
+	roomsHandler := rooms.NewHandler(e.db, e.s3, nil, nil)
+	roomsHandler.SetRoomDeletedHook(service.Nudge)
 	e.mu.Lock()
-	e.moil, e.service, e.recordings = server, service, recordings
+	e.moil, e.service, e.recordings, e.rooms = server, service, recordings, roomsHandler
 	e.mu.Unlock()
+	e.run()
+}
+
+// run runs the transcripts service and the recording reconciler, again
+// after stopService.
+func (e *env) run() {
 	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
+	var done sync.WaitGroup
+	done.Add(2)
 	go func() {
-		defer close(done)
-		service.Run(ctx, time.Hour)
+		defer done.Done()
+		e.service.Run(ctx, time.Hour)
 	}()
-	e.stopService = func() {
-		cancel()
-		<-done
-	}
+	go func() {
+		defer done.Done()
+		e.recordings.RunReconciler(ctx, 5*time.Millisecond)
+	}()
+	e.cancelService, e.waitService = cancel, done.Wait
+}
+
+// stopService stops the transcripts service and the recording reconciler.
+func (e *env) stopService() {
+	e.cancelService()
+	e.waitService()
 }
 
 // stop stops the service, then closes moil, as klisi does when it exits.
 func (e *env) stop() {
 	e.stopService()
 	_ = e.moil.Close()
+}
+
+// noEgress is LiveKit's egress service out of reach: the recording
+// reconciler leaves recordings as they are, and gets on with removing files.
+type noEgress struct{}
+
+func (noEgress) StartRoomCompositeEgress(context.Context, *protocol.RoomCompositeEgressRequest) (*protocol.EgressInfo, error) {
+	return nil, errors.New("no LiveKit in these tests")
+}
+
+func (noEgress) StopEgress(context.Context, *protocol.StopEgressRequest) (*protocol.EgressInfo, error) {
+	return nil, errors.New("no LiveKit in these tests")
+}
+
+func (noEgress) ListEgress(context.Context, *protocol.ListEgressRequest) (*protocol.ListEgressResponse, error) {
+	return nil, errors.New("no LiveKit in these tests")
 }
 
 // noRoomService is LiveKit's room service for a room that has emptied.
@@ -133,13 +183,20 @@ func (e *env) room(owner, name string) store.Room {
 // egress_ended webhook completes the row.
 func (e *env) record(room store.Room, ended time.Time) store.Recording {
 	e.t.Helper()
+	return e.recordFor(room, room.Slug, 10*time.Minute, ended)
+}
+
+// recordFor makes an audio recording of room lasting duration that ended at
+// ended, carrying slug as its room's slug.
+func (e *env) recordFor(room store.Room, slug string, duration time.Duration, ended time.Time) store.Recording {
+	e.t.Helper()
 	e.recorded++
 	id := fmt.Sprintf("rec%d", e.recorded)
-	started := ended.Add(-10 * time.Minute)
-	key := path.Join("recordings", room.Slug, id, started.UTC().Format("2006-01-02 15-04")+" - "+room.Name+".ogg")
+	started := ended.Add(-duration)
+	key := path.Join("recordings", slug, id, started.UTC().Format("2006-01-02 15-04")+" - "+room.Name+".ogg")
 	ctx := context.Background()
 	if err := e.db.InsertRecording(ctx, store.Recording{
-		ID: id, RoomID: room.ID, RoomSlug: room.Slug, EgressID: "egress-" + id,
+		ID: id, RoomID: room.ID, RoomSlug: slug, EgressID: "egress-" + id,
 		Status: "recording", StartedBy: room.OwnerSub, StartedAt: started.Unix(), AudioOnly: true,
 	}); err != nil {
 		e.t.Fatal(err)
@@ -148,10 +205,10 @@ func (e *env) record(room store.Room, ended time.Time) store.Recording {
 	err := e.recordings.HandleWebhookEvent(httptest.NewRequest(http.MethodPost, api.LiveKitWebhookPath, nil), &protocol.WebhookEvent{
 		Event: "egress_ended",
 		EgressInfo: &protocol.EgressInfo{
-			EgressId: "egress-" + id, RoomName: room.Slug, Status: protocol.EgressStatus_EGRESS_COMPLETE,
+			EgressId: "egress-" + id, RoomName: slug, Status: protocol.EgressStatus_EGRESS_COMPLETE,
 			EndedAt: ended.UnixNano(),
 			FileResults: []*protocol.FileInfo{{
-				Filename: key, Duration: int64(10 * time.Minute), Size: 21, EndedAt: ended.UnixNano(),
+				Filename: key, Duration: int64(duration), Size: 21, EndedAt: ended.UnixNano(),
 			}},
 		},
 	})
@@ -168,13 +225,31 @@ func (e *env) record(room store.Room, ended time.Time) store.Recording {
 	return recording
 }
 
+// sql changes klisi's database behind its back, over a connection of its
+// own, as an operator or another process could: for what klisi has no API
+// for, and to make the database fail.
+func (e *env) sql(query string, args ...any) {
+	e.t.Helper()
+	db, err := sql.Open("sqlite", e.path)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
+		e.t.Fatal(err)
+	}
+	if _, err := db.Exec(query, args...); err != nil {
+		e.t.Fatalf("%s: %v", query, err)
+	}
+}
+
 // pair pairs a machine for owner. It isn't connected, and approved nothing.
 func (e *env) pair(owner string) *moiltest.Machine {
 	e.t.Helper()
 	return moiltest.Pair(e.t, e.moil, owner, moiltest.At(e.front.URL+api.MoilBasePath), moiltest.WithTimeout(waitTimeout))
 }
 
-// machine pairs a machine for owner that approved the transcriber and is
+// machine pairs a machine for owner that approved the transcribe bundle and is
 // connected, idle.
 func (e *env) machine(owner string) *moiltest.Machine {
 	e.t.Helper()
@@ -292,9 +367,17 @@ func (e *env) deleteRecording(recording store.Recording, as *auth.Session) *http
 	return response
 }
 
+func (e *env) deleteRoom(room store.Room, as *auth.Session) *httptest.ResponseRecorder {
+	r := request(http.MethodDelete, "/api/rooms/"+room.Slug, as)
+	r.SetPathValue("slug", room.Slug)
+	response := httptest.NewRecorder()
+	e.rooms.Delete(response, r)
+	return response
+}
+
 // sidecars are where the recording's transcript formats are stored.
 func sidecars(recording store.Recording) (txt, vtt string) {
-	return recording.TranscriptKey("txt"), recording.TranscriptKey("vtt")
+	return recording.TranscriptKey(store.TranscriptFormats[0]), recording.TranscriptKey(store.TranscriptFormats[1])
 }
 
 // finish plays a successful transcription: the machine uploads both

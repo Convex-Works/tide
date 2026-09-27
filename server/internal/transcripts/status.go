@@ -5,21 +5,29 @@ import (
 	"errors"
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
 	"git.convex.works/ConvexWorks/moil/sdk/go/moil"
 
 	"klisi/internal/api"
+	"klisi/internal/httpx"
 	"klisi/internal/store"
 )
 
 // maxMessage bounds, in characters, the messages from machines klisi shows.
 const maxMessage = 300
 
-// missingOutputs is the error of a job that succeeded without uploading
-// every sidecar.
-const missingOutputs = "The machine finished without uploading the transcript. Try again."
+// expired is the error of a transcript no machine made within pendingFor
+// of its request.
+const expired = "No machine transcribed it within 14 days. Check that a paired machine is online and has approved the transcribe bundle in the moil app, then request it again."
+
+// The errors of a job that succeeded with files klisi won't keep.
+const (
+	missingOutputs = "The machine finished without uploading the transcript. Try again."
+	tooLarge       = "The transcript the machine uploaded is larger than 16 MiB, more than klisi keeps. Try again."
+)
 
 // Transcripts implements recording.TranscriptSource: each recording's
 // transcript, from its row and, while pending, its job. It reads the room's
@@ -43,7 +51,7 @@ func (s *Service) Transcripts(ctx context.Context, room store.Room, recordings [
 			continue
 		}
 		row, exists := rows[recording.ID]
-		if info := s.info(row, exists, machines); info != nil {
+		if info := s.info(recording, row, exists, machines); info != nil {
 			infos[recording.ID] = info
 		}
 	}
@@ -52,11 +60,15 @@ func (s *Service) Transcripts(ctx context.Context, room store.Room, recordings [
 
 // info is a transcribable recording's transcript: its row, and while that's
 // pending, whether a machine is on it. machines are the room owner's. It is
-// nil when there is no row and the owner has no machine to make one.
-func (s *Service) info(row store.Transcript, exists bool, machines []moil.Machine) *api.TranscriptInfo {
+// nil when there is no row and the owner has no machine to make one. A
+// recording the reconciler is about to add a row for is waiting already:
+// offered to request it, a host would be told it's on its way.
+func (s *Service) info(recording store.Recording, row store.Transcript, exists bool, machines []moil.Machine) *api.TranscriptInfo {
 	switch {
 	case !exists && len(machines) == 0:
 		return nil
+	case !exists && store.OptedIn(recording, pairedAt(machines)):
+		return &api.TranscriptInfo{Status: api.TranscriptWaiting, Message: waitingMessage(machines, s.cfg.Bundle.Hash())}
 	case !exists:
 		return &api.TranscriptInfo{Status: api.TranscriptAvailable}
 	case row.Status == "completed":
@@ -70,13 +82,27 @@ func (s *Service) info(row store.Transcript, exists bool, machines []moil.Machin
 	return &api.TranscriptInfo{Status: api.TranscriptWaiting, Message: waitingMessage(machines, s.cfg.Bundle.Hash())}
 }
 
+// pairedAt is when each machine was paired.
+func pairedAt(machines []moil.Machine) []time.Time {
+	times := make([]time.Time, 0, len(machines))
+	for _, machine := range machines {
+		times = append(times, machine.PairedAt)
+	}
+	return times
+}
+
 // running is a pending transcript's status while a machine is on its job,
-// or nil while none is.
+// or has finished it and klisi is saving its transcript; nil while no
+// machine is.
 func (s *Service) running(recordingID string) *api.TranscriptInfo {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	j := s.jobs[recordingID]
-	if j == nil || j.run.State() == moil.Queued {
+	if j == nil {
+		return nil
+	}
+	switch j.run.State() {
+	case moil.Queued, moil.Cancelled:
 		return nil
 	}
 	info := &api.TranscriptInfo{Status: api.TranscriptRunning, Message: j.message}
@@ -110,9 +136,9 @@ func waitingMessage(machines []moil.Machine, hash string) string {
 	}
 	switch {
 	case len(machines) == 0:
-		return "No machine is paired to transcribe it."
+		return "No machine is paired to transcribe it. The room's owner can pair one on the Machines page."
 	case approved == 0:
-		return "No paired machine has approved the transcriber yet. Approve it in the moil app."
+		return "No paired machine has approved the transcribe bundle yet. Approve it in the moil app."
 	case online == 0:
 		return "Waiting for a paired machine to come online."
 	case idle:
@@ -128,7 +154,7 @@ func waitingMessage(machines []moil.Machine, hash string) string {
 func phaseMessage(phase string) string {
 	switch phase {
 	case "preparing":
-		return "Setting up the transcriber"
+		return "Setting up transcription"
 	case "downloading":
 		return "Downloading the recording"
 	case "running":
@@ -137,7 +163,24 @@ func phaseMessage(phase string) string {
 		return "Uploading the transcript"
 	}
 	// A phase from a newer machine, shown as it is.
-	return capitalize(truncate(phase, maxMessage))
+	return machineText(phase)
+}
+
+// machineText is text a machine reported, fit to show beside klisi's own:
+// plain, bounded, and starting with a capital, as the bundle's messages are
+// lower-case for services to fit in sentences of their own.
+func machineText(text string) string {
+	return capitalize(truncate(httpx.Plain(text), maxMessage))
+}
+
+// codePrepare marks the error of an attempt klisi couldn't prepare, as
+// opposed to one a machine reported.
+const codePrepare moil.ErrorCode = "klisi_prepare"
+
+// prepareError puts the job back in the queue, as a failed attempt: klisi
+// couldn't make its URLs this time, but could the next.
+func prepareError(err error) error {
+	return &moil.JobError{Code: codePrepare, Message: "klisi couldn't prepare the recording's files: " + err.Error(), Retryable: true}
 }
 
 // failure says why a job failed, for its row's error.
@@ -149,23 +192,25 @@ func failure(err error) string {
 	case errors.Is(err, moil.ErrTooMuchData):
 		return "The machine sent more than klisi keeps for a transcript. Try again."
 	case errors.Is(err, moil.ErrBundleRemoved):
-		return "klisi's transcriber changed before a machine could run it. Try again."
+		return "klisi's transcribe bundle changed before a machine could run it. Try again."
 	default:
-		return "klisi couldn't hand the recording to a machine. Try again."
+		return "klisi couldn't hand the recording to a machine. Try again, and if it keeps failing, ask klisi's administrator to check its storage settings."
 	}
 }
 
 // attemptFailure says why a job's last attempt failed.
 func attemptFailure(err *moil.JobError) string {
 	switch err.Code {
+	case codePrepare:
+		return "klisi couldn't reach its database or storage to hand the recording to a machine. Try again, and if it keeps failing, ask klisi's administrator to check them."
 	case moil.CodeScriptError:
 		// The bundle's errors are sentences for the service: "can't read
 		// the recording: …", "ran out of memory: …".
-		return sentence("Transcription failed: " + truncate(err.Message, maxMessage))
+		return sentence("Transcription failed: " + truncate(httpx.Plain(err.Message), maxMessage))
 	case moil.CodeTimeout:
 		return "Transcription took longer than its time limit. Try again."
 	case moil.CodeEnvironment:
-		return "The machine couldn't set up the transcriber. Check its disk space and network, then try again."
+		return "The machine couldn't set up transcription. Check its disk space and network, then try again."
 	case moil.CodeAssetDownload, moil.CodeAssetMismatch:
 		return "The machine couldn't download the speech models. Check its network, then try again."
 	case moil.CodeInputDownload:
@@ -177,9 +222,9 @@ func attemptFailure(err *moil.JobError) string {
 	case moil.CodeLeaseExpired, moil.CodeLost:
 		return "The machine stopped responding during transcription. Try again."
 	case moil.CodeBusy, moil.CodeNotApproved:
-		return "The paired machines kept turning the transcript down. Check that one approved the transcriber, then try again."
+		return "The paired machines kept turning the transcript down. Check that one approved the transcribe bundle in the moil app, then try again."
 	default:
-		return "The transcriber stopped unexpectedly. Try again."
+		return "Transcription stopped unexpectedly on the machine. Try again."
 	}
 }
 

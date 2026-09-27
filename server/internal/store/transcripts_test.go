@@ -75,6 +75,22 @@ func TestCreateTranscriptsFromPairingOn(t *testing.T) {
 	if err != nil || added != 2 {
 		t.Fatalf("added %d, %v", added, err)
 	}
+	// OptedIn predicts it, for the recordings list to show transcripts
+	// about to be made before the reconciler made them.
+	for _, id := range []string{"before", "same-second", "after", "unknown-end"} {
+		recording, err := db.RecordingByID(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = db.Transcript(ctx, id)
+		created := err == nil
+		if predicted := OptedIn(recording, []time.Time{time.Unix(paired, 0)}); predicted != created {
+			t.Errorf("OptedIn(%s) = %t, but CreateTranscripts created a transcript: %t", id, predicted, created)
+		}
+	}
+	if (OptedIn(Recording{EndedAt: int64p(paired + 1)}, nil)) {
+		t.Error("OptedIn without a machine")
+	}
 	if added, err := db.CreateTranscripts(ctx, 2_000_001); err != nil || added != 0 {
 		t.Fatalf("added again %d, %v", added, err)
 	}
@@ -83,10 +99,11 @@ func TestCreateTranscriptsFromPairingOn(t *testing.T) {
 		t.Fatal(err)
 	}
 	var ids []string
-	for _, recording := range pending {
-		ids = append(ids, recording.ID)
-		if recording.S3Key == nil || *recording.S3Key != *key || recording.RoomSlug != "a" {
-			t.Fatalf("pending recording = %+v", recording)
+	for _, transcript := range pending {
+		ids = append(ids, transcript.ID)
+		if transcript.S3Key == nil || *transcript.S3Key != *key || transcript.RoomSlug != "a" ||
+			transcript.RoomOwner != "alice" || transcript.RoomName != "Standup" || transcript.RequestedAt != 2_000_000 {
+			t.Fatalf("pending transcript = %+v", transcript)
 		}
 	}
 	slices.Sort(ids)
@@ -175,10 +192,38 @@ func TestTranscriptLifecycle(t *testing.T) {
 		t.Fatalf("retry of a completed transcript: %t, %v", ok, err)
 	}
 
-	if err := db.DeleteRecording(ctx, "done"); err != nil {
+	if _, err := db.DeleteRecording(ctx, "done", 200); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Transcript(ctx, "done"); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("transcript of a deleted recording: %v", err)
+	}
+}
+
+// A pending transcript's room is its recording's room by ID. The slug a
+// recording carries is only a copy, which a rename changes: read in the
+// middle of one, it may name another host's room.
+func TestPendingTranscriptsFindTheRoomByID(t *testing.T) {
+	ctx := context.Background()
+	db := transcriptsTestStore(t)
+	alice := Room{ID: "room-a", Slug: "standup", Name: "Standup", OwnerSub: "alice", CreatedAt: 1}
+	bob := Room{ID: "room-b", Slug: "retro", Name: "Retro", OwnerSub: "bob", CreatedAt: 1}
+	for _, room := range []Room{alice, bob} {
+		if err := db.CreateRoom(ctx, room); err != nil {
+			t.Fatal(err)
+		}
+	}
+	stale := alice
+	stale.Slug = bob.Slug
+	addRecording(t, db, stale, "rec", "completed", int64p(10), stringp("recordings/standup/rec/x.ogg"))
+	if ok, err := db.RequestTranscript(ctx, "rec", 20); err != nil || !ok {
+		t.Fatalf("request: %t, %v", ok, err)
+	}
+	pending, err := db.PendingTranscripts(ctx)
+	if err != nil || len(pending) != 1 {
+		t.Fatalf("pending = %+v, %v", pending, err)
+	}
+	if got := pending[0]; got.RoomOwner != "alice" || got.RoomName != "Standup" || got.RoomID != alice.ID {
+		t.Fatalf("pending transcript's room = %q's %q (%s)", got.RoomOwner, got.RoomName, got.RoomID)
 	}
 }

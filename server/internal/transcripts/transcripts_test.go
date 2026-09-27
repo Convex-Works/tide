@@ -8,6 +8,7 @@ import (
 	"maps"
 	"mime"
 	"net/http"
+	"path"
 	"slices"
 	"strings"
 	"testing"
@@ -51,14 +52,26 @@ func TestTranscribesRecordingOnOwnersMachine(t *testing.T) {
 		t.Fatalf("attempt = job %q, title %q, bundle %s", a.JobID, a.Title, a.BundleHash)
 	}
 	// The job's files: the recording in, the two sidecars out. Its time
-	// limit is an hour plus twice the recording's ten minutes.
+	// limit is three hours, the least any attempt gets.
 	if names := slices.Sorted(maps.Keys(a.Inputs)); !slices.Equal(names, []string{"recording.ogg"}) {
 		t.Fatalf("inputs = %v", names)
 	}
 	if names := slices.Sorted(maps.Keys(a.Outputs)); !slices.Equal(names, []string{"transcript.txt", "transcript.vtt"}) {
 		t.Fatalf("outputs = %v", names)
 	}
-	if a.Timeout != time.Hour+20*time.Minute {
+	// It uploads to keys of its own attempt, which klisi never serves from,
+	// and reads only the recording.
+	txtKey, vttKey := sidecars(rec)
+	staged := []string{e.s3.Key(t, a.Outputs["transcript.txt"].URL), e.s3.Key(t, a.Outputs["transcript.vtt"].URL)}
+	attemptDir := path.Dir(staged[0])
+	if !strings.HasPrefix(attemptDir, "transcripts-staging/"+rec.ID+"/") ||
+		staged[0] != attemptDir+"/transcript.txt" || staged[1] != attemptDir+"/transcript.vtt" {
+		t.Fatalf("the machine uploads to %q", staged)
+	}
+	if input := e.s3.Key(t, a.Inputs["recording.ogg"].URL); input != *rec.S3Key {
+		t.Fatalf("the machine downloads %q", input)
+	}
+	if a.Timeout != 3*time.Hour {
 		t.Fatalf("timeout = %v", a.Timeout)
 	}
 	audio, _ := e.s3.Object(*rec.S3Key)
@@ -80,13 +93,21 @@ func TestTranscribesRecordingOnOwnersMachine(t *testing.T) {
 		return info != nil && info.Status == api.TranscriptRunning && info.Message == "Uploading the transcript"
 	})
 
+	a.Output("transcript.vtt", []byte("WEBVTT\n\n"))
+	if keys := e.s3.Keys("recordings/"); !slices.Equal(keys, []string{*rec.S3Key}) {
+		t.Fatalf("an upload reached %q", keys)
+	}
+	if response := e.download(rec, session("alice"), "vtt"); response.Code != http.StatusConflict {
+		t.Fatalf("download while the machine uploads: %d", response.Code)
+	}
+
 	txt, vtt := finish(t, a, 3)
 	info := e.waitStatus(room, rec, api.TranscriptCompleted)
 	if info.Speakers == nil || *info.Speakers != 3 || info.Error != "" {
 		t.Fatalf("completed transcript = %+v", info)
 	}
-	// The sidecars sit beside the recording, under its basename.
-	txtKey, vttKey := sidecars(rec)
+	// The sidecars sit beside the recording, under its basename, stored as
+	// text, and the staged copies are gone.
 	recordingName := strings.TrimSuffix(*rec.S3Key, ".ogg")
 	if txtKey != recordingName+".txt" || vttKey != recordingName+".vtt" {
 		t.Fatalf("sidecars of %q = %q, %q", *rec.S3Key, txtKey, vttKey)
@@ -96,6 +117,12 @@ func TestTranscribesRecordingOnOwnersMachine(t *testing.T) {
 	}
 	if got, _ := e.s3.Object(vttKey); !bytes.Equal(got, vtt) {
 		t.Fatalf("stored vtt = %q", got)
+	}
+	if txtType, vttType := e.s3.ContentType(txtKey), e.s3.ContentType(vttKey); txtType != "text/plain; charset=utf-8" || vttType != "text/vtt; charset=utf-8" {
+		t.Fatalf("stored as %q and %q", txtType, vttType)
+	}
+	if keys := e.s3.Keys("transcripts-staging/"); len(keys) != 0 {
+		t.Fatalf("staged copies left: %q", keys)
 	}
 
 	for _, test := range []struct {
@@ -117,7 +144,7 @@ func TestTranscribesRecordingOnOwnersMachine(t *testing.T) {
 			t.Fatalf("download %s disposition = %q", test.format, header.Get("Content-Disposition"))
 		}
 		// And the URL lasts five minutes.
-		e.s3.Advance(5*time.Minute + time.Second)
+		e.clock.Advance(5*time.Minute + time.Second)
 		if status := statusOf(t, http.MethodGet, location, nil); status != http.StatusForbidden {
 			t.Fatalf("download URL after five minutes: %d", status)
 		}
@@ -221,7 +248,8 @@ func TestURLsAreMintedWhenAMachineTakesTheJob(t *testing.T) {
 	rec := e.record(room, time.Now())
 	e.submitted(rec)
 
-	e.s3.Advance(30 * 24 * time.Hour)
+	// Ten days: longer than S3 lets any URL last.
+	e.clock.Advance(10 * 24 * time.Hour)
 	machine.Connect()
 	a := machine.NextAttempt()
 	audio, _ := e.s3.Object(*rec.S3Key)
@@ -229,9 +257,9 @@ func TestURLsAreMintedWhenAMachineTakesTheJob(t *testing.T) {
 		t.Fatalf("input = %q", got)
 	}
 
-	e.s3.Advance(a.Timeout + 15*time.Minute - time.Second)
+	e.clock.Advance(a.Timeout + 15*time.Minute - time.Second)
 	a.Output("transcript.txt", []byte("still in time"))
-	e.s3.Advance(2 * time.Second)
+	e.clock.Advance(2 * time.Second)
 	if status := statusOf(t, http.MethodGet, a.Inputs["recording.ogg"].URL, nil); status != http.StatusForbidden {
 		t.Fatalf("input URL after the attempt's time: %d", status)
 	}
@@ -285,7 +313,11 @@ func TestDeletingARecordingStopsItsTranscript(t *testing.T) {
 		}
 	})
 
-	t.Run("a job that succeeds anyway leaves nothing behind", func(t *testing.T) {
+	// A machine that lost klisi but not storage uploads after the deletion,
+	// and again after its job ended: the uploads land in the attempt's
+	// staging keys, never beside the recording, and are removed once the
+	// attempt's URLs expire.
+	t.Run("an upload after the deletion is removed once its URL expires", func(t *testing.T) {
 		e := newEnv(t)
 		room := e.room("alice", "Standup")
 		machine := e.machine("alice")
@@ -297,21 +329,62 @@ func TestDeletingARecordingStopsItsTranscript(t *testing.T) {
 			t.Fatalf("delete: %d %s", response.Code, response.Body)
 		}
 		a.WaitCancelled()
-		// The URLs outlive the recording: the machine uploads anyway.
 		a.Output("transcript.txt", []byte("late"))
 		a.Output("transcript.vtt", []byte("WEBVTT late"))
-		if keys := e.s3.Keys("recordings/"); len(keys) != 2 {
+		staging := "transcripts-staging/" + rec.ID + "/"
+		if keys := e.s3.Keys(staging); len(keys) != 2 {
 			t.Fatalf("uploaded after the deletion: %v", keys)
 		}
 		a.Succeed(map[string]any{"speakers": 2})
-		waitFor(t, "the late sidecars to be removed", func() bool { return len(e.s3.Keys("recordings/")) == 0 })
+		run, _ := e.moil.Run("recording-" + rec.ID)
+		waitFor(t, "the job to end", func() bool { return run.State() != moil.Running })
+		// And once more, with the URL it still holds.
+		if status := statusOf(t, http.MethodPut, a.Outputs["transcript.vtt"].URL, []byte("WEBVTT later")); status != http.StatusOK {
+			t.Fatalf("upload after the job ended: %d", status)
+		}
+
+		// Not before the URLs expire: an upload could still be under way.
+		e.clock.Advance(a.Timeout + 15*time.Minute - time.Second)
+		removals := e.s3.Calls(opRemove)
+		time.Sleep(50 * time.Millisecond) // ten reconciler passes
+		if keys := e.s3.Keys(staging); len(keys) == 0 || e.s3.Calls(opRemove) != removals {
+			t.Fatalf("staging while its URLs are valid: %v", keys)
+		}
+		e.clock.Advance(time.Hour)
+		waitFor(t, "the late uploads to be removed", func() bool { return len(e.s3.Keys(staging)) == 0 })
+		if keys := e.s3.Keys("recordings/"); len(keys) != 0 {
+			t.Fatalf("files left: %v", keys)
+		}
 		if _, ok := e.row(rec); ok {
 			t.Fatal("the transcript outlived its recording")
 		}
 	})
 
-	// Deleting a room removes its recordings without a nudge, so the job
-	// may still be waiting when a machine comes for it.
+	// The reconciler's tick is an hour away: only the room's deletion
+	// telling it can stop the job in time.
+	t.Run("deleting its room cancels the running job at once", func(t *testing.T) {
+		e := newEnv(t)
+		room := e.room("alice", "Standup")
+		machine := e.machine("alice")
+		rec := e.record(room, time.Now())
+		a := machine.NextAttempt()
+		a.Progress(0.1, "finding speakers")
+
+		if response := e.deleteRoom(room, session("alice")); response.Code != http.StatusNoContent {
+			t.Fatalf("delete the room: %d %s", response.Code, response.Body)
+		}
+		a.WaitCancelled()
+		a.WaitAcked()
+		if _, ok := e.row(rec); ok {
+			t.Fatal("the transcript outlived its room")
+		}
+		if keys := e.s3.Keys("recordings/"); len(keys) != 0 {
+			t.Fatalf("files left: %v", keys)
+		}
+	})
+
+	// A room deleted behind the service's back (no nudge) leaves the job
+	// waiting when a machine comes for it.
 	t.Run("a waiting job whose room was deleted gives a machine nothing", func(t *testing.T) {
 		e := newEnv(t)
 		room := e.room("alice", "Standup")
@@ -321,11 +394,8 @@ func TestDeletingARecordingStopsItsTranscript(t *testing.T) {
 		e.submitted(rec)
 		run, _ := e.moil.Run("recording-" + rec.ID)
 
-		// What the room's deletion does: its files, then its rows.
-		for _, key := range rec.ObjectKeys() {
-			_ = e.s3.Remove(context.Background(), key)
-		}
-		if err := e.db.DeleteRoom(context.Background(), room.ID); err != nil {
+		// What the room's deletion does, without telling the service.
+		if _, err := e.db.DeleteRoom(context.Background(), room.ID, e.clock.Now().Unix()); err != nil {
 			t.Fatal(err)
 		}
 		machine.Connect()
@@ -413,8 +483,13 @@ func TestAvailableUntilRequestedAndWhatItWaitsFor(t *testing.T) {
 		t.Fatalf("transcript without a machine = %+v", info)
 	}
 	response := e.requestTranscript(early, session("alice"))
-	if response.Code != http.StatusConflict || !strings.Contains(errorMessage(t, response), "/machines") {
+	if response.Code != http.StatusConflict || errorMessage(t, response) != "Pair a machine on the Machines page to transcribe recordings." {
 		t.Fatalf("request without a machine: %d", response.Code)
+	}
+	response = e.requestTranscript(early, admin)
+	if response.Code != http.StatusConflict ||
+		errorMessage(t, response) != "The room's owner has no paired machine to transcribe it. Ask them to pair one on the Machines page." {
+		t.Fatalf("administrator's request without the owner's machine: %d", response.Code)
 	}
 
 	machine := e.pair("alice")
@@ -433,7 +508,7 @@ func TestAvailableUntilRequestedAndWhatItWaitsFor(t *testing.T) {
 			return info != nil && info.Status == api.TranscriptWaiting && info.Message == message
 		})
 	}
-	const notApproved = "No paired machine has approved the transcriber yet. Approve it in the moil app."
+	const notApproved = "No paired machine has approved the transcribe bundle yet. Approve it in the moil app."
 	waiting(notApproved)
 	machine.Connect()
 	machine.Sync()
@@ -475,9 +550,12 @@ func TestAvailableUntilRequestedAndWhatItWaitsFor(t *testing.T) {
 		info.Message != "Waiting for a paired machine to finish its current job." {
 		t.Fatalf("early transcript while the machine is busy = %+v", info)
 	}
-	if response := e.requestTranscript(early, session("alice")); response.Code != http.StatusConflict ||
-		errorMessage(t, response) != "This recording's transcript is already on its way." {
-		t.Fatalf("second request: %d", response.Code)
+	// Asked again, it answers with the transcript as it is.
+	response = e.requestTranscript(early, session("alice"))
+	var again api.TranscriptInfo
+	if err := json.NewDecoder(response.Body).Decode(&again); err != nil || response.Code != http.StatusAccepted ||
+		again.Status != api.TranscriptWaiting || again.Message != "Waiting for a paired machine to finish its current job." {
+		t.Fatalf("second request: %d %+v, %v", response.Code, again, err)
 	}
 	finish(t, a, 2)
 	b := machine.NextAttempt()

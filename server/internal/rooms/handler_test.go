@@ -9,10 +9,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"sync"
 	"testing"
+	"time"
 
 	"klisi/internal/api"
 	"klisi/internal/auth"
+	"klisi/internal/recording"
 	"klisi/internal/store"
 )
 
@@ -26,16 +29,36 @@ func (f *fakeLiveSource) ActiveRooms(context.Context) (map[string]LiveRoom, erro
 }
 
 type fakeObjectStore struct {
+	mu        sync.Mutex
 	removed   []string
 	removeErr error
 }
 
 func (f *fakeObjectStore) Remove(_ context.Context, key string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.removeErr != nil {
 		return f.removeErr
 	}
 	f.removed = append(f.removed, key)
 	return nil
+}
+
+// PresignedGet makes the fake the recording handler's object store too.
+func (f *fakeObjectStore) PresignedGet(context.Context, string, time.Duration) (string, error) {
+	return "", errors.New("no downloads in these tests")
+}
+
+func (f *fakeObjectStore) setRemoveErr(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.removeErr = err
+}
+
+func (f *fakeObjectStore) removedKeys() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.removed)
 }
 
 func deleteTestHandler(t *testing.T) (*Handler, *fakeObjectStore, *store.Store, store.Room) {
@@ -310,8 +333,8 @@ func TestDeleteRemovesFilesAndCascadesRows(t *testing.T) {
 	}
 	// The recording goes with its transcript sidecars (ARCHITECTURE.md §8.1).
 	want := []string{key, "recordings/calm-otter-412/100.txt", "recordings/calm-otter-412/100.vtt"}
-	if !slices.Equal(objects.removed, want) {
-		t.Fatalf("removed objects = %#v, want %#v", objects.removed, want)
+	if removed := objects.removedKeys(); !slices.Equal(removed, want) {
+		t.Fatalf("removed objects = %#v, want %#v", removed, want)
 	}
 	if _, err := db.RoomBySlug(context.Background(), room.Slug); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("room should be gone, err = %v", err)
@@ -322,9 +345,12 @@ func TestDeleteRemovesFilesAndCascadesRows(t *testing.T) {
 	}
 }
 
-func TestDeleteAbortsWhenFileRemovalFails(t *testing.T) {
+// Deleting a room succeeds while storage is down: the files of its
+// recordings stay queued, and the recording reconciler removes them once
+// storage is back.
+func TestDeleteSucceedsWhileStorageIsDown(t *testing.T) {
 	handler, objects, db, room := deleteTestHandler(t)
-	objects.removeErr = errors.New("s3 unavailable")
+	objects.setRemoveErr(errors.New("s3 unavailable"))
 	key := "recordings/calm-otter-412/100.mp4"
 	if err := db.InsertRecording(context.Background(), store.Recording{
 		ID: "rec-1", RoomID: room.ID, RoomSlug: room.Slug, EgressID: "egress-1",
@@ -336,13 +362,52 @@ func TestDeleteAbortsWhenFileRemovalFails(t *testing.T) {
 	response := httptest.NewRecorder()
 	handler.Delete(response, deleteRequest(room.Slug, "owner"))
 
-	if response.Code != http.StatusBadGateway {
-		t.Fatalf("expected 502 when file removal fails, got %d", response.Code)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 while storage is down, got %d %s", response.Code, response.Body)
 	}
-	if _, err := db.RoomBySlug(context.Background(), room.Slug); err != nil {
-		t.Fatal("room must survive an aborted delete")
+	if _, err := db.RoomBySlug(context.Background(), room.Slug); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("room should be gone, err = %v", err)
 	}
-	if _, err := db.RecordingByID(context.Background(), "rec-1"); err != nil {
-		t.Fatal("recording row must survive an aborted delete")
+	if _, err := db.RecordingByID(context.Background(), "rec-1"); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("recording row should be gone, err = %v", err)
+	}
+	files := []string{key, "recordings/calm-otter-412/100.txt", "recordings/calm-otter-412/100.vtt"}
+	if queued, err := db.DueRemovals(context.Background(), time.Now().Unix(), 10); err != nil || !slices.Equal(queued, files) {
+		t.Fatalf("queued for removal = %q, %v; want %q", queued, err, files)
+	}
+
+	// The recording reconciler retries every pass until storage takes them.
+	reconciler := recording.NewHandler(db, nil, nil, objects, "", nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		reconciler.RunReconciler(ctx, 5*time.Millisecond)
+	}()
+	defer func() { cancel(); <-done }()
+	time.Sleep(50 * time.Millisecond)
+	if removed := objects.removedKeys(); len(removed) != 0 {
+		t.Fatalf("removed while storage is down: %q", removed)
+	}
+	objects.setRemoveErr(nil)
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		removed := objects.removedKeys()
+		slices.Sort(removed)
+		if slices.Equal(removed, files) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("removed %q, want %q", removed, files)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	queued, err := db.DueRemovals(context.Background(), time.Now().Unix(), 10)
+	for len(queued) != 0 && err == nil && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+		queued, err = db.DueRemovals(context.Background(), time.Now().Unix(), 10)
+	}
+	if err != nil || len(queued) != 0 {
+		t.Fatalf("still queued: %q, %v", queued, err)
 	}
 }
