@@ -53,6 +53,13 @@ type ObjectStore interface {
 	PresignedGet(context.Context, string, time.Duration) (string, error)
 }
 
+// TranscriptSource adds transcript state to listed recordings
+// (ARCHITECTURE.md §8.1). The map is keyed by recording ID; a recording
+// missing from it has no transcript and can't get one.
+type TranscriptSource interface {
+	Transcripts(ctx context.Context, room store.Room, recordings []store.Recording) (map[string]*api.TranscriptInfo, error)
+}
+
 type Handler struct {
 	store       recordingStore
 	egress      EgressClient
@@ -66,6 +73,28 @@ type Handler struct {
 	// onParticipantJoined lets the webhook fan participant_joined events out
 	// to moderation (kick-ban enforcement) without a package dependency.
 	onParticipantJoined func(ctx context.Context, room, identity string)
+	// transcripts, if set, fills RecordingInfo.Transcript on the list path.
+	transcripts TranscriptSource
+	// onRecordingsChanged is called after a recording ends or is deleted, so
+	// that the transcripts reconciler can act without waiting for its tick.
+	onRecordingsChanged func()
+}
+
+// SetTranscripts makes the list path report each recording's transcript.
+func (h *Handler) SetTranscripts(source TranscriptSource) {
+	h.transcripts = source
+}
+
+// SetRecordingsChangedHook registers a callback invoked after a recording
+// ends (by webhook or reconciliation) or is deleted. It must not block.
+func (h *Handler) SetRecordingsChangedHook(hook func()) {
+	h.onRecordingsChanged = hook
+}
+
+func (h *Handler) recordingsChanged() {
+	if h.onRecordingsChanged != nil {
+		h.onRecordingsChanged()
+	}
 }
 
 // SetParticipantJoinedHook registers a callback invoked for every verified
@@ -232,9 +261,19 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not load recordings. Try again.")
 		return
 	}
+	var transcripts map[string]*api.TranscriptInfo
+	if h.transcripts != nil {
+		transcripts, err = h.transcripts.Transcripts(r.Context(), room, recordings)
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "Could not load transcripts. Try again.")
+			return
+		}
+	}
 	response := make([]api.RecordingInfo, 0, len(recordings))
 	for _, recording := range recordings {
-		response = append(response, recordingInfo(recording))
+		info := recordingInfo(recording)
+		info.Transcript = transcripts[recording.ID]
+		response = append(response, info)
 	}
 	httpx.WriteJSON(w, http.StatusOK, response)
 }
@@ -248,8 +287,9 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusConflict, "Stop the recording before deleting it.")
 		return
 	}
-	if recording.S3Key != nil && *recording.S3Key != "" {
-		if err := h.objects.Remove(r.Context(), *recording.S3Key); err != nil {
+	// The recording's transcript sidecars go with it (ARCHITECTURE.md §8.1).
+	for _, key := range recording.ObjectKeys() {
+		if err := h.objects.Remove(r.Context(), key); err != nil {
 			httpx.WriteError(w, http.StatusBadGateway, "Could not delete the recording file. Try again.")
 			return
 		}
@@ -258,6 +298,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not delete the recording. Try again.")
 		return
 	}
+	h.recordingsChanged()
 	w.WriteHeader(http.StatusNoContent)
 }
 

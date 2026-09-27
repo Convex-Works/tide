@@ -9,7 +9,9 @@ export default defineConfig({
     // Egress's headless Chrome loads /egress-template from inside Docker.
     allowedHosts: ['host.docker.internal'],
     proxy: {
-      '/api': 'http://localhost:8080'
+      '/api': 'http://localhost:8080',
+      // moil machines pair and keep their WebSocket here (ARCHITECTURE.md §8.1).
+      '/moil': { target: 'http://localhost:8080', ws: true }
     }
   }
 });

@@ -253,12 +253,11 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, recording := range recordings {
-		if recording.S3Key == nil || *recording.S3Key == "" {
-			continue
-		}
-		if err := h.objects.Remove(r.Context(), *recording.S3Key); err != nil {
-			httpx.WriteError(w, http.StatusBadGateway, "Could not delete the room's recording files. Try again.")
-			return
+		for _, key := range recording.ObjectKeys() {
+			if err := h.objects.Remove(r.Context(), key); err != nil {
+				httpx.WriteError(w, http.StatusBadGateway, "Could not delete the room's recording files. Try again.")
+				return
+			}
 		}
 	}
 	// Recording rows go with the room via ON DELETE CASCADE (foreign_keys=ON).

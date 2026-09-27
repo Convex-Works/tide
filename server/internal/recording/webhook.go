@@ -115,7 +115,11 @@ func (h *Handler) finishRecording(ctx context.Context, info *protocol.EgressInfo
 			update.S3Key = &key
 		}
 	}
-	return h.store.UpdateRecordingByEgress(ctx, info.EgressId, update)
+	if err := h.store.UpdateRecordingByEgress(ctx, info.EgressId, update); err != nil {
+		return err
+	}
+	h.recordingsChanged()
+	return nil
 }
 
 func recordingFileResult(info *protocol.EgressInfo) *protocol.FileInfo {

@@ -117,6 +117,20 @@ func (s *MinIOStore) PresignedGet(ctx context.Context, key string, expiry time.D
 	return location.String(), nil
 }
 
+// PresignedPut lets whoever holds the URL upload the object at key, until
+// expiry: a machine uploading a transcript sidecar (ARCHITECTURE.md §8.1).
+func (s *MinIOStore) PresignedPut(ctx context.Context, key string, expiry time.Duration) (string, error) {
+	client, err := s.client(s.publicEndpoint)
+	if err != nil {
+		return "", err
+	}
+	location, err := client.PresignedPutObject(ctx, s.bucket, key, expiry)
+	if err != nil {
+		return "", err
+	}
+	return location.String(), nil
+}
+
 func (s *MinIOStore) client(rawEndpoint string) (*minio.Client, error) {
 	parsed, err := url.Parse(rawEndpoint)
 	if err != nil {

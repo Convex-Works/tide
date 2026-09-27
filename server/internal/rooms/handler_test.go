@@ -8,6 +8,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"klisi/internal/api"
@@ -307,8 +308,10 @@ func TestDeleteRemovesFilesAndCascadesRows(t *testing.T) {
 	if response.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", response.Code)
 	}
-	if len(objects.removed) != 1 || objects.removed[0] != key {
-		t.Fatalf("removed objects = %#v", objects.removed)
+	// The recording goes with its transcript sidecars (ARCHITECTURE.md §8.1).
+	want := []string{key, "recordings/calm-otter-412/100.txt", "recordings/calm-otter-412/100.vtt"}
+	if !slices.Equal(objects.removed, want) {
+		t.Fatalf("removed objects = %#v, want %#v", objects.removed, want)
 	}
 	if _, err := db.RoomBySlug(context.Background(), room.Slug); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("room should be gone, err = %v", err)

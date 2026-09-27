@@ -49,3 +49,34 @@ CREATE TABLE IF NOT EXISTS revoked_sessions (
     sid TEXT PRIMARY KEY,
     expires_at INTEGER NOT NULL
 );
+
+-- Machines hosts paired with klisi through moil (ARCHITECTURE.md §8.1). The
+-- Store implements moil.Store over this table. A machine's token is never
+-- stored, only its SHA-256; report is the machine's last moil.MachineReport as
+-- JSON (name, hardware, approved bundle hashes, last seen).
+CREATE TABLE IF NOT EXISTS machines (
+    id TEXT PRIMARY KEY,
+    owner_sub TEXT NOT NULL,
+    token_hash TEXT UNIQUE NOT NULL,
+    paired_at INTEGER NOT NULL, -- Unix seconds
+    report TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS machines_owner_paired_idx
+    ON machines (owner_sub, paired_at);
+
+-- One row per recording that should have a transcript (ARCHITECTURE.md §8.1).
+-- The row is the truth; a moil job is only a projection of a pending row, so a
+-- restart resubmits every pending one.
+CREATE TABLE IF NOT EXISTS transcripts (
+    recording_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL CHECK (status IN ('pending', 'completed', 'failed')),
+    requested_at INTEGER NOT NULL,
+    finished_at INTEGER NULL,
+    speakers INTEGER NULL,
+    error TEXT NULL,
+    FOREIGN KEY (recording_id) REFERENCES recordings (id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS transcripts_pending_idx
+    ON transcripts (recording_id) WHERE status = 'pending';

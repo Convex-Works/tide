@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -41,6 +42,35 @@ type Recording struct {
 	DurationS *int64
 	S3Key     *string
 	SizeBytes *int64
+}
+
+// TranscriptFormats are the transcript sidecars a recording can have
+// (ARCHITECTURE.md §8.1), by file extension.
+var TranscriptFormats = []string{"txt", "vtt"}
+
+// TranscriptKey is where the recording's transcript in format (one of
+// TranscriptFormats) is stored: beside the recording, under its basename, as
+// players expect sidecar captions. It is "" when the recording has no file.
+func (r Recording) TranscriptKey(format string) string {
+	if r.S3Key == nil || *r.S3Key == "" {
+		return ""
+	}
+	key := *r.S3Key
+	return strings.TrimSuffix(key, path.Ext(key)) + "." + format
+}
+
+// ObjectKeys names every file stored for the recording: the recording itself
+// and its transcript sidecars, whether or not they exist yet. Whatever
+// deletes a recording removes all of them.
+func (r Recording) ObjectKeys() []string {
+	if r.S3Key == nil || *r.S3Key == "" {
+		return nil
+	}
+	keys := []string{*r.S3Key}
+	for _, format := range TranscriptFormats {
+		keys = append(keys, r.TranscriptKey(format))
+	}
+	return keys
 }
 
 type RecordingUpdate struct {
