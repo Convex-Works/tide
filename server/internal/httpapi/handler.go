@@ -110,11 +110,13 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store) (http.Handler, *B
 			log.Printf("rooms: touch active for %q: %v", roomName, err)
 		}
 	})
+	roomsHandler := rooms.NewHandler(roomStore, recording.NewMinIOStore(cfg), rooms.NewLiveKitSource(cfg), registry)
+	roomsHandler.SetRoomDeletedHook(transcriptService.Nudge)
 	handler := &Handler{
 		web:        web,
 		sessions:   sessions,
 		oidc:       auth.NewOIDC(cfg, sessions),
-		rooms:      rooms.NewHandler(roomStore, recording.NewMinIOStore(cfg), rooms.NewLiveKitSource(cfg), registry),
+		rooms:      roomsHandler,
 		lobby:      lobby.NewHandler(roomStore, registry, minter),
 		moderation: moderationHandler,
 		recording:  recordingHandler,

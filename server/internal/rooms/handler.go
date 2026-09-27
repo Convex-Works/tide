@@ -32,6 +32,15 @@ type Handler struct {
 	objects      objectStore
 	live         LiveRoomSource
 	pendingLobby pendingLobbySource
+	// onRoomDeleted is called after a room and its recordings are deleted,
+	// so that the transcripts reconciler can stop their jobs at once.
+	onRoomDeleted func()
+}
+
+// SetRoomDeletedHook registers a callback invoked after a room is deleted,
+// with its recordings. It must not block.
+func (h *Handler) SetRoomDeletedHook(hook func()) {
+	h.onRoomDeleted = hook
 }
 
 // NewHandler builds the rooms handler. live and pendingLobby may be nil in
@@ -258,6 +267,9 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not delete the room. Try again.")
 		return
+	}
+	if h.onRoomDeleted != nil {
+		h.onRoomDeleted()
 	}
 	recording.RemoveDeleted(r.Context(), h.objects, h.store, keys, now)
 	w.WriteHeader(http.StatusNoContent)

@@ -101,6 +101,7 @@ func (e *env) start() {
 	recordings.SetTranscripts(service)
 	recordings.SetRecordingsChangedHook(service.Nudge)
 	roomsHandler := rooms.NewHandler(e.db, e.s3, nil, nil)
+	roomsHandler.SetRoomDeletedHook(service.Nudge)
 	e.mu.Lock()
 	e.moil, e.service, e.recordings, e.rooms = server, service, recordings, roomsHandler
 	e.mu.Unlock()

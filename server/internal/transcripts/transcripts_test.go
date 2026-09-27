@@ -311,8 +311,31 @@ func TestDeletingARecordingStopsItsTranscript(t *testing.T) {
 		}
 	})
 
-	// Deleting a room removes its recordings without a nudge, so the job
-	// may still be waiting when a machine comes for it.
+	// The reconciler's tick is an hour away: only the room's deletion
+	// telling it can stop the job in time.
+	t.Run("deleting its room cancels the running job at once", func(t *testing.T) {
+		e := newEnv(t)
+		room := e.room("alice", "Standup")
+		machine := e.machine("alice")
+		rec := e.record(room, time.Now())
+		a := machine.NextAttempt()
+		a.Progress(0.1, "finding speakers")
+
+		if response := e.deleteRoom(room, session("alice")); response.Code != http.StatusNoContent {
+			t.Fatalf("delete the room: %d %s", response.Code, response.Body)
+		}
+		a.WaitCancelled()
+		a.WaitAcked()
+		if _, ok := e.row(rec); ok {
+			t.Fatal("the transcript outlived its room")
+		}
+		if keys := e.s3.Keys("recordings/"); len(keys) != 0 {
+			t.Fatalf("files left: %v", keys)
+		}
+	})
+
+	// A room deleted behind the service's back (no nudge) leaves the job
+	// waiting when a machine comes for it.
 	t.Run("a waiting job whose room was deleted gives a machine nothing", func(t *testing.T) {
 		e := newEnv(t)
 		room := e.room("alice", "Standup")
