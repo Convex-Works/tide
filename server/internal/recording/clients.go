@@ -2,6 +2,7 @@ package recording
 
 import (
 	"context"
+	"mime"
 	"net/http"
 	"net/url"
 	"strings"
@@ -111,6 +112,24 @@ func (s *MinIOStore) PresignedGet(ctx context.Context, key string, expiry time.D
 		return "", err
 	}
 	location, err := client.PresignedGetObject(ctx, s.bucket, key, expiry, nil)
+	if err != nil {
+		return "", err
+	}
+	return location.String(), nil
+}
+
+// PresignedDownload is PresignedGet for a browser to save the object as a
+// file called filename, served as contentType whatever it was stored with:
+// a transcript sidecar a machine uploaded (ARCHITECTURE.md §8.1).
+func (s *MinIOStore) PresignedDownload(ctx context.Context, key string, expiry time.Duration, filename, contentType string) (string, error) {
+	client, err := s.client(s.publicEndpoint)
+	if err != nil {
+		return "", err
+	}
+	params := url.Values{}
+	params.Set("response-content-disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
+	params.Set("response-content-type", contentType)
+	location, err := client.PresignedGetObject(ctx, s.bucket, key, expiry, params)
 	if err != nil {
 		return "", err
 	}

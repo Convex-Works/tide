@@ -64,10 +64,16 @@ func (f *fakeRoomService) UpdateRoomMetadata(_ context.Context, request *protoco
 	return &protocol.Room{Name: request.Room, Metadata: request.Metadata}, nil
 }
 
-type fakeObjectStore struct{}
+type fakeObjectStore struct {
+	removed []string
+}
 
-func (fakeObjectStore) Remove(context.Context, string) error { return nil }
-func (fakeObjectStore) PresignedGet(context.Context, string, time.Duration) (string, error) {
+func (f *fakeObjectStore) Remove(_ context.Context, key string) error {
+	f.removed = append(f.removed, key)
+	return nil
+}
+
+func (*fakeObjectStore) PresignedGet(context.Context, string, time.Duration) (string, error) {
 	return "http://minio.example/download", nil
 }
 
@@ -87,7 +93,7 @@ func recordingTestHandler(t *testing.T) (*Handler, *fakeEgressClient, *fakeRoomS
 	}
 	egress := &fakeEgressClient{}
 	rooms := &fakeRoomService{}
-	handler := NewHandler(db, egress, rooms, fakeObjectStore{}, "http://egress-template.example", nil)
+	handler := NewHandler(db, egress, rooms, &fakeObjectStore{}, "http://egress-template.example", nil)
 	handler.now = func() time.Time { return time.Unix(1_700_000_000, 0) }
 	handler.newID = func() (string, error) { return "recording-1", nil }
 	return handler, egress, rooms, room
@@ -293,6 +299,52 @@ func TestStartRecordingFileOutput(t *testing.T) {
 				t.Fatalf("configured S3 destination was mutated: %#v", handler.s3Output)
 			}
 		})
+	}
+}
+
+// Deleting a recording removes its file and its transcript sidecars, which
+// sit beside it, and tells the transcripts reconciler.
+func TestDeleteRemovesRecordingAndSidecars(t *testing.T) {
+	handler, _, _, room := recordingTestHandler(t)
+	objects := handler.objects.(*fakeObjectStore)
+	changed := 0
+	handler.SetRecordingsChangedHook(func() { changed++ })
+	key := "recordings/calm-otter-412/rec-1/2023-11-14 22-13 - Weekly.ogg"
+	endedAt := int64(1_700_000_600)
+	if err := handler.store.InsertRecording(context.Background(), store.Recording{
+		ID: "rec-1", RoomID: room.ID, RoomSlug: room.Slug, EgressID: "egress-1", Status: "completed",
+		StartedBy: "owner", StartedAt: 1_700_000_000, AudioOnly: true, EndedAt: &endedAt, S3Key: &key,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	remove := func(sub string) int {
+		request := httptest.NewRequest(http.MethodDelete, "/api/recordings/rec-1", nil)
+		request.SetPathValue("id", "rec-1")
+		request = request.WithContext(auth.WithSession(request.Context(), auth.Session{Sub: sub}))
+		response := httptest.NewRecorder()
+		handler.Delete(response, request)
+		return response.Code
+	}
+
+	if status := remove("other"); status != http.StatusForbidden || len(objects.removed) != 0 || changed != 0 {
+		t.Fatalf("delete by another host: %d, removed %v", status, objects.removed)
+	}
+	if status := remove("owner"); status != http.StatusNoContent {
+		t.Fatalf("delete: %d", status)
+	}
+	want := []string{
+		key,
+		"recordings/calm-otter-412/rec-1/2023-11-14 22-13 - Weekly.txt",
+		"recordings/calm-otter-412/rec-1/2023-11-14 22-13 - Weekly.vtt",
+	}
+	if !reflect.DeepEqual(objects.removed, want) {
+		t.Fatalf("removed %q, want %q", objects.removed, want)
+	}
+	if _, err := handler.store.RecordingByID(context.Background(), "rec-1"); err == nil {
+		t.Fatal("the recording is still there")
+	}
+	if changed != 1 {
+		t.Fatalf("the reconciler heard of %d changes", changed)
 	}
 }
 
