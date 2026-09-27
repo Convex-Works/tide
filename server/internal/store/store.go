@@ -533,15 +533,17 @@ type recordingScanner interface {
 	Scan(...any) error
 }
 
-func scanRecording(scanner recordingScanner) (Recording, error) {
+// scanRecording scans a row of recordingColumns, followed by any extra
+// columns into extra.
+func scanRecording(scanner recordingScanner, extra ...any) (Recording, error) {
 	var recording Recording
 	var endedAt, durationS, sizeBytes sql.NullInt64
 	var s3Key sql.NullString
-	err := scanner.Scan(
+	err := scanner.Scan(append([]any{
 		&recording.ID, &recording.RoomID, &recording.RoomSlug, &recording.EgressID,
 		&recording.Status, &recording.StartedBy, &recording.StartedAt,
 		&recording.AudioOnly, &endedAt, &durationS, &s3Key, &sizeBytes,
-	)
+	}, extra...)...)
 	if err != nil {
 		return Recording{}, err
 	}

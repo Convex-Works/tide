@@ -2,6 +2,7 @@ package transcripts_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -167,13 +168,20 @@ func (e *env) room(owner, name string) store.Room {
 // egress_ended webhook completes the row.
 func (e *env) record(room store.Room, ended time.Time) store.Recording {
 	e.t.Helper()
+	return e.recordFor(room, room.Slug, 10*time.Minute, ended)
+}
+
+// recordFor makes an audio recording of room lasting duration that ended at
+// ended, carrying slug as its room's slug.
+func (e *env) recordFor(room store.Room, slug string, duration time.Duration, ended time.Time) store.Recording {
+	e.t.Helper()
 	e.recorded++
 	id := fmt.Sprintf("rec%d", e.recorded)
-	started := ended.Add(-10 * time.Minute)
-	key := path.Join("recordings", room.Slug, id, started.UTC().Format("2006-01-02 15-04")+" - "+room.Name+".ogg")
+	started := ended.Add(-duration)
+	key := path.Join("recordings", slug, id, started.UTC().Format("2006-01-02 15-04")+" - "+room.Name+".ogg")
 	ctx := context.Background()
 	if err := e.db.InsertRecording(ctx, store.Recording{
-		ID: id, RoomID: room.ID, RoomSlug: room.Slug, EgressID: "egress-" + id,
+		ID: id, RoomID: room.ID, RoomSlug: slug, EgressID: "egress-" + id,
 		Status: "recording", StartedBy: room.OwnerSub, StartedAt: started.Unix(), AudioOnly: true,
 	}); err != nil {
 		e.t.Fatal(err)
@@ -182,10 +190,10 @@ func (e *env) record(room store.Room, ended time.Time) store.Recording {
 	err := e.recordings.HandleWebhookEvent(httptest.NewRequest(http.MethodPost, api.LiveKitWebhookPath, nil), &protocol.WebhookEvent{
 		Event: "egress_ended",
 		EgressInfo: &protocol.EgressInfo{
-			EgressId: "egress-" + id, RoomName: room.Slug, Status: protocol.EgressStatus_EGRESS_COMPLETE,
+			EgressId: "egress-" + id, RoomName: slug, Status: protocol.EgressStatus_EGRESS_COMPLETE,
 			EndedAt: ended.UnixNano(),
 			FileResults: []*protocol.FileInfo{{
-				Filename: key, Duration: int64(10 * time.Minute), Size: 21, EndedAt: ended.UnixNano(),
+				Filename: key, Duration: int64(duration), Size: 21, EndedAt: ended.UnixNano(),
 			}},
 		},
 	})
@@ -200,6 +208,24 @@ func (e *env) record(room store.Room, ended time.Time) store.Recording {
 		e.t.Fatalf("recording after egress_ended = %+v", recording)
 	}
 	return recording
+}
+
+// sql changes klisi's database behind its back, over a connection of its
+// own, as an operator or another process could: for what klisi has no API
+// for, and to make the database fail.
+func (e *env) sql(query string, args ...any) {
+	e.t.Helper()
+	db, err := sql.Open("sqlite", e.path)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
+		e.t.Fatal(err)
+	}
+	if _, err := db.Exec(query, args...); err != nil {
+		e.t.Fatalf("%s: %v", query, err)
+	}
 }
 
 // pair pairs a machine for owner. It isn't connected, and approved nothing.

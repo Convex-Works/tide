@@ -51,9 +51,15 @@ const (
 	maxTitle = 200
 )
 
-// errRecordingGone ends a job whose recording was deleted before a machine
-// took it.
-var errRecordingGone = errors.New("the recording was deleted")
+var (
+	// errRecordingGone ends a job whose recording was deleted before a
+	// machine took it.
+	errRecordingGone = errors.New("the recording was deleted")
+	// errOwnerChanged ends a job whose room changed hands after it was
+	// submitted, before one of the old owner's machines took it. Its row
+	// stays pending, and the next pass submits it for the new owner.
+	errOwnerChanged = errors.New("the room's owner changed")
+)
 
 // Service runs transcript jobs and serves the transcript routes.
 type Service struct {
@@ -131,22 +137,13 @@ func (s *Service) reconcile(ctx context.Context) {
 		return
 	}
 	wanted := make(map[string]bool, len(pending))
-	rooms := make(map[string]store.Room)
-	for _, recording := range pending {
-		wanted[recording.ID] = true
-		if s.following(recording.ID) {
+	for _, transcript := range pending {
+		wanted[transcript.ID] = true
+		if s.following(transcript.ID) {
 			continue
 		}
-		room, ok := rooms[recording.RoomSlug]
-		if !ok {
-			if room, err = s.cfg.Store.RoomBySlug(ctx, recording.RoomSlug); err != nil {
-				log.Printf("transcripts: recording %s: load its room: %v", recording.ID, err)
-				continue
-			}
-			rooms[recording.RoomSlug] = room
-		}
-		if err := s.submit(ctx, recording, room); err != nil {
-			log.Printf("transcripts: recording %s: submit its job: %v", recording.ID, err)
+		if err := s.submit(ctx, transcript); err != nil {
+			log.Printf("transcripts: recording %s: submit its job: %v", transcript.ID, err)
 		}
 	}
 	var unwanted []*moil.Run
@@ -169,20 +166,21 @@ func (s *Service) following(recordingID string) bool {
 }
 
 // submit hands a pending transcript's job to moil, which offers it to the
-// room owner's machines only, and follows it. Resubmitting a job moil
-// still has, after klisi restarted, returns the job it has.
-func (s *Service) submit(ctx context.Context, recording store.Recording, room store.Room) error {
+// machines of the room's owner only, and follows it. The room is the
+// recording's by ID: its slug may change meanwhile, and name another room.
+func (s *Service) submit(ctx context.Context, transcript store.PendingTranscript) error {
+	recording := transcript.Recording
 	timeout := attemptTimeout(recording.DurationS)
 	valid := min(timeout+urlGrace, maxURLValidity)
 	id := recording.ID
 	run, err := s.cfg.Moil.Submit(ctx, moil.Job{
 		ID:       "recording-" + id,
 		Bundle:   s.cfg.Bundle,
-		Title:    truncate(room.Name, maxTitle),
-		Eligible: moil.OwnedBy(room.OwnerSub),
+		Title:    truncate(transcript.RoomName, maxTitle),
+		Eligible: moil.OwnedBy(transcript.RoomOwner),
 		Timeout:  timeout,
-		Prepare: func(ctx context.Context, _ moil.Assignment) (map[string]moil.Download, map[string]moil.Upload, error) {
-			return s.files(ctx, id, valid)
+		Prepare: func(ctx context.Context, a moil.Assignment) (map[string]moil.Download, map[string]moil.Upload, error) {
+			return s.files(ctx, id, a, valid)
 		},
 	})
 	if err != nil {
@@ -212,14 +210,21 @@ func attemptTimeout(durationS *int64) time.Duration {
 // files mints an attempt's URLs as a machine takes it, rather than at
 // submission: a job can wait days for a laptop to wake. They are a GET for
 // the recording and a PUT for each sidecar, valid for as long as the
-// attempt may take.
-func (s *Service) files(ctx context.Context, recordingID string, valid time.Duration) (map[string]moil.Download, map[string]moil.Upload, error) {
+// attempt may take. Only a machine of the room's current owner gets them.
+func (s *Service) files(ctx context.Context, recordingID string, a moil.Assignment, valid time.Duration) (map[string]moil.Download, map[string]moil.Upload, error) {
 	recording, err := s.cfg.Store.RecordingByID(ctx, recordingID)
+	var room store.Room
+	if err == nil {
+		room, err = s.cfg.Store.RoomByID(ctx, recording.RoomID)
+	}
 	if errors.Is(err, sql.ErrNoRows) || (err == nil && !transcribable(recording)) {
 		return nil, nil, errRecordingGone
 	}
 	if err != nil {
 		return nil, nil, prepareError(err)
+	}
+	if a.Machine.Owner != room.OwnerSub {
+		return nil, nil, errOwnerChanged
 	}
 	input, err := s.cfg.Objects.PresignedGet(ctx, *recording.S3Key, valid)
 	if err != nil {
@@ -278,6 +283,8 @@ func (s *Service) follow(ctx context.Context, j *job) {
 		delete(s.jobs, j.recordingID)
 	}
 	s.mu.Unlock()
+	// A row the run left pending gets its next job without waiting a tick.
+	s.Nudge()
 }
 
 func (j *job) observe(event moil.Event) {
@@ -314,7 +321,7 @@ func (s *Service) ended(ctx context.Context, j *job) {
 		// klisi is shutting down; the pending row is submitted again at the
 		// next start.
 		return
-	case errors.Is(err, moil.ErrCancelled), errors.Is(err, errRecordingGone):
+	case errors.Is(err, moil.ErrCancelled), errors.Is(err, errRecordingGone), errors.Is(err, errOwnerChanged):
 	case err != nil:
 		log.Printf("transcripts: recording %s: %v", j.recordingID, err)
 		if err := s.cfg.Store.FailTranscript(ctx, j.recordingID, failure(err), now); err != nil {

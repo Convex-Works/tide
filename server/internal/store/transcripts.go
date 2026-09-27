@@ -45,32 +45,47 @@ func (s *Store) CreateTranscripts(ctx context.Context, now int64) (int64, error)
 	return result.RowsAffected()
 }
 
-// pendingTranscriptsQuery lists the pending transcripts' recordings in the
-// order transcripts_pending_requested_idx keeps them.
+// A PendingTranscript is a pending transcript's recording, with what the
+// reconciler needs of its room, found by the room's ID.
+type PendingTranscript struct {
+	Recording
+	RequestedAt int64
+	RoomName    string
+	RoomOwner   string
+}
+
+// pendingTranscriptsQuery lists the pending transcripts in the order
+// transcripts_pending_requested_idx keeps them, each with its recording
+// and its recording's room.
 const pendingTranscriptsQuery = `
 	SELECT r.id, r.room_id, r.room_slug, r.egress_id, r.status, r.started_by, r.started_at,
-	       r.audio_only, r.ended_at, r.duration_s, r.s3_key, r.size_bytes
-	FROM transcripts t JOIN recordings r ON r.id = t.recording_id
+	       r.audio_only, r.ended_at, r.duration_s, r.s3_key, r.size_bytes,
+	       t.requested_at, rooms.name, rooms.owner_sub
+	FROM transcripts t
+	JOIN recordings r ON r.id = t.recording_id
+	JOIN rooms ON rooms.id = r.room_id
 	WHERE t.status = 'pending'
 	ORDER BY t.requested_at ASC, t.recording_id ASC`
 
-// PendingTranscripts returns the recordings whose transcripts are pending,
-// the ones requested first first.
-func (s *Store) PendingTranscripts(ctx context.Context) ([]Recording, error) {
+// PendingTranscripts returns the pending transcripts, the ones requested
+// first first.
+func (s *Store) PendingTranscripts(ctx context.Context) ([]PendingTranscript, error) {
 	rows, err := s.db.QueryContext(ctx, pendingTranscriptsQuery)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	recordings := make([]Recording, 0)
+	pending := make([]PendingTranscript, 0)
 	for rows.Next() {
-		recording, err := scanRecording(rows)
+		var transcript PendingTranscript
+		transcript.Recording, err = scanRecording(rows,
+			&transcript.RequestedAt, &transcript.RoomName, &transcript.RoomOwner)
 		if err != nil {
 			return nil, err
 		}
-		recordings = append(recordings, recording)
+		pending = append(pending, transcript)
 	}
-	return recordings, rows.Err()
+	return pending, rows.Err()
 }
 
 // Transcript returns a recording's transcript, or sql.ErrNoRows if it has

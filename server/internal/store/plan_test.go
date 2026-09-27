@@ -45,6 +45,7 @@ func TestFrequentQueriesUseIndexes(t *testing.T) {
 		{"the pending transcripts, oldest request first", pendingTranscriptsQuery, nil, []string{
 			"SCAN t USING COVERING INDEX transcripts_pending_requested_idx",
 			"SEARCH r USING INDEX sqlite_autoindex_recordings_1 (id=?)",
+			"SEARCH rooms USING INDEX sqlite_autoindex_rooms_1 (id=?)",
 		}},
 		{"the objects due for removal", dueRemovalsQuery, []any{100, 10}, []string{
 			"SEARCH object_removals USING COVERING INDEX object_removals_due_idx (due_at<?)",
