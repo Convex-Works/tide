@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy, onMount, type Snippet } from 'svelte';
   import { Microphone, MicrophoneSlash, VideoCamera, VideoCameraSlash } from 'phosphor-svelte';
   import {
     Room,
@@ -20,7 +20,8 @@
     showRoom = true,
     heading = 'Join a room',
     onactivateplayback = () => undefined,
-    onjoin
+    onjoin,
+    account
   }: {
     room: string;
     name: string;
@@ -29,6 +30,7 @@
     heading?: string;
     onactivateplayback?: () => void;
     onjoin: (options: PreJoinOptions) => void | Promise<void>;
+    account?: Snippet;
   } = $props();
 
   let cameras = $state<MediaDeviceInfo[]>([]);
@@ -263,7 +265,10 @@
     </div>
 
     <div class="details">
-      <div class="brand">klisi</div>
+      <div class="brand-row">
+        <div class="brand">klisi</div>
+        {@render account?.()}
+      </div>
       <h1 class:room-heading={!showRoom}>{heading}</h1>
 
       {#if showRoom}
@@ -419,8 +424,16 @@
     padding: 12px;
   }
 
+  .brand-row {
+    display: flex;
+    min-height: var(--control-height);
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
   .brand {
-    margin-bottom: 16px;
     color: var(--accent);
     font-size: 12px;
     font-weight: 550;
