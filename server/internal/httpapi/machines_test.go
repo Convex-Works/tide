@@ -240,9 +240,18 @@ func TestStartingAPairingIsRateLimited(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The refusal is in moil's error format (moil spec §3), which the moil
+	// app reads and shows its owner.
+	var refusal struct{ Error, Message string }
+	decodeErr := json.NewDecoder(response.Body).Decode(&refusal)
 	_ = response.Body.Close()
 	if response.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("third pairing from one address = %d, want 429", response.StatusCode)
+	}
+	if decodeErr != nil || refusal.Error != "rate_limited" || refusal.Message == "" ||
+		response.Header.Get("Retry-After") == "" {
+		t.Fatalf("refusal = %+v (%v), Retry-After %q; want moil's error format",
+			refusal, decodeErr, response.Header.Get("Retry-After"))
 	}
 
 	// The limit is on starting pairings only: from the same address, the

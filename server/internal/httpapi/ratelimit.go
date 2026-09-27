@@ -98,10 +98,29 @@ func (l *ipRateLimiter) allow(key string) bool {
 }
 
 func withRateLimit(limiter *ipRateLimiter, ips *clientIPResolver, next http.Handler) http.Handler {
+	return limited(limiter, ips, next, func(w http.ResponseWriter) {
+		httpx.WriteError(w, http.StatusTooManyRequests, "Too many requests. Try again later.")
+	})
+}
+
+// withMoilRateLimit limits a moil endpoint. Machines read errors in moil's
+// own format, {"error": code, "message": text} (moil spec §3), and show the
+// message to their owner.
+func withMoilRateLimit(limiter *ipRateLimiter, ips *clientIPResolver, next http.Handler) http.Handler {
+	return limited(limiter, ips, next, func(w http.ResponseWriter) {
+		w.Header().Set("Retry-After", "60")
+		httpx.WriteJSON(w, http.StatusTooManyRequests, map[string]string{
+			"error":   "rate_limited",
+			"message": "Too many machines started pairing from this network. Try again in a minute.",
+		})
+	})
+}
+
+func limited(limiter *ipRateLimiter, ips *clientIPResolver, next http.Handler, refuse func(http.ResponseWriter)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !limiter.allow(ips.resolve(r)) {
 			w.Header().Set("Cache-Control", "no-store")
-			httpx.WriteError(w, http.StatusTooManyRequests, "Too many requests. Try again later.")
+			refuse(w)
 			return
 		}
 		next.ServeHTTP(w, r)

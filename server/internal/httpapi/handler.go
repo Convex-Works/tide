@@ -169,7 +169,7 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store) (http.Handler, *B
 	// The machines' side of moil. Starting a pairing is the one moil endpoint
 	// that takes no credentials, so it is rate limited per IP.
 	moilHandler := http.StripPrefix(api.MoilBasePath, moilServer.Handler())
-	mux.Handle("POST "+api.MoilBasePath+"/v1/pair", withRateLimit(pairLimiter, ips, moilHandler))
+	mux.Handle("POST "+api.MoilBasePath+"/v1/pair", withMoilRateLimit(pairLimiter, ips, moilHandler))
 	mux.Handle(api.MoilBasePath+"/", moilHandler)
 
 	mux.HandleFunc("POST "+api.LiveKitWebhookPath, handler.recording.Webhook)
