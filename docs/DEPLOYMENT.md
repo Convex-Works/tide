@@ -251,6 +251,11 @@ own origin, under `/moil/`. Three things must hold:
   days is a harmless backstop.
 - `KLISI_TRUSTED_PROXIES` names the ingress, so that the pairing rate limit
   counts clients rather than the proxy.
+- `KLISI_BASE_URL` is exactly the origin hosts reach klisi at, scheme and port
+  included. The moil app confirms a pairing only on the origin it pairs with,
+  so a machine pairing through another address (`www.` versus the apex, an
+  internal host, plain http behind a TLS proxy) is refused. Hosts should use
+  the address `/machines` shows.
 
 Paired machines, transcript state and the queue of objects to remove live in
 SQLite with the rest of klisi's records. Transcript files live in the bucket
