@@ -3,7 +3,8 @@
 klisi is a lean, self-hosted video meeting product. It does few things well:
 meeting URLs, host auth (OIDC), a guest lobby, mic/cam/screen controls, device
 selection, a participant list with moderation, reconnection, ephemeral chat, and
-Zoom-like server-orchestrated recording with recording management.
+Zoom-like server-orchestrated recording with recording management, including
+speaker-labelled transcripts made on the room owner's own machine (§8.1).
 
 Everything else is out of scope by design. Feature restraint is the product.
 
@@ -20,6 +21,9 @@ Everything else is out of scope by design. Feature restraint is the product.
 - **One source of truth per type.** API types are defined once in Go and
   generated into TypeScript. CI fails on drift.
 - **Frozen feature list.** New features must displace an existing one.
+  Transcripts were admitted as part of recording management, on one
+  condition that stays load-bearing: no model runs on the server. Heavy
+  compute happens on machines the recording's owner paired (§8.1).
 
 ## 2. System architecture
 
@@ -41,17 +45,22 @@ Everything else is out of scope by design. Feature restraint is the product.
            └─────────────►│  Egress worker    │─────────────┼──────►┌────────┐
                           │  (Chrome + GST)   │ OGG / MP4   │       │  S3 /  │
                           └──────────────────┘─────────────►└──────►│ MinIO  │
-                                                                    └────────┘
+                                                                    └───▲────┘
+┌──────────────────────┐   WebSocket /moil/v1/connect  (opened by     │
+│  Owner's machine     │──────────────────────────────► the machine)  │
+│  moil app + uv       │◄───── recording GET, transcript PUT ─────────┘
+└──────────────────────┘        (presigned)
 ```
 
 | Component | What it is | What it owns |
 |---|---|---|
-| **klisi server** | Single Go binary, embeds the built SPA via `embed.FS` | Auth, sessions, rooms, tokens, lobby, moderation API, recording lifecycle + management, webhooks |
+| **klisi server** | Single Go binary, embeds the built SPA via `embed.FS` | Auth, sessions, rooms, tokens, lobby, moderation API, recording lifecycle + management, webhooks, the moil service side (pairing, transcript jobs) |
 | **LiveKit server** | Stateless Go binary (upstream, Apache 2.0) | All media: SFU, simulcast, adaptive streaming, ICE, reconnection/resume |
 | **Egress worker** | Upstream worker service (headless Chrome + GStreamer) | Renders our composite layout page, encodes OGG audio or MP4 video, writes directly to S3 |
 | **Redis** | Required by LiveKit once Egress runs | Egress job queue, LiveKit node state |
 | **MinIO (dev) / S3 (prod)** | Object storage | Recording files |
 | **Dex (dev only)** | OIDC identity provider | Host login in the dev stack; any OIDC provider in prod |
+| **Paired machines (optional)** | Hosts' own computers running the [moil](https://git.convex.works/ConvexWorks/moil) app | Transcribing their owner's recordings; not part of the deployment |
 
 Single-instance by design for v1: SQLite for durable state, in-memory for
 ephemeral state (lobby). Nothing in the design blocks moving to Postgres +
@@ -71,7 +80,11 @@ klisi/
       lobby/               in-memory lobby registry
       livekit/             token minting, server SDK calls, webhook verify
       recording/           egress control, recording state machine
+      machines/            pairing and managing hosts' moil machines
+      transcripts/         transcript jobs, reconciler; bundle/ is the
+                           embedded moil bundle
       store/               SQLite (modernc.org/sqlite, CGO-free)
+    third_party/moil/      vendored moil Go SDK (scripts/vendor-moil.sh)
     web_embed.go           //go:embed of web/build
   web/                     SvelteKit SPA (adapter-static)
     src/
@@ -196,10 +209,94 @@ ended_at, duration_s, s3_key, size_bytes`.
 Stop on: explicit stop, room emptying (LiveKit auto-ends the egress), or
 egress failure (status `failed`, surfaced in management UI — never silent).
 
+### 8.1 Transcripts
+
+A completed recording can carry a transcript with speaker labels. It is made by
+[moil](https://git.convex.works/ConvexWorks/moil) on a computer the **room's
+owner** paired with klisi — never on the server, and never on anyone else's
+machine. The owner can already download the recording, so transcription adds
+no new reader of the audio.
+
+**Machines.** A signed-in host pairs a computer running the moil app with
+moil's device flow (RFC 8628): the app shows a code and opens
+`/machines?code=XXXX-XXXX`, where the host checks the machine's name and
+confirms. The confirming session's `sub` becomes the machine's owner; nothing
+in the request body can name another. The moil SDK
+(`server/third_party/moil`) serves the machine side of the protocol under
+`/moil/` — the moil base URL is `<KLISI_BASE_URL>/moil` — and each machine keeps
+one WebSocket open to `/moil/v1/connect`. Paired machines live in the
+`machines` table, which stores only the SHA-256 of a machine's token. `/machines`
+lists the host's own machines and unpairs them.
+
+**The bundle.** klisi publishes one moil bundle, `transcribe` (Nemotron 3
+Diarization and Parakeet TDT 0.6B v3), vendored in
+`server/internal/transcripts/bundle/` and embedded in the binary. Machine
+owners read and approve it by hash in the moil app. A test pins that hash: a
+new hash asks every owner to review and approve again, so it only ever changes
+on purpose.
+
+**Intent and projection.** The `transcripts` table is the source of truth: one
+row per recording that should have a transcript, in status `pending`,
+`completed` or `failed`. A moil job is a disposable projection of a `pending`
+row, the way recording rows are reconciled against Egress (§8). The reconciler
+runs at startup, every minute, and whenever it is nudged (a recording ends or
+is deleted, a transcript is requested):
+
+1. It creates a `pending` row for every completed recording that has a file
+   and no row, when the room's owner had a machine paired by the time the
+   recording ended (`machines.paired_at <= recordings.ended_at`). Pairing a
+   machine is the opt-in; hosts without one never see transcripts.
+2. It submits a job for every `pending` row it isn't following yet, with job
+   ID `recording-<id>`. moil treats resubmitting a live ID as a no-op, so a
+   restart, which loses moil's in-memory jobs, just submits them again.
+3. It cancels every job whose row is gone or no longer `pending`.
+
+A job is eligible only for the room owner's machines
+(`moil.OwnedBy(rooms.owner_sub)`); administrators can request a transcript for
+any room they manage, but it still runs on that room owner's machines. Each
+attempt may run for one hour plus twice the recording's duration (three hours
+when the duration is unknown). When a job succeeds its row becomes `completed`
+with the speaker count; when it fails, `failed` with an error the UI can show.
+Cancellation and server shutdown leave the row as it is.
+
+**Files.** Presigned URLs are minted when a machine takes an attempt
+(`moil.Job.Prepare`), not at submission, because a job can wait days for a
+laptop to wake. They last for the attempt's time limit plus 15 minutes: a GET
+for the recording (input `recording.ogg` or `recording.mp4`) and a PUT for
+each output. The outputs are stored beside the recording under its basename,
+as a video player expects sidecar captions:
+
+```
+recordings/<room>/<recording-id>/2026-09-27 14-00 - Standup.ogg
+recordings/<room>/<recording-id>/2026-09-27 14-00 - Standup.txt   transcript
+recordings/<room>/<recording-id>/2026-09-27 14-00 - Standup.vtt   WebVTT captions
+```
+
+`store.Recording.ObjectKeys()` names all of a recording's files, and every
+path that deletes a recording (its own delete, its room's) removes them all. A
+job that ends after its recording was deleted removes whatever it uploaded.
+
+**Status.** `RecordingInfo.transcript` combines the row with the live job:
+
+| `status` | Meaning |
+|---|---|
+| *(null)* | No transcript, and none possible: the recording isn't completed, or the owner has no machine |
+| `available` | Completed recording, the owner has a machine, nothing requested yet |
+| `waiting` | Pending, and no machine is on it. `message` says why: none of the owner's machines approved the current bundle, none is online, or they're busy |
+| `running` | A machine is working on it; `progress` (0–1) and `message` when it reports them |
+| `completed` | `GET /api/recordings/:id/transcript/download?format=txt\|vtt` redirects to a 5-minute presigned URL |
+| `failed` | `error` says why |
+
+`POST /api/recordings/:id/transcript` requests a transcript for an `available`
+recording or retries a `failed` one. Transcripts appear only in recording
+management; there is nothing in the meeting itself: no live captions,
+summaries or editing.
+
 ## 9. Frontend
 
 SvelteKit (Svelte 5 runes) + `adapter-static`, embedded in the Go binary. Vite
-dev server proxies `/api` to the Go server during development.
+dev server proxies `/api` and `/moil` (including the machines' WebSocket) to the
+Go server during development.
 
 Routes:
 
@@ -208,7 +305,8 @@ Routes:
 | `/` | Dashboard: your rooms, create room, recent recordings (auth) |
 | `/login` | OIDC entry (redirects to provider) |
 | `/m/[slug]` | Pre-join → lobby wait → room (one route, three states) |
-| `/rooms/[slug]` | Room settings + its recordings (auth, owner) |
+| `/rooms/[slug]` | Room settings + its recordings and their transcripts (auth, owner) |
+| `/machines` | Your paired machines; with `?code=`, confirming a machine's pairing (auth) |
 | `/egress-template` | Recording composite layout (headless Chrome only) |
 
 State architecture: one `lib/rtc/room.svelte.ts` class wraps `livekit-client`'s
@@ -384,10 +482,10 @@ KLISI_S3_EGRESS_ENDPOINT=…       KLISI_S3_BUCKET / _ACCESS_KEY / _SECRET_KEY
 KLISI_S3_REGION=…                KLISI_EGRESS_TEMPLATE_URL=…
 KLISI_TRUSTED_PROXIES=…          KLISI_DEV_MODE=false
 KLISI_JOIN_RATE_LIMIT=10         KLISI_WAIT_RATE_LIMIT=20
-KLISI_LOGIN_RATE_LIMIT=10
+KLISI_LOGIN_RATE_LIMIT=10        KLISI_PAIR_RATE_LIMIT=10
 ```
 
-The three rate limits are per-IP ceilings over a one-minute window. They are
+The four rate limits are per-IP ceilings over a one-minute window. They are
 configuration because the right value depends on the deployment: a public
 install wants the defaults, while the media gate — where every browser shares
 one container IP — would throttle itself without raising them. A value that is
@@ -501,11 +599,23 @@ up between runs for iteration.
 - LiveKit webhook requests are verified against the API key/secret signature.
 - Session cookies: HttpOnly, Secure, SameSite=Lax, HMAC-signed, short expiry.
 - Per-IP token buckets limit guest joins (10/min), lobby wait streams (20/min),
-  and login redirects (10/min); stale buckets are cleaned in memory.
+  login redirects (10/min) and machines starting a pairing (10/min,
+  `POST /moil/v1/pair`, the one moil endpoint that takes no credentials); stale
+  buckets are cleaned in memory.
 - JSON request bodies are limited to 1 MB before decoding; lobby requests
   expire after 10 minutes.
 - Presigned download URLs are short-lived (5 min) and minted per request after
   an ownership check.
+- Machines (§8.1): pairing is confirmed only by a signed-in session with the
+  CSRF header, and the machine's owner is always that session. Machine tokens
+  are stored as SHA-256 hashes. Transcript jobs go only to the room owner's
+  machines. A machine gets presigned URLs for one attempt: a GET for the
+  recording and a PUT for each sidecar, valid for the attempt's time limit. The
+  moil app refuses plain-http URLs unless klisi itself is on loopback, so
+  production needs an https `KLISI_S3_PUBLIC_ENDPOINT`.
+- The transcript bundle runs with the machine owner's permissions and no
+  sandbox (moil's alpha). Owners read and approve it in the moil app; klisi
+  pins its hash so it cannot change silently.
 - No secrets in the SPA: the client knows only its own token and public URLs.
 - `window.klisiDiagnostics()` (§9.1) contains participant identities and display
   names. It is written to the user's own machine by an explicit action and is
@@ -572,3 +682,6 @@ a clean machine.
 | DB | SQLite (modernc, CGO-free) | Single instance; keeps the static binary |
 | Type sync | tygo + CI drift gate | Go structs as single source of truth |
 | Recording | Egress room composite + custom template | Server-owned lifetime; recordings wear klisi's design |
+| Transcripts | moil jobs on the room owner's own machine | No model or GPU on the server, no fifth process, no new reader of the audio |
+| Transcript trigger | Automatic once the owner has paired a machine; otherwise on request | Pairing is the opt-in; no per-recording button for hosts who use it |
+| moil SDK | Vendored in `server/third_party/moil` | The forge sits behind Cloudflare Access, so Go can't fetch it in CI or Docker; same precedent as `web/vendor` |
