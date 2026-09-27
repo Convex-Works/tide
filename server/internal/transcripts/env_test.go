@@ -54,9 +54,10 @@ type env struct {
 	cancelService func() // klisi starts stopping
 	waitService   func() // and has stopped
 	recorded      int
+	configure     []func(*transcripts.Config)
 }
 
-func newEnv(t *testing.T) *env {
+func newEnv(t *testing.T, configure ...func(*transcripts.Config)) *env {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "klisi.db")
 	db, err := store.Open(path)
@@ -69,7 +70,7 @@ func newEnv(t *testing.T) *env {
 		t.Fatal(err)
 	}
 	clock := newClock()
-	e := &env{t: t, path: path, db: db, clock: clock, s3: newFakeS3(t, clock), bundle: bundle}
+	e := &env{t: t, path: path, db: db, clock: clock, s3: newFakeS3(t, clock), bundle: bundle, configure: configure}
 	e.front = httptest.NewServer(http.StripPrefix(api.MoilBasePath, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		e.mu.Lock()
 		server := e.moil
@@ -97,7 +98,11 @@ func (e *env) start() {
 		e.t.Fatal(err)
 	}
 	server.AddBundle(e.bundle)
-	service := transcripts.New(transcripts.Config{Moil: server, Bundle: e.bundle, Store: e.db, Objects: e.s3, Now: e.clock.Now})
+	cfg := transcripts.Config{Moil: server, Bundle: e.bundle, Store: e.db, Objects: e.s3, Now: e.clock.Now}
+	for _, configure := range e.configure {
+		configure(&cfg)
+	}
+	service := transcripts.New(cfg)
 	recordings := recording.NewHandler(e.db, noEgress{}, noRoomService{}, e.s3, "", nil)
 	recordings.SetClock(e.clock.Now)
 	recordings.SetTranscripts(service)
@@ -107,16 +112,22 @@ func (e *env) start() {
 	e.mu.Lock()
 	e.moil, e.service, e.recordings, e.rooms = server, service, recordings, roomsHandler
 	e.mu.Unlock()
+	e.run()
+}
+
+// run runs the transcripts service and the recording reconciler, again
+// after stopService.
+func (e *env) run() {
 	ctx, cancel := context.WithCancel(context.Background())
 	var done sync.WaitGroup
 	done.Add(2)
 	go func() {
 		defer done.Done()
-		service.Run(ctx, time.Hour)
+		e.service.Run(ctx, time.Hour)
 	}()
 	go func() {
 		defer done.Done()
-		recordings.RunReconciler(ctx, 5*time.Millisecond)
+		e.recordings.RunReconciler(ctx, 5*time.Millisecond)
 	}()
 	e.cancelService, e.waitService = cancel, done.Wait
 }
@@ -238,7 +249,7 @@ func (e *env) pair(owner string) *moiltest.Machine {
 	return moiltest.Pair(e.t, e.moil, owner, moiltest.At(e.front.URL+api.MoilBasePath), moiltest.WithTimeout(waitTimeout))
 }
 
-// machine pairs a machine for owner that approved the transcriber and is
+// machine pairs a machine for owner that approved the transcribe bundle and is
 // connected, idle.
 func (e *env) machine(owner string) *moiltest.Machine {
 	e.t.Helper()

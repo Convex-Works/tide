@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 // A Transcript is the transcripts row of a recording (ARCHITECTURE.md §8.1):
@@ -23,11 +24,26 @@ type Transcript struct {
 
 const transcriptColumns = `t.recording_id, t.status, t.requested_at, t.finished_at, t.speakers, t.error`
 
+// OptedIn reports whether a completed recording with a file gets a
+// transcript without being asked: its room's owner, whose machines were
+// paired at pairedAt, had one paired by the time it ended. It is the rule
+// CreateTranscripts applies.
+func OptedIn(recording Recording, pairedAt []time.Time) bool {
+	if recording.EndedAt == nil {
+		return false
+	}
+	for _, at := range pairedAt {
+		if at.Unix() <= *recording.EndedAt {
+			return true
+		}
+	}
+	return false
+}
+
 // CreateTranscripts adds a pending transcript for every completed recording
-// with a file and no transcript, when its room's owner had a machine paired
-// by the time it ended: pairing a machine is the opt-in. A recording that
-// ended before its owner paired one waits for a request. It returns how many
-// transcripts it added.
+// with a file and no transcript that OptedIn: pairing a machine is the
+// opt-in. A recording that ended before its owner paired one waits for a
+// request. It returns how many transcripts it added.
 func (s *Store) CreateTranscripts(ctx context.Context, now int64) (int64, error) {
 	result, err := s.db.ExecContext(ctx, `
 		INSERT INTO transcripts (recording_id, status, requested_at)

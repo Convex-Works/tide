@@ -75,6 +75,22 @@ func TestCreateTranscriptsFromPairingOn(t *testing.T) {
 	if err != nil || added != 2 {
 		t.Fatalf("added %d, %v", added, err)
 	}
+	// OptedIn predicts it, for the recordings list to show transcripts
+	// about to be made before the reconciler made them.
+	for _, id := range []string{"before", "same-second", "after", "unknown-end"} {
+		recording, err := db.RecordingByID(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = db.Transcript(ctx, id)
+		created := err == nil
+		if predicted := OptedIn(recording, []time.Time{time.Unix(paired, 0)}); predicted != created {
+			t.Errorf("OptedIn(%s) = %t, but CreateTranscripts created a transcript: %t", id, predicted, created)
+		}
+	}
+	if (OptedIn(Recording{EndedAt: int64p(paired + 1)}, nil)) {
+		t.Error("OptedIn without a machine")
+	}
 	if added, err := db.CreateTranscripts(ctx, 2_000_001); err != nil || added != 0 {
 		t.Fatalf("added again %d, %v", added, err)
 	}

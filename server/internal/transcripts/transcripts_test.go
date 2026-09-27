@@ -483,8 +483,13 @@ func TestAvailableUntilRequestedAndWhatItWaitsFor(t *testing.T) {
 		t.Fatalf("transcript without a machine = %+v", info)
 	}
 	response := e.requestTranscript(early, session("alice"))
-	if response.Code != http.StatusConflict || !strings.Contains(errorMessage(t, response), "/machines") {
+	if response.Code != http.StatusConflict || errorMessage(t, response) != "Pair a machine on the Machines page to transcribe recordings." {
 		t.Fatalf("request without a machine: %d", response.Code)
+	}
+	response = e.requestTranscript(early, admin)
+	if response.Code != http.StatusConflict ||
+		errorMessage(t, response) != "The room's owner has no paired machine to transcribe it. Ask them to pair one on the Machines page." {
+		t.Fatalf("administrator's request without the owner's machine: %d", response.Code)
 	}
 
 	machine := e.pair("alice")
@@ -503,7 +508,7 @@ func TestAvailableUntilRequestedAndWhatItWaitsFor(t *testing.T) {
 			return info != nil && info.Status == api.TranscriptWaiting && info.Message == message
 		})
 	}
-	const notApproved = "No paired machine has approved the transcriber yet. Approve it in the moil app."
+	const notApproved = "No paired machine has approved the transcribe bundle yet. Approve it in the moil app."
 	waiting(notApproved)
 	machine.Connect()
 	machine.Sync()
@@ -545,9 +550,12 @@ func TestAvailableUntilRequestedAndWhatItWaitsFor(t *testing.T) {
 		info.Message != "Waiting for a paired machine to finish its current job." {
 		t.Fatalf("early transcript while the machine is busy = %+v", info)
 	}
-	if response := e.requestTranscript(early, session("alice")); response.Code != http.StatusConflict ||
-		errorMessage(t, response) != "This recording's transcript is already on its way." {
-		t.Fatalf("second request: %d", response.Code)
+	// Asked again, it answers with the transcript as it is.
+	response = e.requestTranscript(early, session("alice"))
+	var again api.TranscriptInfo
+	if err := json.NewDecoder(response.Body).Decode(&again); err != nil || response.Code != http.StatusAccepted ||
+		again.Status != api.TranscriptWaiting || again.Message != "Waiting for a paired machine to finish its current job." {
+		t.Fatalf("second request: %d %+v, %v", response.Code, again, err)
 	}
 	finish(t, a, 2)
 	b := machine.NextAttempt()

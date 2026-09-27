@@ -95,8 +95,16 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store) (http.Handler, *B
 		return nil, nil, fmt.Errorf("start moil: %w", err)
 	}
 	moilServer.AddBundle(transcribe)
+	// Machines refuse plain http storage unless klisi and storage are both
+	// on loopback. klisi still starts (the media gate runs that way), but
+	// every transcript fails at once, naming the setting.
+	storageProblem := transcripts.StorageWarning(cfg.BaseURL, cfg.S3PublicEndpoint)
+	if storageProblem != "" {
+		log.Printf("WARNING: every transcript will fail: %s", storageProblem)
+	}
 	transcriptService := transcripts.New(transcripts.Config{
 		Moil: moilServer, Bundle: transcribe, Store: roomStore, Objects: recording.NewMinIOStore(cfg),
+		StorageProblem: storageProblem,
 	})
 	recordingHandler.SetTranscripts(transcriptService)
 	recordingHandler.SetRecordingsChangedHook(transcriptService.Nudge)

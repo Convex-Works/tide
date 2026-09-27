@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"mime"
 	"net/http"
 	"path"
@@ -269,12 +270,14 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not load recordings. Try again.")
 		return
 	}
+	// Transcripts are best effort: without them the recordings are still
+	// there to play, download and delete.
 	var transcripts map[string]*api.TranscriptInfo
 	if h.transcripts != nil {
 		transcripts, err = h.transcripts.Transcripts(r.Context(), room, recordings)
 		if err != nil {
-			httpx.WriteError(w, http.StatusInternalServerError, "Could not load transcripts. Try again.")
-			return
+			log.Printf("recordings: room %s: list without transcripts: %v", room.ID, err)
+			transcripts = nil
 		}
 	}
 	response := make([]api.RecordingInfo, 0, len(recordings))

@@ -19,24 +19,27 @@ const downloadExpiry = 5 * time.Minute
 
 // Request serves POST api.RecordingTranscriptPath: requests a transcript of
 // an available recording, or retries a failed one, and returns its
-// api.TranscriptInfo.
+// api.TranscriptInfo. A transcript already on its way answers with its
+// status as it is.
 func (s *Service) Request(w http.ResponseWriter, r *http.Request) {
 	recording, room, session, ok := s.requireManager(w, r)
 	if !ok {
 		return
 	}
-	if !transcribable(recording) {
-		httpx.WriteError(w, http.StatusConflict, "Only a completed recording can be transcribed.")
+	switch {
+	case recording.Status == "starting" || recording.Status == "recording" || recording.Status == "finalizing":
+		httpx.WriteError(w, http.StatusConflict, "This recording hasn't finished yet. Request its transcript once it has.")
+		return
+	case !transcribable(recording):
+		httpx.WriteError(w, http.StatusConflict, "This recording has no file, so it can't be transcribed.")
 		return
 	}
-	row, err := s.cfg.Store.Transcript(r.Context(), recording.ID)
-	exists := err == nil
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		httpx.WriteError(w, http.StatusInternalServerError, "Could not load the transcript. Try again.")
+	row, exists, ok := s.loadRow(w, r, recording.ID)
+	if !ok {
 		return
 	}
-	if exists && row.Status != "failed" {
-		writeRequested(w, row.Status)
+	if exists && row.Status == "completed" {
+		httpx.WriteError(w, http.StatusConflict, "This recording already has a transcript.")
 		return
 	}
 	// The job can only run on the room owner's machines, whoever asks.
@@ -45,10 +48,14 @@ func (s *Service) Request(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not load the room owner's machines. Try again.")
 		return
 	}
+	if exists && row.Status == "pending" {
+		httpx.WriteJSON(w, http.StatusAccepted, s.info(recording, row, true, machines))
+		return
+	}
 	if len(machines) == 0 {
-		message := "The room's owner has no paired machine to transcribe it."
+		message := "The room's owner has no paired machine to transcribe it. Ask them to pair one on the Machines page."
 		if session.Sub == room.OwnerSub {
-			message = "Pair a machine at /machines to transcribe recordings."
+			message = "Pair a machine on the Machines page to transcribe recordings."
 		}
 		httpx.WriteError(w, http.StatusConflict, message)
 		return
@@ -65,8 +72,16 @@ func (s *Service) Request(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !changed {
-		// Someone else requested it meanwhile, or deleted the recording.
-		httpx.WriteError(w, http.StatusConflict, "The transcript just changed. Reload to see it.")
+		// Requested meanwhile, by the reconciler or someone else: answer
+		// with what it is now.
+		if row, exists, ok = s.loadRow(w, r, recording.ID); !ok {
+			return
+		}
+		if !exists || row.Status != "pending" {
+			httpx.WriteError(w, http.StatusConflict, "The transcript just changed. Reload to see it.")
+			return
+		}
+		httpx.WriteJSON(w, http.StatusAccepted, s.info(recording, row, true, machines))
 		return
 	}
 	s.Nudge()
@@ -75,14 +90,18 @@ func (s *Service) Request(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// writeRequested answers a request for a transcript that is already
-// pending or completed.
-func writeRequested(w http.ResponseWriter, status string) {
-	message := "This recording's transcript is already on its way."
-	if status == "completed" {
-		message = "This recording already has a transcript."
+// loadRow loads a recording's transcripts row, if it has one. If it can't,
+// it answers the request and returns false.
+func (s *Service) loadRow(w http.ResponseWriter, r *http.Request, recordingID string) (store.Transcript, bool, bool) {
+	row, err := s.cfg.Store.Transcript(r.Context(), recordingID)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return store.Transcript{}, false, true
+	case err != nil:
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not load the transcript. Try again.")
+		return store.Transcript{}, false, false
 	}
-	httpx.WriteError(w, http.StatusConflict, message)
+	return row, true, true
 }
 
 // Download serves GET api.RecordingTranscriptDownloadPath?format=txt|vtt: a
@@ -103,7 +122,7 @@ func (s *Service) Download(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not load the transcript. Try again.")
 		return
 	case err != nil || row.Status != "completed" || !transcribable(recording):
-		httpx.WriteError(w, http.StatusConflict, "The transcript is not ready to download.")
+		httpx.WriteError(w, http.StatusConflict, "The transcript isn't ready to download yet.")
 		return
 	}
 	// The file is named like the recording: "2026-09-27 14-00 - Standup.vtt".

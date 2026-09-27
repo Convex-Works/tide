@@ -53,6 +53,9 @@ type Config struct {
 	Objects ObjectStore
 	// Now is the time; nil means time.Now.
 	Now func() time.Time
+	// StorageProblem, when set, is why machines would refuse the URLs of
+	// Objects (StorageWarning): every transcript fails at once with it.
+	StorageProblem string
 }
 
 const (
@@ -188,6 +191,12 @@ func (s *Service) reconcile(ctx context.Context) {
 		}
 		wanted[transcript.ID] = true
 		if followed[transcript.ID] {
+			continue
+		}
+		if s.cfg.StorageProblem != "" {
+			if err := s.cfg.Store.FailTranscript(ctx, transcript.ID, s.cfg.StorageProblem, now.Unix()); err != nil {
+				log.Printf("transcripts: recording %s: fail it for storage machines can't use: %v", transcript.ID, err)
+			}
 			continue
 		}
 		if err := s.submit(ctx, transcript); err != nil {
@@ -341,12 +350,6 @@ func stagedKey(dir string, format store.TranscriptFormat) string {
 	return path.Join(dir, outputName(format))
 }
 
-// prepareError puts the job back in the queue, as a failed attempt: klisi
-// couldn't make its URLs this time, but could the next.
-func prepareError(err error) error {
-	return &moil.JobError{Code: moil.CodeInternal, Message: "klisi couldn't prepare the recording's URLs: " + err.Error(), Retryable: true}
-}
-
 // inputName is the recording's file name on the machine. Its extension is
 // the container egress wrote for the recording's mode.
 func inputName(recording store.Recording) string {
@@ -423,6 +426,9 @@ func (j *job) observe(event moil.Event) {
 	case moil.EventAssigned:
 		// A new attempt starts from scratch, whatever the last one reached.
 		j.attempt, j.progress, j.message = event.Attempt, nil, "Starting"
+	case moil.EventRetrying:
+		// Nor is the failed attempt's progress the next one's.
+		j.progress, j.message = nil, ""
 	case moil.EventPhase:
 		if event.Attempt == j.attempt {
 			j.message = phaseMessage(event.Phase)
@@ -435,8 +441,8 @@ func (j *job) observe(event moil.Event) {
 			fraction := min(max(*event.Fraction, 0), 1)
 			j.progress = &fraction
 		}
-		if event.Message != "" {
-			j.message = capitalize(truncate(event.Message, maxMessage))
+		if message := machineText(event.Message); message != "" {
+			j.message = message
 		}
 	}
 }

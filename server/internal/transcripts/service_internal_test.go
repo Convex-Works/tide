@@ -78,3 +78,22 @@ func TestARunThatEndedIsRecordedWhileKlisiStops(t *testing.T) {
 		t.Fatalf("still following %v", s.jobs)
 	}
 }
+
+// A retried job's next attempt starts without the failed one's progress.
+func TestRetryingForgetsTheFailedAttemptsProgress(t *testing.T) {
+	half := 0.5
+	j := &job{}
+	for _, event := range []moil.Event{
+		{Kind: moil.EventAssigned, Attempt: 1},
+		{Kind: moil.EventProgress, Attempt: 1, Fraction: &half, Message: "halfway"},
+	} {
+		j.observe(event)
+	}
+	if j.progress == nil || j.message != "Halfway" {
+		t.Fatalf("after progress: %v, %q", j.progress, j.message)
+	}
+	j.observe(moil.Event{Kind: moil.EventRetrying, Attempt: 1, Err: &moil.JobError{Code: moil.CodeLost}})
+	if j.progress != nil || j.message != "" {
+		t.Fatalf("after retrying: %v, %q", j.progress, j.message)
+	}
+}
