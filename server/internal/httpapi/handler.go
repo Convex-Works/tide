@@ -91,7 +91,9 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 	// docs/REVIEW-2026-07-19.md), so the denylist TTL is the token TTL.
 	denylist := moderation.NewDenylist(lobby.TokenTTL)
 	moderationHandler := moderation.NewHandler(roomStore, moderation.NewRoomService(cfg), denylist)
-	recordingHandler := recording.New(cfg, roomStore)
+	// One storage client for every handler, which keeps its connections.
+	objects := recording.NewMinIOStore(cfg)
+	recordingHandler := recording.New(cfg, roomStore, objects)
 
 	// Transcripts run on machines hosts pair through moil (ARCHITECTURE.md §8.1).
 	baseURL := strings.TrimRight(cfg.BaseURL, "/")
@@ -118,7 +120,7 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 		log.Printf("WARNING: every transcript will fail: %s", storageProblem)
 	}
 	transcriptService := transcripts.New(transcripts.Config{
-		Moil: moilServer, Bundle: transcribe, Store: roomStore, Objects: recording.NewMinIOStore(cfg),
+		Moil: moilServer, Bundle: transcribe, Store: roomStore, Objects: objects,
 		StorageProblem: storageProblem,
 	})
 	recordingHandler.SetTranscripts(transcriptService)
@@ -133,7 +135,7 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 			log.Printf("rooms: touch active for %q: %v", roomName, err)
 		}
 	})
-	roomsHandler := rooms.NewHandler(roomStore, recording.NewMinIOStore(cfg), rooms.NewLiveKitSource(cfg), registry)
+	roomsHandler := rooms.NewHandler(roomStore, objects, rooms.NewLiveKitSource(cfg), registry)
 	roomsHandler.SetRoomDeletedHook(transcriptService.Nudge)
 	handler := &Handler{
 		web:        web,

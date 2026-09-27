@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -92,5 +93,79 @@ func TestMinIOStoreStatsAndCopiesThroughTheServerEndpoint(t *testing.T) {
 	location, err := store.PresignedPut(ctx, "transcripts-staging/rec/1-ab/transcript.vtt", time.Hour)
 	if err != nil || !strings.HasPrefix(location, "https://s3.public.example/klisi/transcripts-staging/") {
 		t.Fatalf("PresignedPut() = %q, %v", location, err)
+	}
+}
+
+// MinIOStore makes its clients once: calls after the first reuse the
+// connection it opened, rather than dial storage again each time.
+func TestMinIOStoreKeepsItsConnections(t *testing.T) {
+	var mu sync.Mutex
+	dials := 0
+	s3 := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodHead:
+			w.Header().Set("Content-Length", "42")
+			w.Header().Set("ETag", `"0123abcd"`)
+			w.Header().Set("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
+		case http.MethodDelete:
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			w.WriteHeader(http.StatusMethodNotAllowed)
+		}
+	}))
+	s3.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateNew {
+			mu.Lock()
+			dials++
+			mu.Unlock()
+		}
+	}
+	s3.Start()
+	defer s3.Close()
+	store := NewMinIOStore(config.Config{
+		S3Endpoint: s3.URL, S3PublicEndpoint: "https://s3.public.example", S3Bucket: "klisi",
+		S3AccessKey: "key", S3SecretKey: "secret", S3Region: "us-east-1",
+	})
+	ctx := context.Background()
+	for range 5 {
+		if _, _, err := store.Stat(ctx, "recordings/standup/rec/x.ogg"); err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Remove(ctx, "transcripts-staging/rec/1-ab/transcript.txt"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if dials != 1 {
+		t.Fatalf("ten calls dialled storage %d times, want once", dials)
+	}
+}
+
+// An endpoint minio can't use fails every call that needs it, naming the
+// setting and what it holds; the other endpoint's calls still work.
+func TestMinIOStoreNamesAnEndpointItCantUse(t *testing.T) {
+	store := NewMinIOStore(config.Config{
+		S3Endpoint: "http://minio host:9000", S3PublicEndpoint: "https://s3.public.example", S3Bucket: "klisi",
+		S3AccessKey: "key", S3SecretKey: "secret", S3Region: "us-east-1",
+	})
+	ctx := context.Background()
+	for name, call := range map[string]func() error{
+		"Remove": func() error { return store.Remove(ctx, "k") },
+		"Stat":   func() error { _, _, err := store.Stat(ctx, "k"); return err },
+		"Copy":   func() error { return store.Copy(ctx, "a", "", "b", "text/plain") },
+	} {
+		err := call()
+		if err == nil || !strings.Contains(err.Error(), `KLISI_S3_ENDPOINT="http://minio host:9000"`) {
+			t.Errorf("%s() = %v, want an error naming KLISI_S3_ENDPOINT and its value", name, err)
+		}
+	}
+	if location, err := store.PresignedGet(ctx, "k", time.Minute); err != nil || !strings.HasPrefix(location, "https://s3.public.example/klisi/k") {
+		t.Fatalf("PresignedGet() = %q, %v", location, err)
+	}
+
+	store = NewMinIOStore(config.Config{S3Endpoint: "http://minio:9000", S3PublicEndpoint: "", S3Bucket: "klisi", S3Region: "us-east-1"})
+	if _, err := store.PresignedPut(ctx, "k", time.Minute); err == nil || !strings.Contains(err.Error(), `KLISI_S3_PUBLIC_ENDPOINT=""`) {
+		t.Fatalf("PresignedPut() with no public endpoint = %v, want an error naming KLISI_S3_PUBLIC_ENDPOINT", err)
 	}
 }
