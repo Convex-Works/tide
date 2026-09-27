@@ -55,6 +55,12 @@ type klisi struct {
 
 func startKlisi(t *testing.T) *klisi {
 	t.Helper()
+	return startKlisiWith(t, stubBundle(t))
+}
+
+// startKlisiWith starts klisi publishing bundle as its transcriber.
+func startKlisiWith(t *testing.T, bundle *moil.Bundle) *klisi {
+	t.Helper()
 	needSuite(t)
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -82,7 +88,7 @@ func startKlisi(t *testing.T) *klisi {
 			S3SecretKey:      objects.secretKey,
 			S3Region:         objects.region,
 		},
-		bundle: stubBundle(t),
+		bundle: bundle,
 		url:    "http://" + address,
 		client: &http.Client{
 			Timeout:       patience,
@@ -341,14 +347,20 @@ type recording struct {
 // lands in S3 at the key Start gives egress.
 func (k *klisi) startRecording(room api.RoomInfo, by string) *recording {
 	k.t.Helper()
+	// An Ogg page's capture pattern, then noise: bytes nobody else has.
+	data := make([]byte, 64<<10)
+	rand.Read(data)
+	copy(data, "OggS\x00\x02")
+	return k.startRecordingOf(room, by, data)
+}
+
+// startRecordingOf is startRecording, with data as the recording's file.
+func (k *klisi) startRecordingOf(room api.RoomInfo, by string, data []byte) *recording {
+	k.t.Helper()
 	started := time.Now().Add(-10 * time.Minute).Truncate(time.Second)
 	r := &recording{
-		id: randomHex(16), egressID: "EG_" + randomHex(6), room: room, started: started,
-		data: make([]byte, 64<<10),
+		id: randomHex(16), egressID: "EG_" + randomHex(6), room: room, started: started, data: data,
 	}
-	// An Ogg page's capture pattern, then noise: bytes nobody else has.
-	rand.Read(r.data)
-	copy(r.data, "OggS\x00\x02")
 	sum := sha256.Sum256(r.data)
 	r.sum = hex.EncodeToString(sum[:])
 	r.key = path.Join("recordings", room.Slug, r.id, started.UTC().Format("2006-01-02 15-04")+" - "+room.Name+".ogg")

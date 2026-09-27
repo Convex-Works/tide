@@ -36,7 +36,30 @@ It needs:
 | `TestAHostPairsAMachineAndGetsTranscripts` | `moil pair` shows a code; the host finds the machine under it, with the moil address it pairs with, and confirms, with a real session and CSRF header, and `moil pair` succeeds. `moil review` lists the bundle `/machines` names, the owner approves it with `moil approve`, and once `moil agent` runs, `/machines` shows it idle and approved. A forged `egress_ended` webhook is refused; LiveKit's signed one completes the recording and sends it to the machine. The transcript is `running` (held mid-job), then `completed`, and downloads from S3, named like the recording, holding the recording's SHA-256. Deleting the recording leaves nothing under its prefix. Unpairing mid-job ends the job's process; the agent logs that klisi removed it and never reconnects, and `moil review` says the service no longer accepts the machine. |
 | `TestTranscriptsSurviveAKlisiRestart` | klisi stops as `main` does (`httpapi.Serve`: HTTP drains, moil closes, the background work returns, then the database closes) while the machine is on a transcript, and a new klisi starts on the same database and address. The agent reconnects, drops the attempt the old klisi gave it and ends its process, and runs the resubmitted job, which completes. The transcript row goes from `pending` to `completed`, and nothing in between. |
 | `TestOnlyTheOwnersMachinesGetTheJob` | Bob's machine is paired, approved and idle while alice's recording waits for her offline laptop, well past moil's bid window; it never starts an attempt. Alice's laptop comes online and transcribes it. Bob's machine then transcribes bob's own recording, so it could have. |
+| `TestARealMeetingIsTranscribed` | Opt-in: with `KLISI_E2E_MEETING` naming a meeting recording, klisi publishes the real transcribe bundle, and a real machine transcribes the recording with the real models, from `egress_ended` to downloadable text (a timed, labelled utterance per line) and WebVTT captions. See below. |
 | `TestTheStubIsABundleMoilAccepts` | `moil check` accepts the stub bundle, and `moil hash` agrees with the Go SDK's hash of it. |
+
+## Transcribe a real meeting
+
+`TestARealMeetingIsTranscribed` runs only when asked, because the real
+bundle's first run downloads 2.9 GB of models and builds a 1 GB Python
+environment:
+
+```sh
+KLISI_E2E_MEETING=~/meetings/ES2004a.ogg \
+KLISI_E2E_MOIL_CACHE=~/Library/Caches/moil \
+KLISI_E2E_MEETING_SPEAKERS=4 \
+  make moil-e2e
+```
+
+`KLISI_E2E_MOIL_CACHE` lends the machine a moil cache that already holds
+the models and environment (`moil run` keeps one there), and
+`KLISI_E2E_MEETING_SPEAKERS`, if set, is how many speakers it must find. On
+an M3 Max, the 17.5-minute, four-speaker [AMI] meeting ES2004a is
+transcribed 32 seconds after egress ends, with all four speakers found. Run
+it whenever the vendored bundle changes.
+
+[AMI]: https://groups.inf.ed.ac.uk/ami/corpus/
 
 ## How it's built
 
