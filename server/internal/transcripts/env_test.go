@@ -54,6 +54,7 @@ type env struct {
 	cancelService func() // klisi starts stopping
 	waitService   func() // and has stopped
 	recorded      int
+	probes        int
 	configure     []func(*transcripts.Config)
 }
 
@@ -223,6 +224,21 @@ func (e *env) recordFor(room store.Room, slug string, duration time.Duration, en
 		e.t.Fatalf("recording after egress_ended = %+v", recording)
 	}
 	return recording
+}
+
+// reconciled waits until the recording reconciler has run a pass that
+// began after now: one that removes a probe file queued for removal now,
+// and so considered every removal due by now, and removed only those. It
+// takes one Remove call of storage.
+func (e *env) reconciled() {
+	e.t.Helper()
+	e.probes++
+	probe := fmt.Sprintf("probes/%d", e.probes)
+	e.s3.Put(probe, []byte("probe"))
+	if err := e.db.QueueRemovals(context.Background(), []string{probe}, e.clock.Now().Unix()); err != nil {
+		e.t.Fatal(err)
+	}
+	waitFor(e.t, "a recording reconciler pass", func() bool { _, ok := e.s3.Object(probe); return !ok })
 }
 
 // sql changes klisi's database behind its back, over a connection of its

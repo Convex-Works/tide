@@ -32,11 +32,13 @@ type fakeObjectStore struct {
 	mu        sync.Mutex
 	removed   []string
 	removeErr error
+	tries     int // calls of Remove, whether they removed or not
 }
 
 func (f *fakeObjectStore) Remove(_ context.Context, key string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.tries++
 	if f.removeErr != nil {
 		return f.removeErr
 	}
@@ -53,6 +55,12 @@ func (f *fakeObjectStore) setRemoveErr(err error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.removeErr = err
+}
+
+func (f *fakeObjectStore) removeTries() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.tries
 }
 
 func (f *fakeObjectStore) removedKeys() []string {
@@ -376,21 +384,32 @@ func TestDeleteSucceedsWhileStorageIsDown(t *testing.T) {
 		t.Fatalf("queued for removal = %q, %v; want %q", queued, err, files)
 	}
 
-	// The recording reconciler retries every pass until storage takes them.
+	// The recording reconciler retries every pass until storage takes them:
+	// two passes later, it has tried each file twice more, and storage
+	// still has them all.
 	reconciler := recording.NewHandler(db, nil, nil, objects, "", nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
+	tried := objects.removeTries()
 	go func() {
 		defer close(done)
 		reconciler.RunReconciler(ctx, 5*time.Millisecond)
 	}()
 	defer func() { cancel(); <-done }()
-	time.Sleep(50 * time.Millisecond)
+	deadline := time.Now().Add(10 * time.Second)
+	for objects.removeTries() < tried+2*len(files) {
+		if time.Now().After(deadline) {
+			t.Fatalf("the reconciler tried %d removals in 10 s, want %d", objects.removeTries()-tried, 2*len(files))
+		}
+		time.Sleep(time.Millisecond)
+	}
 	if removed := objects.removedKeys(); len(removed) != 0 {
 		t.Fatalf("removed while storage is down: %q", removed)
 	}
+	if queued, err := db.DueRemovals(context.Background(), time.Now().Unix(), 10); err != nil || !slices.Equal(queued, files) {
+		t.Fatalf("queued while storage is down = %q, %v; want %q", queued, err, files)
+	}
 	objects.setRemoveErr(nil)
-	deadline := time.Now().Add(10 * time.Second)
 	for {
 		removed := objects.removedKeys()
 		slices.Sort(removed)

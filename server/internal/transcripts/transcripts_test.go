@@ -335,10 +335,10 @@ func TestDeletingARecordingStopsItsTranscript(t *testing.T) {
 		if keys := e.s3.Keys(staging); len(keys) != 2 {
 			t.Fatalf("uploaded after the deletion: %v", keys)
 		}
+		// Its job ends: the recording being gone, klisi removes the uploads.
 		a.Succeed(map[string]any{"speakers": 2})
-		run, _ := e.moil.Run("recording-" + rec.ID)
-		waitFor(t, "the job to end", func() bool { return run.State() != moil.Running })
-		// And once more, with the URL it still holds.
+		waitFor(t, "klisi to remove the uploads", func() bool { return len(e.s3.Keys(staging)) == 0 })
+		// And the machine uploads once more, with the URL it still holds.
 		if status := statusOf(t, http.MethodPut, a.Outputs["transcript.vtt"].URL, []byte("WEBVTT later")); status != http.StatusOK {
 			t.Fatalf("upload after the job ended: %d", status)
 		}
@@ -346,9 +346,9 @@ func TestDeletingARecordingStopsItsTranscript(t *testing.T) {
 		// Not before the URLs expire: an upload could still be under way.
 		e.clock.Advance(a.Timeout + 15*time.Minute - time.Second)
 		removals := e.s3.Calls(opRemove)
-		time.Sleep(50 * time.Millisecond) // ten reconciler passes
-		if keys := e.s3.Keys(staging); len(keys) == 0 || e.s3.Calls(opRemove) != removals {
-			t.Fatalf("staging while its URLs are valid: %v", keys)
+		e.reconciled()
+		if keys := e.s3.Keys(staging); len(keys) != 1 || e.s3.Calls(opRemove) != removals+1 {
+			t.Fatalf("staging while its URLs are valid: %v, after %d removals", keys, e.s3.Calls(opRemove)-removals)
 		}
 		e.clock.Advance(time.Hour)
 		waitFor(t, "the late uploads to be removed", func() bool { return len(e.s3.Keys(staging)) == 0 })
