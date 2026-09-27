@@ -180,8 +180,9 @@ func (m *machine) confirm(h *host, code string) {
 	var pairing api.PairingInfo
 	h.call(http.MethodGet, fill(api.PairingPath, code), nil, http.StatusOK, &pairing)
 	if pairing.Code != code || pairing.Name != m.name || pairing.OS != moilOS() ||
-		pairing.Arch != moilArch() || pairing.AppVersion != moilVersion {
-		m.t.Fatalf("pairing %s = %+v, want %s on %s %s, moil %s", code, pairing, m.name, moilOS(), moilArch(), moilVersion)
+		pairing.Arch != moilArch() || pairing.AppVersion != moilVersion || pairing.MoilURL != h.k.moilURL() {
+		m.t.Fatalf("pairing %s = %+v, want %s on %s %s, moil %s, pairing with %s",
+			code, pairing, m.name, moilOS(), moilArch(), moilVersion, h.k.moilURL())
 	}
 	var confirmed api.MachineInfo
 	h.call(http.MethodPost, fill(api.PairingConfirmPath, code), nil, http.StatusCreated, &confirmed)

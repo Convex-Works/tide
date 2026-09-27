@@ -58,6 +58,11 @@ func TestPairingAMachineEndToEnd(t *testing.T) {
 		pairing.Arch != "x86_64" || pairing.AppVersion != "moiltest" {
 		t.Fatalf("pairing = %#v", pairing)
 	}
+	// It shows the host the address the moil app must be pairing with: a
+	// pairing relayed through another service shows the same code.
+	if pairing.MoilURL != k.url+"/moil" {
+		t.Fatalf("moil_url = %q, want %q", pairing.MoilURL, k.url+"/moil")
+	}
 	if pairing.ExpiresAt <= time.Now().Unix() {
 		t.Fatalf("expires_at = %d, want a time to come", pairing.ExpiresAt)
 	}
@@ -99,6 +104,11 @@ func TestPairingAMachineEndToEnd(t *testing.T) {
 	m.Sync()
 	if machine := alice.machine(m.ID()); machine.State != "paused" {
 		t.Fatalf("paused machine = %#v", machine)
+	}
+	m.SetState(moil.Busy) // running a job for another service
+	m.Sync()
+	if machine := alice.machine(m.ID()); machine.State != "busy" {
+		t.Fatalf("busy machine = %#v", machine)
 	}
 
 	// Gone offline, it keeps what it last reported, from the database.

@@ -9,13 +9,16 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"git.convex.works/ConvexWorks/moil/sdk/go/moiltest"
 
 	"klisi/internal/api"
 	"klisi/internal/auth"
 	"klisi/internal/config"
+	"klisi/internal/machines"
 )
 
 // These tests hold klisi to the limits of ARCHITECTURE.md §8.1 and §15, the
@@ -230,5 +233,144 @@ func guesser(code string) func() string {
 				return guess
 			}
 		}
+	}
+}
+
+func TestAHostPairsAtMostTenMachines(t *testing.T) {
+	k := startKlisi(t, func(cfg *config.Config, _ *http.Server) { cfg.PairRateLimit = 100 })
+	alice := k.signIn(auth.Session{Sub: "alice"})
+	bob := k.signIn(auth.Session{Sub: "bob"})
+	for i := range machines.MaxMachinesPerHost {
+		alice.pair(moiltest.WithName(fmt.Sprintf("Machine %d", i+1)))
+	}
+
+	// The eleventh is refused, saying what to do, and its code keeps
+	// waiting.
+	eleventh := moiltest.New(t, k.moilURL(), moiltest.WithName("Eleventh"))
+	code := eleventh.StartPairing()
+	body := alice.call(http.MethodPost, fill(api.PairingConfirmPath, code), http.StatusConflict, nil)
+	var refusal api.ErrorResponse
+	if err := json.Unmarshal([]byte(body), &refusal); err != nil ||
+		!strings.Contains(refusal.Error, "10 machines") || !strings.Contains(refusal.Error, "Unpair one") {
+		t.Fatalf("the eleventh = %s, want a refusal that says to unpair one", body)
+	}
+	var pairing api.PairingInfo
+	alice.call(http.MethodGet, fill(api.PairingPath, code), http.StatusOK, &pairing)
+	if pairing.Name != "Eleventh" {
+		t.Fatalf("pairing = %+v", pairing)
+	}
+	if names := machineNames(alice.machines()); len(names) != machines.MaxMachinesPerHost || slices.Contains(names, "Eleventh") {
+		t.Fatalf("alice's machines = %q", names)
+	}
+
+	// The limit is alice's: bob pairs his.
+	bob.pair(moiltest.WithName("Bob's desktop"))
+
+	// Once alice unpairs one, the same code pairs the eleventh.
+	first := alice.machines().Machines[0]
+	alice.call(http.MethodDelete, fill(api.MachinePath, first.ID), http.StatusNoContent, nil)
+	var confirmed api.MachineInfo
+	alice.call(http.MethodPost, fill(api.PairingConfirmPath, code), http.StatusCreated, &confirmed)
+	eleventh.FinishPairing()
+	eleventh.Connect()
+	names := machineNames(alice.machines())
+	if len(names) != machines.MaxMachinesPerHost || !slices.Contains(names, "Eleventh") || slices.Contains(names, first.Name) {
+		t.Fatalf("alice's machines = %q", names)
+	}
+}
+
+// Confirming codes at once can't pair more machines than the limit, even
+// when the database is slow and the confirmations wait for it together.
+func TestConfirmingCodesAtOnceKeepsToTheLimit(t *testing.T) {
+	k := startKlisi(t, func(cfg *config.Config, _ *http.Server) { cfg.PairRateLimit = 100 })
+	alice := k.signIn(auth.Session{Sub: "alice"})
+	studio := alice.pair()
+	for range machines.MaxMachinesPerHost - 2 {
+		alice.pair()
+	}
+	studio.Connect()
+	// Eleven more machines wait for alice, who has room for one. That is 20
+	// confirmations in all, as many as a host may make in a minute.
+	codes := make([]string, 11)
+	for i := range codes {
+		codes[i] = moiltest.New(t, k.moilURL()).StartPairing()
+	}
+
+	// The disk turns slow as the studio reports in: klisi's one database
+	// connection waits for it, and each confirmation waits for the
+	// connection. When the disk recovers, they get it in no set order.
+	release := lockDatabase(t, k.dbPath)
+	studio.Approve(transcribeBundle(t))
+	studio.Sync()
+	waitUntilBusy(t, k.db)
+	statuses := make([]int, len(codes))
+	var confirming sync.WaitGroup
+	for i, code := range codes {
+		confirming.Add(1)
+		go func() {
+			defer confirming.Done()
+			request, _ := http.NewRequest(http.MethodPost, k.url+fill(api.PairingConfirmPath, code), nil)
+			request.AddCookie(alice.cookie)
+			request.Header.Set("X-Klisi-Csrf", "1")
+			if response, err := k.client.Do(request); err == nil {
+				statuses[i] = response.StatusCode
+				response.Body.Close()
+			}
+		}()
+	}
+	time.Sleep(200 * time.Millisecond) // for them all to reach klisi
+	release()
+	confirming.Wait()
+
+	paired := 0
+	for _, status := range statuses {
+		switch status {
+		case http.StatusCreated:
+			paired++
+		case http.StatusConflict:
+		default:
+			t.Fatalf("confirmations = %v, want 201 or 409 each", statuses)
+		}
+	}
+	if n := len(alice.machines().Machines); paired != 1 || n != machines.MaxMachinesPerHost {
+		t.Fatalf("confirming %d codes at once with room for one paired %d; alice has %d machines", len(codes), paired, n)
+	}
+}
+
+func TestMachineTextIsShownPlain(t *testing.T) {
+	k := startKlisi(t, nil)
+	alice := k.signIn(auth.Session{Sub: "alice"})
+
+	// A machine pairs with a name that reverses what follows it, and other
+	// fields that break lines, hide characters or send terminal escapes.
+	answer := k.startPairing("", "application/json", `{
+		"name": "Studio\u202egpj.exe",
+		"os": "mac\u200bos\u0007",
+		"arch": "aarch64\r\n",
+		"app_version": "0.1.0\u2066 (update)\u2069\u001b[2J"
+	}`, nil)
+	if answer.status != http.StatusOK {
+		t.Fatalf("pairing = %+v", answer)
+	}
+	want := api.PairingInfo{Name: "Studiogpj.exe", OS: "macos", Arch: "aarch64", AppVersion: "0.1.0 (update) [2J"}
+	var pairing api.PairingInfo
+	alice.call(http.MethodGet, fill(api.PairingPath, answer.UserCode), http.StatusOK, &pairing)
+	if pairing.Name != want.Name || pairing.OS != want.OS || pairing.Arch != want.Arch || pairing.AppVersion != want.AppVersion {
+		t.Fatalf("pairing = %+v, want %+v", pairing, want)
+	}
+	var confirmed api.MachineInfo
+	alice.call(http.MethodPost, fill(api.PairingConfirmPath, answer.UserCode), http.StatusCreated, &confirmed)
+	listed := alice.machine(confirmed.ID)
+	for _, machine := range []api.MachineInfo{confirmed, listed} {
+		if machine.Name != want.Name || machine.OS != want.OS || machine.Arch != want.Arch || machine.AppVersion != want.AppVersion {
+			t.Fatalf("machine = %+v, want %+v", machine, want)
+		}
+	}
+
+	// So is the name a machine reports each time it connects.
+	m := alice.pair(moiltest.WithName("Lap\u202etop\u0000"))
+	m.Connect()
+	if machine := alice.machine(m.ID()); machine.Name != "Laptop" || machine.State != api.MachineIdle {
+		t.Fatalf("connected machine = %+v", machine)
 	}
 }
