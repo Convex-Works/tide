@@ -66,6 +66,16 @@ export class AuthRequiredError extends ApiError {
   }
 }
 
+/**
+ * What to tell the user about a failed call: the server's own message when
+ * it sent one, else `fallback`. Anything that isn't an ApiError comes from
+ * the browser ("Failed to fetch", a JSON parse error) and says nothing a
+ * user can act on.
+ */
+export function errorMessage(cause: unknown, fallback: string): string {
+  return cause instanceof ApiError ? cause.message : fallback;
+}
+
 function pathWith(path: string, parameter: string, value: string): string {
   return path.replace(`{${parameter}}`, encodeURIComponent(value));
 }

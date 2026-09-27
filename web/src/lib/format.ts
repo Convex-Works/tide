@@ -12,6 +12,14 @@ export function relativeDate(timestamp: number): string {
   return formatter.format(Math.round(hours / 24), 'day');
 }
 
+/** Date and time for accessible names, e.g. "Sep 26, 2026, 2:00 PM". */
+export function dateTimeLabel(timestamp: number): string {
+  return new Date(timestamp * 1000).toLocaleString(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  });
+}
+
 /** Compact past form for dense chips, e.g. "just now", "4d ago", "3mo ago". */
 export function compactAgo(timestamp: number): string {
   const seconds = Math.max(0, Math.floor(Date.now() / 1000 - timestamp));
