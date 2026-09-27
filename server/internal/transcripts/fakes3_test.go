@@ -56,9 +56,10 @@ type fakeS3 struct {
 
 	mu      sync.Mutex
 	objects map[string]object
-	broken  map[string]bool  // operations that fail, by name
+	broken  map[string]bool  // operations that fail, by name, or by name and key
 	held    map[string]*hold // operations that wait, by name
 	calls   map[string]int   // how often klisi asked for each operation
+	noETags bool             // Stat returns no entity tags
 }
 
 type object struct {
@@ -74,9 +75,10 @@ func (o object) etag() string {
 
 // The operations klisi asks of storage, for Break and Hold.
 const (
-	opRemove = "remove"
-	opStat   = "stat"
-	opCopy   = "copy"
+	opRemove  = "remove"
+	opStat    = "stat"
+	opCopy    = "copy"
+	opPresign = "presign" // any presigned URL
 )
 
 // fakeS3 is the ObjectStore of the transcripts service, the recording
@@ -106,6 +108,28 @@ func (s *fakeS3) Mend(op string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.broken, op)
+}
+
+// BreakKey makes storage refuse op on key (a copy's destination) until
+// MendKey.
+func (s *fakeS3) BreakKey(op, key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.broken[op+" "+key] = true
+}
+
+func (s *fakeS3) MendKey(op, key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.broken, op+" "+key)
+}
+
+// NoETags makes storage one that keeps no entity tags, or doesn't report
+// them: Stat returns none, and a copy then copies whatever is there.
+func (s *fakeS3) NoETags() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.noETags = true
 }
 
 // Calls reports how often klisi asked storage for op.
@@ -146,8 +170,8 @@ func (h *hold) Release() { h.once.Do(func() { close(h.released) }) }
 
 // enter is how every call klisi makes starts: it fails once its context is
 // done, as a real client does, waits on a hold, and fails while op is
-// broken.
-func (s *fakeS3) enter(ctx context.Context, op string) error {
+// broken, or broken for key.
+func (s *fakeS3) enter(ctx context.Context, op string, key ...string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -165,7 +189,7 @@ func (s *fakeS3) enter(ctx context.Context, op string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.broken[op] {
+	if s.broken[op] || (len(key) > 0 && s.broken[op+" "+key[0]]) {
 		return fmt.Errorf("fake S3: %s refused: InternalError", op)
 	}
 	return nil
@@ -224,8 +248,11 @@ func (s *fakeS3) Stat(ctx context.Context, key string) (int64, string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	o, ok := s.objects[key]
-	if !ok {
+	switch {
+	case !ok:
 		return 0, "", fmt.Errorf("fake S3: %s: NoSuchKey: %w", key, fs.ErrNotExist)
+	case s.noETags:
+		return int64(len(o.data)), "", nil
 	}
 	return int64(len(o.data)), o.etag(), nil
 }
@@ -235,7 +262,7 @@ func (s *fakeS3) Stat(ctx context.Context, key string) (int64, string, error) {
 // MinIOStore leaves out when etag is "", and S3 then copies whatever is
 // there.
 func (s *fakeS3) Copy(ctx context.Context, src, etag, dst, contentType string) error {
-	if err := s.enter(ctx, opCopy); err != nil {
+	if err := s.enter(ctx, opCopy, dst); err != nil {
 		return err
 	}
 	s.mu.Lock()
@@ -251,17 +278,26 @@ func (s *fakeS3) Copy(ctx context.Context, src, etag, dst, contentType string) e
 	return nil
 }
 
-func (s *fakeS3) PresignedGet(_ context.Context, key string, expiry time.Duration) (string, error) {
+func (s *fakeS3) PresignedGet(ctx context.Context, key string, expiry time.Duration) (string, error) {
+	if err := s.enter(ctx, opPresign); err != nil {
+		return "", err
+	}
 	return s.presign(http.MethodGet, key, expiry, nil), nil
 }
 
-func (s *fakeS3) PresignedPut(_ context.Context, key string, expiry time.Duration) (string, error) {
+func (s *fakeS3) PresignedPut(ctx context.Context, key string, expiry time.Duration) (string, error) {
+	if err := s.enter(ctx, opPresign); err != nil {
+		return "", err
+	}
 	return s.presign(http.MethodPut, key, expiry, nil), nil
 }
 
 // PresignedDownload signs S3's response overrides into the URL, as
 // MinIOStore does.
-func (s *fakeS3) PresignedDownload(_ context.Context, key string, expiry time.Duration, filename, contentType string) (string, error) {
+func (s *fakeS3) PresignedDownload(ctx context.Context, key string, expiry time.Duration, filename, contentType string) (string, error) {
+	if err := s.enter(ctx, opPresign); err != nil {
+		return "", err
+	}
 	return s.presign(http.MethodGet, key, expiry, url.Values{
 		"response-content-disposition": {mime.FormatMediaType("attachment", map[string]string{"filename": filename})},
 		"response-content-type":        {contentType},
@@ -292,6 +328,20 @@ func (s *fakeS3) sign(key string, query url.Values) string {
 	mac := hmac.New(sha256.New, s.secret)
 	mac.Write([]byte(key + "\n" + signed.Encode()))
 	return hex.EncodeToString(mac.Sum(nil))
+}
+
+// Expires is when a URL this storage presigned expires.
+func (s *fakeS3) Expires(t *testing.T, location string) time.Time {
+	t.Helper()
+	parsed, err := url.Parse(location)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expires, err := time.Parse(time.RFC3339Nano, parsed.Query().Get("X-Expires"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return expires
 }
 
 // Key is the object a URL this storage presigned names.

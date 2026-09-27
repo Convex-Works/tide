@@ -39,10 +39,14 @@ func Serve(ctx context.Context, server *http.Server, listener net.Listener, back
 	served := make(chan error, 1)
 	go func() { served <- server.Serve(listener) }()
 
+	// served sends one value, when server.Serve returns; drained says
+	// whether it has been received.
 	var err error
+	drained := false
 	select {
 	case <-ctx.Done():
 	case err = <-served:
+		drained = true
 		if errors.Is(err, http.ErrServerClosed) {
 			err = nil // someone else shut it down
 		} else {
@@ -56,7 +60,7 @@ func Serve(ctx context.Context, server *http.Server, listener net.Listener, back
 		_ = server.Close()
 	}
 	cancelShutdown()
-	if err == nil {
+	if !drained {
 		if serveErr := <-served; !errors.Is(serveErr, http.ErrServerClosed) {
 			err = serveErr
 		}

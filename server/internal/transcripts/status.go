@@ -23,11 +23,23 @@ const maxMessage = 300
 // of its request.
 const expired = "No machine transcribed it within 14 days. Check that a paired machine is online and has approved the transcribe bundle in the moil app, then request it again."
 
+// stoppedOnMachine is the error of a job a machine ended as cancelled when
+// klisi hadn't asked it to.
+const stoppedOnMachine = "Transcription was stopped on the machine before it finished. Try again, and if it keeps stopping, check the room owner's machine in the moil app."
+
+// noFile is the error of a transcript whose recording has no file.
+const noFile = "This recording has no file, so it can't be transcribed."
+
 // The errors of a job that succeeded with files klisi won't keep.
 const (
 	missingOutputs = "The machine finished without uploading the transcript. Try again."
 	tooLarge       = "The transcript the machine uploaded is larger than 16 MiB, more than klisi keeps. Try again."
+	notAsReported  = "The transcript in klisi's storage isn't the one the machine reported uploading. Try again."
 )
+
+// notSaved is the error of a job that succeeded with a transcript klisi
+// couldn't save.
+const notSaved = "The machine made the transcript, but klisi couldn't save it to its storage. Try again, and if it keeps failing, ask klisi's administrator to check klisi's storage."
 
 // Transcripts implements recording.TranscriptSource: each recording's
 // transcript, from its row and, while pending, its job. It reads the room's

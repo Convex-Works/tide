@@ -125,6 +125,28 @@ func TestStoppingKlisiWaitsForItsBackgroundWork(t *testing.T) {
 	}
 }
 
+// An HTTP server something else closed, without klisi being told to stop,
+// stops klisi all the same: Serve closes moil and returns, as it does on a
+// signal, rather than wait for the server to stop a second time.
+func TestKlisiStopsWhenItsServerIsClosedElsewhere(t *testing.T) {
+	watchForAClosedDatabase(t)
+	var server *http.Server
+	k := startKlisi(t, func(_ *config.Config, s *http.Server) { server = s })
+	alice := k.signIn(auth.Session{Sub: "alice"})
+	m := alice.pair()
+	m.Connect()
+
+	if err := server.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err, stopped := k.stopped(10 * time.Second); !stopped || err != nil {
+		t.Fatalf("klisi stopped = %v with %v", stopped, err)
+	}
+	if code := m.WaitClosed(); code != 1001 {
+		t.Fatalf("the machine's channel closed with %d, want 1001 (going away)", code)
+	}
+}
+
 // watchForAClosedDatabase fails the test if anything logs that it found the
 // database closed, up to the end of the test, after klisi has stopped and
 // the database has closed. Call it before starting klisi.

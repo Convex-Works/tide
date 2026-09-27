@@ -14,7 +14,7 @@ import (
 
 // A run that ended just as klisi started stopping is still recorded: the
 // follower goes by the run, not by klisi's context, and writes with a
-// context klisi stopping doesn't cancel.
+// context klisi stopping cancels only stopGrace later.
 func TestARunThatEndedIsRecordedWhileKlisiStops(t *testing.T) {
 	ctx := context.Background()
 	db, err := store.Open(filepath.Join(t.TempDir(), "klisi.db"))
@@ -69,7 +69,7 @@ func TestARunThatEndedIsRecordedWhileKlisiStops(t *testing.T) {
 	stopping, stop := context.WithCancel(ctx)
 	stop()
 	s.followers.Add(1)
-	s.follow(stopping, j)
+	s.follow(stopping, ctx, j)
 	row, err := db.Transcript(ctx, "rec")
 	if err != nil || row.Status != "failed" || row.Error != "Transcription failed: can't read the recording: moov atom not found." {
 		t.Fatalf("row after klisi stopped = %+v, %v", row, err)

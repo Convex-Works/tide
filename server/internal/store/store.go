@@ -215,6 +215,12 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+// Stats reports on the store's one connection to SQLite, such as how many
+// callers have had to wait for it.
+func (s *Store) Stats() sql.DBStats {
+	return s.db.Stats()
+}
+
 func (s *Store) CreateRoom(ctx context.Context, room Room) error {
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO rooms (id, slug, name, owner_sub, lobby_enabled, created_at)

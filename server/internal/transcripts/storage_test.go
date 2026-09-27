@@ -57,8 +57,9 @@ func TestAnEndTheDatabaseRefusedIsRecordedLaterNotRunAgain(t *testing.T) {
 	e.sql(`CREATE TRIGGER refuse_ends BEFORE UPDATE ON transcripts
 		BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END`)
 	finish(t, a, 3)
-	// Each try checks the staged files again: the follower's, then passes'.
-	tries := func() int { return e.s3.Calls(opStat) / len(store.TranscriptFormats) }
+	// Each try checks the staged files and their copies again: the
+	// follower's, then passes'.
+	tries := func() int { return e.s3.Calls(opStat) / (2 * len(store.TranscriptFormats)) }
 	waitFor(t, "three tries to record the end", func() bool { e.service.Nudge(); return tries() >= 3 })
 	machine.Sync()
 	if offers := machine.Offers(); len(offers) != 1 {

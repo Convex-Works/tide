@@ -42,9 +42,46 @@ type Handler struct {
 	bundle *moil.Bundle
 	// moilURL is the moil base URL machines pair with: base URL + /moil.
 	moilURL string
-	// confirming is held while a pairing is confirmed, so that two
-	// confirmations at once can't both find room for one more machine.
-	confirming sync.Mutex
+	// confirming holds a host's lock while one of their pairings is
+	// confirmed, so that two of their confirmations at once can't both
+	// find room for one more machine. Hosts don't wait for each other.
+	confirming ownerLocks
+}
+
+// ownerLocks is a mutex for each owner, there while someone holds or waits
+// for it.
+type ownerLocks struct {
+	mu    sync.Mutex
+	locks map[string]*ownerLock
+}
+
+type ownerLock struct {
+	sync.Mutex
+	users int // holding it or waiting for it; guarded by ownerLocks.mu
+}
+
+// lock locks owner's mutex, and returns what unlocks it.
+func (l *ownerLocks) lock(owner string) (unlock func()) {
+	l.mu.Lock()
+	if l.locks == nil {
+		l.locks = make(map[string]*ownerLock)
+	}
+	lock := l.locks[owner]
+	if lock == nil {
+		lock = &ownerLock{}
+		l.locks[owner] = lock
+	}
+	lock.users++
+	l.mu.Unlock()
+	lock.Lock()
+	return func() {
+		lock.Unlock()
+		l.mu.Lock()
+		defer l.mu.Unlock()
+		if lock.users--; lock.users == 0 {
+			delete(l.locks, owner)
+		}
+	}
 }
 
 func NewHandler(server *moil.Server, bundle *moil.Bundle, moilURL string) *Handler {
@@ -131,8 +168,8 @@ func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusNotFound, unknownCode)
 		return
 	}
-	h.confirming.Lock()
-	defer h.confirming.Unlock()
+	unlock := h.confirming.lock(session.Sub)
+	defer unlock()
 	paired, err := h.moil.Machines(r.Context(), session.Sub)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not pair the machine. Try again.")

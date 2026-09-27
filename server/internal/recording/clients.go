@@ -21,12 +21,14 @@ import (
 	"klisi/internal/store"
 )
 
-func New(cfg config.Config, recordings *store.Store) *Handler {
+// New makes the recording handler for klisi's LiveKit, with recordings kept
+// in objects.
+func New(cfg config.Config, recordings *store.Store, objects *MinIOStore) *Handler {
 	egress := lksdk.NewEgressClient(cfg.LiveKitURL, cfg.LiveKitAPIKey, cfg.LiveKitAPISecret)
 	rooms := lksdk.NewRoomServiceClient(liveKitHTTPURL(cfg.LiveKitURL), cfg.LiveKitAPIKey, cfg.LiveKitAPISecret)
 	provider := protocolauth.NewSimpleKeyProvider(cfg.LiveKitAPIKey, cfg.LiveKitAPISecret)
 	handler := NewHandler(
-		recordings, egress, rooms, NewMinIOStore(cfg), cfg.EgressTemplateURL,
+		recordings, egress, rooms, objects, cfg.EgressTemplateURL,
 		ReceiverFromAuthProvider(provider),
 	)
 	// The destination travels with each egress request; egress needs no global
@@ -75,29 +77,57 @@ func (r authWebhookReceiver) Receive(request *http.Request) (*protocol.WebhookEv
 	return protocolwebhook.ReceiveWebhookEvent(request, r.provider)
 }
 
+// MinIOStore is klisi's object storage, reached through two clients made
+// once: one at KLISI_S3_ENDPOINT, where klisi itself reaches storage to
+// remove, check and copy objects, and one at KLISI_S3_PUBLIC_ENDPOINT, the
+// address machines and browsers reach, for the URLs klisi presigns. Each
+// client keeps its connections open for the next call.
 type MinIOStore struct {
-	endpoint       string
-	publicEndpoint string
-	bucket         string
-	accessKey      string
-	secretKey      string
-	region         string
+	bucket string
+	server storageClient
+	public storageClient
+}
+
+// A storageClient is a client for one of storage's endpoints, or why there
+// is none: the setting names an endpoint minio can't use.
+type storageClient struct {
+	client *minio.Client
+	err    error
 }
 
 func NewMinIOStore(cfg config.Config) *MinIOStore {
 	return &MinIOStore{
-		endpoint: cfg.S3Endpoint, publicEndpoint: cfg.S3PublicEndpoint,
-		bucket: cfg.S3Bucket, accessKey: cfg.S3AccessKey,
-		secretKey: cfg.S3SecretKey, region: cfg.S3Region,
+		bucket: cfg.S3Bucket,
+		server: newStorageClient("KLISI_S3_ENDPOINT", cfg.S3Endpoint, cfg),
+		public: newStorageClient("KLISI_S3_PUBLIC_ENDPOINT", cfg.S3PublicEndpoint, cfg),
 	}
 }
 
-func (s *MinIOStore) Remove(ctx context.Context, key string) error {
-	client, err := s.client(s.endpoint)
+func newStorageClient(setting, rawEndpoint string, cfg config.Config) storageClient {
+	parsed, err := url.Parse(rawEndpoint)
 	if err != nil {
-		return err
+		return storageClient{err: fmt.Errorf("storage endpoint %s=%q is invalid: %w", setting, rawEndpoint, err)}
 	}
-	err = client.RemoveObject(ctx, s.bucket, key, minio.RemoveObjectOptions{})
+	secure := parsed.Scheme == "https"
+	endpoint := parsed.Host
+	if endpoint == "" {
+		endpoint = strings.TrimPrefix(strings.TrimPrefix(rawEndpoint, "http://"), "https://")
+	}
+	client, err := minio.New(endpoint, &minio.Options{
+		Creds:  credentials.NewStaticV4(cfg.S3AccessKey, cfg.S3SecretKey, ""),
+		Secure: secure, Region: cfg.S3Region, BucketLookup: minio.BucketLookupPath,
+	})
+	if err != nil {
+		return storageClient{err: fmt.Errorf("storage endpoint %s=%q is invalid: %w", setting, rawEndpoint, err)}
+	}
+	return storageClient{client: client}
+}
+
+func (s *MinIOStore) Remove(ctx context.Context, key string) error {
+	if s.server.err != nil {
+		return s.server.err
+	}
+	err := s.server.client.RemoveObject(ctx, s.bucket, key, minio.RemoveObjectOptions{})
 	if err == nil {
 		return nil
 	}
@@ -109,11 +139,10 @@ func (s *MinIOStore) Remove(ctx context.Context, key string) error {
 }
 
 func (s *MinIOStore) PresignedGet(ctx context.Context, key string, expiry time.Duration) (string, error) {
-	client, err := s.client(s.publicEndpoint)
-	if err != nil {
-		return "", err
+	if s.public.err != nil {
+		return "", s.public.err
 	}
-	location, err := client.PresignedGetObject(ctx, s.bucket, key, expiry, nil)
+	location, err := s.public.client.PresignedGetObject(ctx, s.bucket, key, expiry, nil)
 	if err != nil {
 		return "", err
 	}
@@ -124,14 +153,13 @@ func (s *MinIOStore) PresignedGet(ctx context.Context, key string, expiry time.D
 // file called filename, served as contentType whatever it was stored with:
 // a transcript sidecar a machine uploaded (ARCHITECTURE.md §8.1).
 func (s *MinIOStore) PresignedDownload(ctx context.Context, key string, expiry time.Duration, filename, contentType string) (string, error) {
-	client, err := s.client(s.publicEndpoint)
-	if err != nil {
-		return "", err
+	if s.public.err != nil {
+		return "", s.public.err
 	}
 	params := url.Values{}
 	params.Set("response-content-disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filename}))
 	params.Set("response-content-type", contentType)
-	location, err := client.PresignedGetObject(ctx, s.bucket, key, expiry, params)
+	location, err := s.public.client.PresignedGetObject(ctx, s.bucket, key, expiry, params)
 	if err != nil {
 		return "", err
 	}
@@ -141,11 +169,10 @@ func (s *MinIOStore) PresignedDownload(ctx context.Context, key string, expiry t
 // PresignedPut lets whoever holds the URL upload the object at key, until
 // expiry: a machine uploading a transcript sidecar (ARCHITECTURE.md §8.1).
 func (s *MinIOStore) PresignedPut(ctx context.Context, key string, expiry time.Duration) (string, error) {
-	client, err := s.client(s.publicEndpoint)
-	if err != nil {
-		return "", err
+	if s.public.err != nil {
+		return "", s.public.err
 	}
-	location, err := client.PresignedPutObject(ctx, s.bucket, key, expiry)
+	location, err := s.public.client.PresignedPutObject(ctx, s.bucket, key, expiry)
 	if err != nil {
 		return "", err
 	}
@@ -156,11 +183,10 @@ func (s *MinIOStore) PresignedPut(ctx context.Context, key string, expiry time.D
 // wrapping fs.ErrNotExist if there is none: klisi checks a transcript a
 // machine uploaded before copying it (ARCHITECTURE.md §8.1).
 func (s *MinIOStore) Stat(ctx context.Context, key string) (int64, string, error) {
-	client, err := s.client(s.endpoint)
-	if err != nil {
-		return 0, "", err
+	if s.server.err != nil {
+		return 0, "", s.server.err
 	}
-	info, err := client.StatObject(ctx, s.bucket, key, minio.StatObjectOptions{})
+	info, err := s.server.client.StatObject(ctx, s.bucket, key, minio.StatObjectOptions{})
 	if err != nil {
 		if code := minio.ToErrorResponse(err).Code; code == "NoSuchKey" || code == "NotFound" {
 			return 0, "", fmt.Errorf("%s: %w", key, fs.ErrNotExist)
@@ -175,29 +201,12 @@ func (s *MinIOStore) Stat(ctx context.Context, key string) (int64, string, error
 // entity tag is still etag, so an object replaced since it was checked is
 // never copied.
 func (s *MinIOStore) Copy(ctx context.Context, src, etag, dst, contentType string) error {
-	client, err := s.client(s.endpoint)
-	if err != nil {
-		return err
+	if s.server.err != nil {
+		return s.server.err
 	}
-	_, err = client.CopyObject(ctx,
+	_, err := s.server.client.CopyObject(ctx,
 		minio.CopyDestOptions{Bucket: s.bucket, Object: dst, ReplaceMetadata: true, ContentType: contentType},
 		minio.CopySrcOptions{Bucket: s.bucket, Object: src, MatchETag: etag},
 	)
 	return err
-}
-
-func (s *MinIOStore) client(rawEndpoint string) (*minio.Client, error) {
-	parsed, err := url.Parse(rawEndpoint)
-	if err != nil {
-		return nil, err
-	}
-	secure := parsed.Scheme == "https"
-	endpoint := parsed.Host
-	if endpoint == "" {
-		endpoint = strings.TrimPrefix(strings.TrimPrefix(rawEndpoint, "http://"), "https://")
-	}
-	return minio.New(endpoint, &minio.Options{
-		Creds:  credentials.NewStaticV4(s.accessKey, s.secretKey, ""),
-		Secure: secure, Region: s.region, BucketLookup: minio.BucketLookupPath,
-	})
 }

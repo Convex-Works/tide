@@ -1,15 +1,19 @@
 package transcripts_test
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"path"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -54,6 +58,7 @@ type env struct {
 	cancelService func() // klisi starts stopping
 	waitService   func() // and has stopped
 	recorded      int
+	probes        int
 	configure     []func(*transcripts.Config)
 }
 
@@ -223,6 +228,38 @@ func (e *env) recordFor(room store.Room, slug string, duration time.Duration, en
 		e.t.Fatalf("recording after egress_ended = %+v", recording)
 	}
 	return recording
+}
+
+// reconciled waits until the recording reconciler has run a pass that
+// began after now: one that removes a probe file queued for removal now,
+// and so considered every removal due by now, and removed only those. It
+// takes one Remove call of storage.
+func (e *env) reconciled() {
+	e.t.Helper()
+	e.probes++
+	probe := fmt.Sprintf("probes/%d", e.probes)
+	e.s3.Put(probe, []byte("probe"))
+	if err := e.db.QueueRemovals(context.Background(), []string{probe}, e.clock.Now().Unix()); err != nil {
+		e.t.Fatal(err)
+	}
+	waitFor(e.t, "a recording reconciler pass", func() bool { _, ok := e.s3.Object(probe); return !ok })
+}
+
+// queuedStaging is the staging keys queued for removal, whenever they are
+// due.
+func (e *env) queuedStaging() []string {
+	e.t.Helper()
+	keys, err := e.db.DueRemovals(context.Background(), e.clock.Now().Add(100*365*24*time.Hour).Unix(), 1000)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	var staged []string
+	for _, key := range keys {
+		if strings.HasPrefix(key, "transcripts-staging/") {
+			staged = append(staged, key)
+		}
+	}
+	return staged
 }
 
 // sql changes klisi's database behind its back, over a connection of its
@@ -413,4 +450,32 @@ func errorMessage(t *testing.T, response *httptest.ResponseRecorder) string {
 		t.Fatalf("error body %q: %v", response.Body, err)
 	}
 	return body.Error
+}
+
+// watchLogs copies what klisi logs, from now to the end of the test, to
+// the buffer it returns.
+func watchLogs(t *testing.T) *lockedBuffer {
+	t.Helper()
+	logs := &lockedBuffer{}
+	previous := log.Writer()
+	log.SetOutput(io.MultiWriter(previous, logs))
+	t.Cleanup(func() { log.SetOutput(previous) })
+	return logs
+}
+
+type lockedBuffer struct {
+	mu     sync.Mutex
+	buffer bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buffer.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buffer.String()
 }
