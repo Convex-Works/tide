@@ -255,8 +255,8 @@ func (s *Service) reconcile(ctx, ends context.Context) {
 	s.mu.Lock()
 	for id, j := range s.jobs {
 		if !wanted[id] {
-			// Before Cancel: a run that ends cancelled without this, a
-			// machine ended of its own accord (ended).
+			// Marked before Cancel: ended takes a run that ends cancelled
+			// without the mark for one a machine ended of its own accord.
 			j.cancelled = true
 			unwanted = append(unwanted, j.run)
 		}
@@ -605,7 +605,7 @@ func (s *Service) ended(ctx context.Context, j *job) (resubmit bool, err error) 
 	if s.cfg.Now().Before(giveUp) {
 		return false, err
 	}
-	log.Printf("transcripts: recording %s: couldn't save its transcript since %v, failing it: %v", j.recordingID, giveUp, err)
+	log.Printf("transcripts: recording %s: couldn't save its transcript by %v; failing it: %v", j.recordingID, giveUp.UTC().Format(time.RFC3339), err)
 	return false, s.notSaved(ctx, j, dir, now)
 }
 
