@@ -227,3 +227,33 @@ func TestPendingTranscriptsFindTheRoomByID(t *testing.T) {
 		t.Fatalf("pending transcript's room = %q's %q (%s)", got.RoomOwner, got.RoomName, got.RoomID)
 	}
 }
+
+// Expiring a transcript fails the request it names, and leaves a request
+// made since, and a transcript that is no longer pending, alone.
+func TestExpireTranscriptFailsOnlyTheRequestItNames(t *testing.T) {
+	ctx := context.Background()
+	db := transcriptsTestStore(t)
+	room := Room{ID: "room-a", Slug: "a", Name: "Standup", OwnerSub: "alice", CreatedAt: 1}
+	if err := db.CreateRoom(ctx, room); err != nil {
+		t.Fatal(err)
+	}
+	addRecording(t, db, room, "rec", "completed", int64p(10), stringp("recordings/a/rec/x.ogg"))
+	if ok, err := db.RequestTranscript(ctx, "rec", 100); !ok || err != nil {
+		t.Fatalf("request: %t, %v", ok, err)
+	}
+	if failed, err := db.ExpireTranscript(ctx, "rec", 99, "expired", 200); failed || err != nil {
+		t.Fatalf("expiring another request: %t, %v", failed, err)
+	}
+	if row, _ := db.Transcript(ctx, "rec"); row.Status != "pending" {
+		t.Fatalf("after expiring another request: %+v", row)
+	}
+	if failed, err := db.ExpireTranscript(ctx, "rec", 100, "expired", 200); !failed || err != nil {
+		t.Fatalf("expiring the request: %t, %v", failed, err)
+	}
+	if row, _ := db.Transcript(ctx, "rec"); row.Status != "failed" || row.Error != "expired" || row.FinishedAt == nil || *row.FinishedAt != 200 {
+		t.Fatalf("after expiring it: %+v", row)
+	}
+	if failed, err := db.ExpireTranscript(ctx, "rec", 100, "expired again", 300); failed || err != nil {
+		t.Fatalf("expiring a failed transcript: %t, %v", failed, err)
+	}
+}

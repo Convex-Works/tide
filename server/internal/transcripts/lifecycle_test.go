@@ -1,6 +1,7 @@
 package transcripts_test
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -92,4 +93,50 @@ func TestAPendingTranscriptFailsAfter14Days(t *testing.T) {
 		}
 	}
 	e.waitStatus(room, rec, api.TranscriptCompleted)
+}
+
+// A pass expires the request it read, not one made since: a transcript
+// requested again just as a pass expires its old request waits 14 days
+// from the new one.
+func TestExpiryDoesntFailARequestMadeMeanwhile(t *testing.T) {
+	e := newEnv(t)
+	room := e.room("alice", "Standup")
+	machine := e.pair("alice") // approved, offline for now
+	machine.Approve(e.bundle)
+	first := e.record(room, time.Now())
+	second := e.record(room, time.Now())
+	e.submitted(first)
+	e.submitted(second)
+	pass := func() {
+		t.Helper()
+		e.submitted(e.record(e.room("alice", "Probe"+time.Now().Format("150405.000000000")), time.Now()))
+	}
+
+	// Both are due to expire. The pass reads them, and expires the first;
+	// just then, the second failed and alice requested it again. (A trigger
+	// makes it happen then, between the pass reading the second and
+	// expiring it.)
+	e.clock.Advance(14 * 24 * time.Hour)
+	again := e.clock.Now().Unix()
+	e.sql(fmt.Sprintf(`CREATE TRIGGER requested_again AFTER UPDATE OF status ON transcripts
+		WHEN NEW.recording_id = '%s' AND NEW.status = 'failed'
+		BEGIN UPDATE transcripts SET requested_at = %d WHERE recording_id = '%s'; END`, first.ID, again, second.ID))
+	pass()
+	if row, _ := e.row(first); row.Status != "failed" || row.Error != "No machine transcribed it within 14 days. Check that a paired machine is online and has approved the transcribe bundle in the moil app, then request it again." {
+		t.Fatalf("the first after 14 days = %+v", row)
+	}
+	if row, _ := e.row(second); row.Status != "pending" || row.RequestedAt != again {
+		t.Fatalf("the second, requested again as it expired = %+v", row)
+	}
+
+	// It is made once a machine comes.
+	machine.Connect()
+	for {
+		a := machine.NextAttempt()
+		finish(t, a, 1)
+		if a.JobID == "recording-"+second.ID {
+			break
+		}
+	}
+	e.waitStatus(room, second, api.TranscriptCompleted)
 }

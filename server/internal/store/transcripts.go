@@ -176,6 +176,16 @@ func (s *Store) FailTranscript(ctx context.Context, recordingID, message string,
 	return err
 }
 
+// ExpireTranscript fails a pending transcript with message, only if it is
+// still the request made at requestedAt: one requested again since then
+// starts its wait over. It reports whether it failed it.
+func (s *Store) ExpireTranscript(ctx context.Context, recordingID string, requestedAt int64, message string, now int64) (bool, error) {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE transcripts SET status = 'failed', finished_at = ?, speakers = NULL, error = ?
+		WHERE recording_id = ? AND status = 'pending' AND requested_at = ?`, now, message, recordingID, requestedAt)
+	return changedOne(result, err)
+}
+
 func scanTranscript(scanner recordingScanner) (Transcript, error) {
 	var transcript Transcript
 	var finishedAt, speakers sql.NullInt64

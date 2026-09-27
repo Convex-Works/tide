@@ -182,12 +182,16 @@ func (s *Service) reconcile(ctx context.Context) {
 	wanted := make(map[string]bool, len(pending))
 	for _, transcript := range pending {
 		if now.Sub(time.Unix(transcript.RequestedAt, 0)) >= pendingFor && !s.busy(transcript.ID) {
-			// Not wanted any more: its job, if any, is cancelled below.
-			err := s.cfg.Store.FailTranscript(ctx, transcript.ID, expired, now.Unix())
-			if err == nil {
+			// Not wanted any more: its job, if any, is cancelled below. Only
+			// the request read above expires: if the host requested it
+			// again meanwhile, it is wanted.
+			failed, err := s.cfg.Store.ExpireTranscript(ctx, transcript.ID, transcript.RequestedAt, expired, now.Unix())
+			if err != nil {
+				log.Printf("transcripts: recording %s: fail it for waiting too long: %v", transcript.ID, err)
+			}
+			if failed {
 				continue
 			}
-			log.Printf("transcripts: recording %s: fail it for waiting too long: %v", transcript.ID, err)
 		}
 		wanted[transcript.ID] = true
 		if followed[transcript.ID] {
