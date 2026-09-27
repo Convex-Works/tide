@@ -322,7 +322,9 @@ from a due time. Deleting a recording, or its room, deletes the rows and
 queues every file of every recording (`store.Recording.ObjectKeys()`) in one
 transaction, then removes them at once; the recording reconciler retries any
 removal that failed, so a deleted recording never keeps its files, even when
-S3 is briefly down. `Prepare` queues each staging key for when its URL
+S3 is briefly down. Each pass heals lost egress webhooks (§8) first, then
+spends at most 30 seconds removing, and stops at the first file it can't reach
+S3 for, leaving the rest queued: S3 out of reach never holds the reconciler up. `Prepare` queues each staging key for when its URL
 expires, so an upload that arrives late, from a machine that lost klisi but
 not S3, is removed too. A transcript copied beside a recording that was
 deleted meanwhile is removed again, however klisi's work on it ends: a job
@@ -681,7 +683,8 @@ up between runs for iteration.
   confirm page shows klisi's moil address, which the moil app must be pairing
   with. Machine tokens are stored as SHA-256 hashes.
   Transcript jobs go only to the room owner's machines. A machine gets
-  presigned URLs for one attempt, valid for its time limit plus 15 minutes: a
+  presigned URLs when it takes an attempt, valid for its time limit plus 15
+  minutes (the same ones if it takes the job again within ten minutes): a
   GET for the recording, and a PUT for each output to a staging key klisi
   never serves from; klisi checks each file against the size the machine
   reported, copies it beside the recording, checks the copy, and removes
