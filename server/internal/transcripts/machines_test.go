@@ -171,6 +171,11 @@ func TestAnotherMachineGetsStagingKeysOfItsOwn(t *testing.T) {
 
 	presign.Entered(t)
 	laptop.Disconnect()
+	// Once moil sees the laptop gone, it drops the laptop's preparation.
+	waitFor(t, "moil to see the laptop go", func() bool {
+		m, err := e.moil.Machine(context.Background(), laptop.ID())
+		return err == nil && m.State == moil.Offline
+	})
 	presign.Release()
 	studio.Connect()
 	a := studio.NextAttempt()
