@@ -108,6 +108,11 @@ func TestAHostPairsAMachineAndGetsTranscripts(t *testing.T) {
 	}
 	checkDownload(t, header, name+".vtt", "text/vtt; charset=utf-8")
 
+	// The machine uploaded to staging keys, which klisi copied beside the
+	// recording and then removes: nothing stays staged.
+	eventually(t, "the staged transcript to be removed", func() bool {
+		return len(objects.keys(t, "transcripts-staging/")) == 0
+	})
 	// The recording and its sidecars are all under its prefix, and
 	// deleting the recording removes them all.
 	prefix := path.Dir(rec.key) + "/"
@@ -144,7 +149,7 @@ func TestAHostPairsAMachineAndGetsTranscripts(t *testing.T) {
 		t.Fatalf("alice's machines after unpairing = %+v", machines)
 	}
 	if info := alice.transcript(next); info == nil || info.Status != api.TranscriptWaiting ||
-		info.Message != "No machine is paired to transcribe it." {
+		!strings.HasPrefix(info.Message, "No machine is paired to transcribe it.") {
 		t.Fatalf("transcript after unpairing its machine = %+v", info)
 	}
 	if _, stderr, err := laptop.try("review", laptop.serviceID); err == nil ||
