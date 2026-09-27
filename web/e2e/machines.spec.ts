@@ -21,7 +21,8 @@ const pairingInfo: PairingInfo = {
   os: 'macos',
   arch: 'aarch64',
   app_version: '0.4.2',
-  expires_at: now + 600
+  expires_at: now + 600,
+  moil_url: 'https://klisi.example.com/moil'
 };
 
 function at(template: string, value: string): string {
