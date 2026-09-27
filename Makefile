@@ -1,4 +1,4 @@
-.PHONY: dev gen server-check web-check typesync check media media-dev build clean
+.PHONY: dev gen server-check web-check typesync check media media-dev moil-e2e build clean
 
 dev:
 	# LiveKit must advertise an address reachable by host browsers AND the
@@ -41,6 +41,16 @@ media:
 #   make media-dev ARGS="media-lifecycle.spec.ts --project=chromium"
 media-dev:
 	./scripts/media-dev.sh $(ARGS)
+
+# Transcripts end to end with the real moil binary, real uv and MinIO in
+# Docker (server/e2e/README.md). Not part of check: it builds moil from a
+# checkout of it. -count=1: go test's cache doesn't track the moil binary.
+MOIL_REPO ?= ../moil
+MOIL_BIN ?= $(abspath $(MOIL_REPO))/target/release/moil
+
+moil-e2e:
+	cd $(MOIL_REPO) && cargo build --release -p moil-cli
+	cd server && MOIL_BIN=$(MOIL_BIN) go test -race -count=1 ./e2e/
 
 build:
 	cd web && npm run build

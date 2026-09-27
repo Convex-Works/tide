@@ -13,6 +13,7 @@ import (
 	"klisi/internal/config"
 	"klisi/internal/httpapi"
 	"klisi/internal/store"
+	"klisi/internal/transcripts"
 )
 
 // shutdownGrace bounds how long a stopping server waits for requests in
@@ -36,7 +37,11 @@ func main() {
 			log.Printf("close database: %v", err)
 		}
 	}()
-	apiHandler, background, err := httpapi.New(cfg, klisi.WebFS(), db)
+	transcribe, err := transcripts.Bundle()
+	if err != nil {
+		log.Fatalf("load the transcribe bundle: %v", err)
+	}
+	apiHandler, background, err := httpapi.New(cfg, klisi.WebFS(), db, transcribe)
 	if err != nil {
 		log.Fatal(err)
 	}

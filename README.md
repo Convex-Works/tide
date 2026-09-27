@@ -73,6 +73,14 @@ share, a departure, a reconnect. See
 [Architecture §14](docs/ARCHITECTURE.md#14-ci) for the rule those encode and
 why an assertion has to prove presence before it proves flow.
 
+### Transcripts with the real moil
+
+`make moil-e2e` builds the moil command line from a checkout at `../moil`
+(or `MOIL_REPO`) and runs `server/e2e`: klisi in process, with machines
+that run the real `moil pair`, `moil approve` and `moil agent`, real uv,
+and MinIO in Docker. It isn't part of `make check`; see
+[server/e2e/README.md](server/e2e/README.md).
+
 ## Recording
 
 The server starts a LiveKit room-composite Egress job and includes the S3

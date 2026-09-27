@@ -62,7 +62,9 @@ func (b *Background) Close() error {
 }
 
 // New builds the HTTP handler and the Background work main must run beside it.
-func New(cfg config.Config, web fs.FS, roomStore *store.Store) (http.Handler, *Background, error) {
+// transcribe is the bundle machines run to transcribe recordings: main hands
+// in transcripts.Bundle(), as it hands in the embedded SPA.
+func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.Bundle) (http.Handler, *Background, error) {
 	sessions := auth.NewSessions(cfg.SessionSecret, cfg.BaseURL, roomStore)
 	minter := klisilivekit.NewMinter(cfg)
 	registry := lobby.NewRegistry(lobby.DefaultRequestTTL)
@@ -81,10 +83,6 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store) (http.Handler, *B
 
 	// Transcripts run on machines hosts pair through moil (ARCHITECTURE.md §8.1).
 	baseURL := strings.TrimRight(cfg.BaseURL, "/")
-	transcribe, err := transcripts.Bundle()
-	if err != nil {
-		return nil, nil, fmt.Errorf("load the transcribe bundle: %w", err)
-	}
 	moilServer, err := moil.NewServer(moil.Config{
 		Name:            "klisi",
 		VerificationURL: baseURL + "/machines",

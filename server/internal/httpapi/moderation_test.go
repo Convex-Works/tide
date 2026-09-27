@@ -21,7 +21,7 @@ func TestModerationRouteRequiresCSRFAndAuthentication(t *testing.T) {
 		LiveKitURL:       "ws://livekit.example",
 		LiveKitAPIKey:    "devkey",
 		LiveKitAPISecret: "test-livekit-secret-with-enough-bytes",
-	}, nil, db)
+	}, nil, db, transcribeBundle(t))
 	if err != nil {
 		t.Fatal(err)
 	}
