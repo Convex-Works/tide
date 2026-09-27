@@ -205,12 +205,24 @@ type MachineInfo struct {
 	// LastSeenAt is Unix seconds of the machine's last connection or report,
 	// or null if it never connected.
 	LastSeenAt *int64 `json:"last_seen_at"`
-	// State is "idle", "busy", "paused" or "offline".
+	// State is one of the Machine* states.
 	State string `json:"state"`
 	// Approved is true when the machine last reported MachinesResponse.Bundle
 	// as approved by its owner.
 	Approved bool `json:"approved"`
 }
+
+// Machine states (MachineInfo.State).
+const (
+	// MachineIdle: connected and able to take a job.
+	MachineIdle = "idle"
+	// MachineBusy: connected and running a job, for klisi or another service.
+	MachineBusy = "busy"
+	// MachinePaused: connected, and its owner paused it in the moil app.
+	MachinePaused = "paused"
+	// MachineOffline: not connected.
+	MachineOffline = "offline"
+)
 
 type BundleInfo struct {
 	Name    string `json:"name"`

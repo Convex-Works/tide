@@ -226,7 +226,7 @@ export interface MachineInfo {
    */
   last_seen_at?: number /* int64 */;
   /**
-   * State is "idle", "busy", "paused" or "offline".
+   * State is one of the Machine* states.
    */
   state: string;
   /**
@@ -235,6 +235,22 @@ export interface MachineInfo {
    */
   approved: boolean;
 }
+/**
+ * MachineIdle: connected and able to take a job.
+ */
+export const MachineIdle = "idle";
+/**
+ * MachineBusy: connected and running a job, for klisi or another service.
+ */
+export const MachineBusy = "busy";
+/**
+ * MachinePaused: connected, and its owner paused it in the moil app.
+ */
+export const MachinePaused = "paused";
+/**
+ * MachineOffline: not connected.
+ */
+export const MachineOffline = "offline";
 export interface BundleInfo {
   name: string;
   version: string;
