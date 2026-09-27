@@ -43,3 +43,15 @@ export function sizeLabel(bytes?: number | null): string {
   if (bytes < 1_000_000) return `${Math.max(1, Math.round(bytes / 1_000))} KB`;
   return `${(bytes / 1_000_000).toFixed(1)} MB`;
 }
+
+const systemNames: Record<string, string> = { macos: 'macOS', linux: 'Linux', windows: 'Windows' };
+
+/** A machine's OS and architecture as moil reports them, e.g. "macOS · aarch64". */
+export function systemLabel(os: string, arch: string): string {
+  return [systemNames[os] ?? os, arch].filter(Boolean).join(' · ');
+}
+
+/** The first 12 hex characters of a bundle hash — what the moil app shows. */
+export function shortHash(hash: string): string {
+  return hash.slice(0, 12);
+}
