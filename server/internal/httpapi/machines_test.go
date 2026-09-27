@@ -262,9 +262,11 @@ func TestStartingAPairingIsRateLimited(t *testing.T) {
 
 // Machines keep one WebSocket open for as long as they run. main serves klisi
 // with read and write timeouts; hijacking the connection for the WebSocket
-// must lift them, or every machine would drop off after 30 seconds.
+// must lift them, or every machine would drop off after 30 seconds. The test
+// shortens them to a second, which is still long enough for every ordinary
+// request to beat them on a slow machine.
 func TestMachineChannelOutlivesServerTimeouts(t *testing.T) {
-	const timeout = 200 * time.Millisecond
+	const timeout = time.Second
 	k := startKlisi(t, func(_ *config.Config, server *http.Server) {
 		server.ReadHeaderTimeout = timeout
 		server.ReadTimeout = timeout
@@ -294,7 +296,7 @@ func TestMachineChannelOutlivesServerTimeouts(t *testing.T) {
 
 	m := alice.pair()
 	m.Connect()
-	time.Sleep(5 * timeout)
+	time.Sleep(3 * timeout)
 
 	// Well past them, the channel carries messages both ways: the machine's
 	// approval reaches klisi, and klisi offers it a job, assigns it and hears

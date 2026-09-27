@@ -9,7 +9,7 @@ import (
 )
 
 func TestSecurityHeadersArePresentOnAllResponses(t *testing.T) {
-	handler, _, err := New(config.Config{
+	handler, background, err := New(config.Config{
 		BaseURL:          "http://localhost:8080",
 		SessionSecret:    "test-session-secret",
 		LiveKitURL:       "ws://livekit.example",
@@ -19,6 +19,8 @@ func TestSecurityHeadersArePresentOnAllResponses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// New starts moil, which runs until closed.
+	t.Cleanup(func() { _ = background.Close() })
 	want := map[string]string{
 		"Content-Security-Policy": contentSecurityPolicy,
 		"X-Content-Type-Options":  "nosniff",

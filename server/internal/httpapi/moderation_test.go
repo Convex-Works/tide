@@ -15,7 +15,7 @@ func TestModerationRouteRequiresCSRFAndAuthentication(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	handler, _, err := New(config.Config{
+	handler, background, err := New(config.Config{
 		BaseURL:          "http://localhost:8080",
 		SessionSecret:    "test-session-secret",
 		LiveKitURL:       "ws://livekit.example",
@@ -25,6 +25,8 @@ func TestModerationRouteRequiresCSRFAndAuthentication(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// New starts moil, which runs until closed.
+	t.Cleanup(func() { _ = background.Close() })
 
 	tests := []struct {
 		name       string
