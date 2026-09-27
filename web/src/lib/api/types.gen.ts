@@ -269,4 +269,10 @@ export interface PairingInfo {
   arch: string;
   app_version: string;
   expires_at: number /* int64 */;
+  /**
+   * MoilURL is klisi's moil address, which the machine's moil app must
+   * show it is pairing with: a pairing relayed through another address
+   * shows the same code, so this is the host's check that it isn't one.
+   */
+  moil_url: string;
 }

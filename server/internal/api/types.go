@@ -239,4 +239,8 @@ type PairingInfo struct {
 	Arch       string `json:"arch"`
 	AppVersion string `json:"app_version"`
 	ExpiresAt  int64  `json:"expires_at"`
+	// MoilURL is klisi's moil address, which the machine's moil app must
+	// show it is pairing with: a pairing relayed through another address
+	// shows the same code, so this is the host's check that it isn't one.
+	MoilURL string `json:"moil_url"`
 }
