@@ -19,7 +19,7 @@
   // otherwise re-scale rem-based utilities. `border` also neutralizes the native
   // <button> UA outset border (Preflight is intentionally off — see app.css).
   const base =
-    'inline-flex h-10 items-center justify-center gap-1 rounded-full border px-5.5 text-base font-medium no-underline transition-colors disabled:opacity-60 disabled:pointer-events-none';
+    'inline-flex h-10 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-full border px-5.5 text-base font-[550] no-underline transition-colors disabled:opacity-60 disabled:pointer-events-none';
 
   const variants: Record<Variant, string> = {
     default: 'border-border bg-paper text-ink-2 hover:bg-stone-200 hover:text-ink',

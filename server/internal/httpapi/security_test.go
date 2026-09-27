@@ -9,13 +9,18 @@ import (
 )
 
 func TestSecurityHeadersArePresentOnAllResponses(t *testing.T) {
-	handler, _ := New(config.Config{
+	handler, background, err := New(config.Config{
 		BaseURL:          "http://localhost:8080",
 		SessionSecret:    "test-session-secret",
 		LiveKitURL:       "ws://livekit.example",
 		LiveKitAPIKey:    "devkey",
 		LiveKitAPISecret: "test-livekit-secret-with-enough-bytes",
-	}, nil, nil)
+	}, nil, nil, transcribeBundle(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// New starts moil, which runs until closed.
+	t.Cleanup(func() { _ = background.Close() })
 	want := map[string]string{
 		"Content-Security-Policy": contentSecurityPolicy,
 		"X-Content-Type-Options":  "nosniff",

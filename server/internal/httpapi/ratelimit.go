@@ -3,10 +3,12 @@ package httpapi
 import (
 	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
 
+	"klisi/internal/auth"
 	"klisi/internal/httpx"
 )
 
@@ -16,7 +18,9 @@ type tokenBucket struct {
 	lastSeen  time.Time
 }
 
-type ipRateLimiter struct {
+// A rateLimiter keeps a token bucket per key: a client's address, as
+// clientIPResolver.key gives it, or a signed-in host's sub.
+type rateLimiter struct {
 	mu              sync.Mutex
 	buckets         map[string]*tokenBucket
 	capacity        float64
@@ -36,15 +40,19 @@ func orDefault(configured, fallback int) int {
 	return configured
 }
 
-func newIPRateLimiter(limit int, window time.Duration) *ipRateLimiter {
-	return newIPRateLimiterWithClock(limit, window, time.Now)
+// limiterClock is the time New's rate limiters go by. Tests stop it, so that
+// a slow machine can't refill a bucket in the middle of one.
+var limiterClock = time.Now
+
+func newRateLimiter(limit int, window time.Duration) *rateLimiter {
+	return newRateLimiterWithClock(limit, window, func() time.Time { return limiterClock() })
 }
 
-func newIPRateLimiterWithClock(
+func newRateLimiterWithClock(
 	limit int,
 	window time.Duration,
 	now func() time.Time,
-) *ipRateLimiter {
+) *rateLimiter {
 	if limit < 1 {
 		limit = 1
 	}
@@ -52,7 +60,7 @@ func newIPRateLimiterWithClock(
 		window = time.Minute
 	}
 	startedAt := now()
-	return &ipRateLimiter{
+	return &rateLimiter{
 		buckets:         make(map[string]*tokenBucket),
 		capacity:        float64(limit),
 		refillPerSecond: float64(limit) / window.Seconds(),
@@ -63,7 +71,7 @@ func newIPRateLimiterWithClock(
 	}
 }
 
-func (l *ipRateLimiter) allow(key string) bool {
+func (l *rateLimiter) allow(key string) bool {
 	now := l.now()
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -97,11 +105,55 @@ func (l *ipRateLimiter) allow(key string) bool {
 	return true
 }
 
-func withRateLimit(limiter *ipRateLimiter, ips *clientIPResolver, next http.Handler) http.Handler {
+func withRateLimit(limiter *rateLimiter, ips *clientIPResolver, next http.Handler) http.Handler {
+	return limited(limiter, ips, next, func(w http.ResponseWriter) {
+		httpx.WriteError(w, http.StatusTooManyRequests, "Too many requests. Try again later.")
+	})
+}
+
+// withMoilRateLimit limits a moil endpoint. Machines read errors in moil's
+// own format (see writeMoilError) and show the message to their owner. The
+// code is the one the SDK refuses a pairing with when it has too many.
+func withMoilRateLimit(limiter *rateLimiter, ips *clientIPResolver, next http.Handler) http.Handler {
+	return limited(limiter, ips, next, func(w http.ResponseWriter) {
+		w.Header().Set("Retry-After", "60")
+		writeMoilError(w, http.StatusTooManyRequests, "temporarily_unavailable",
+			"Too many machines started pairing from this network. Try again in a minute.")
+	})
+}
+
+func limited(limiter *rateLimiter, ips *clientIPResolver, next http.Handler, refuse func(http.ResponseWriter)) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !limiter.allow(ips.resolve(r)) {
+		if !limiter.allow(ips.key(r)) {
 			w.Header().Set("Cache-Control", "no-store")
-			httpx.WriteError(w, http.StatusTooManyRequests, "Too many requests. Try again later.")
+			refuse(w)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// Pairing codes are eight letters from twenty, so a signed-in host may look
+// up, confirm and deny this many a minute (RFC 8628 §5.1): a person pairing
+// a machine uses two. The per-address ceiling is a backstop against one
+// client signed in as many hosts.
+const (
+	pairingCodesPerHost    = 20
+	pairingCodesPerAddress = 60
+)
+
+// withPairingCodeLimit limits the pairing-code routes per signed-in host and
+// per client address. It runs behind requireAuth, which guarantees the
+// session. The host's bucket comes first, so that a host who is refused
+// doesn't also use up the address's, which colleagues behind the same NAT
+// share.
+func withPairingCodeLimit(hosts, addresses *rateLimiter, ips *clientIPResolver, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		session, _ := auth.SessionFromContext(r.Context())
+		if !hosts.allow(session.Sub) || !addresses.allow(ips.key(r)) {
+			w.Header().Set("Cache-Control", "no-store")
+			w.Header().Set("Retry-After", "60")
+			httpx.WriteError(w, http.StatusTooManyRequests, "Too many pairing codes tried. Wait a minute, then try again.")
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -118,6 +170,27 @@ type clientIPResolver struct {
 
 func newClientIPResolver(trusted []*net.IPNet) *clientIPResolver {
 	return &clientIPResolver{trusted: trusted}
+}
+
+// key is the client's rate-limit bucket: its IPv4 address, or the /64 its
+// IPv6 address is in. A /64 is the smallest network an ISP assigns one
+// subscriber, who can use any address in it, so counting addresses would
+// give every client 2^64 buckets.
+func (c *clientIPResolver) key(r *http.Request) string {
+	address := c.resolve(r)
+	ip, err := netip.ParseAddr(address)
+	if err != nil {
+		return address
+	}
+	ip = ip.WithZone("").Unmap()
+	if ip.Is4() {
+		return ip.String()
+	}
+	network, err := ip.Prefix(64)
+	if err != nil {
+		return address
+	}
+	return network.String()
 }
 
 func (c *clientIPResolver) resolve(r *http.Request) string {

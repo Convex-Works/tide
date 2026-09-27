@@ -54,6 +54,9 @@ type Config struct {
 	JoinRateLimit  int
 	WaitRateLimit  int
 	LoginRateLimit int
+	// PairRateLimit bounds machines starting a moil pairing, the one moil
+	// endpoint that takes no credentials.
+	PairRateLimit int
 }
 
 // Public per-IP defaults, over a one-minute window.
@@ -61,6 +64,7 @@ const (
 	DefaultJoinRateLimit  = 10
 	DefaultWaitRateLimit  = 20
 	DefaultLoginRateLimit = 10
+	DefaultPairRateLimit  = 10
 )
 
 // Load reads configuration from the environment. Dev mode is opt-in
@@ -103,6 +107,7 @@ func Load() (Config, error) {
 		JoinRateLimit:     envPositiveInt("KLISI_JOIN_RATE_LIMIT", DefaultJoinRateLimit),
 		WaitRateLimit:     envPositiveInt("KLISI_WAIT_RATE_LIMIT", DefaultWaitRateLimit),
 		LoginRateLimit:    envPositiveInt("KLISI_LOGIN_RATE_LIMIT", DefaultLoginRateLimit),
+		PairRateLimit:     envPositiveInt("KLISI_PAIR_RATE_LIMIT", DefaultPairRateLimit),
 	}
 	trusted, err := parseTrustedProxies(env("KLISI_TRUSTED_PROXIES", ""))
 	if err != nil {

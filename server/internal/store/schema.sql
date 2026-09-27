@@ -39,6 +39,11 @@ CREATE TABLE IF NOT EXISTS recordings (
 CREATE INDEX IF NOT EXISTS recordings_room_started_idx
     ON recordings (room_slug, started_at DESC);
 
+-- A room's recordings by its ID, which never changes: its transcripts, its
+-- deletion and the cascade that deletes its recordings.
+CREATE INDEX IF NOT EXISTS recordings_room_idx
+    ON recordings (room_id);
+
 CREATE UNIQUE INDEX IF NOT EXISTS recordings_one_active_room_idx
     ON recordings (room_id)
     WHERE status IN ('starting', 'recording', 'finalizing');
@@ -49,3 +54,51 @@ CREATE TABLE IF NOT EXISTS revoked_sessions (
     sid TEXT PRIMARY KEY,
     expires_at INTEGER NOT NULL
 );
+
+-- Machines hosts paired with klisi through moil (ARCHITECTURE.md §8.1). The
+-- Store implements moil.Store over this table. A machine's token is never
+-- stored, only its SHA-256; report is the machine's last moil.MachineReport as
+-- JSON (name, hardware, approved bundle hashes, last seen).
+CREATE TABLE IF NOT EXISTS machines (
+    id TEXT PRIMARY KEY,
+    owner_sub TEXT NOT NULL,
+    token_hash TEXT UNIQUE NOT NULL,
+    paired_at INTEGER NOT NULL, -- Unix seconds
+    report TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS machines_owner_paired_idx
+    ON machines (owner_sub, paired_at);
+
+-- One row per recording that should have a transcript (ARCHITECTURE.md §8.1).
+-- The row is the truth; a moil job is only a projection of a pending row, so a
+-- restart resubmits every pending one.
+CREATE TABLE IF NOT EXISTS transcripts (
+    recording_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL CHECK (status IN ('pending', 'completed', 'failed')),
+    requested_at INTEGER NOT NULL,
+    finished_at INTEGER NULL,
+    speakers INTEGER NULL,
+    error TEXT NULL,
+    FOREIGN KEY (recording_id) REFERENCES recordings (id) ON DELETE CASCADE
+);
+
+-- The pending transcripts, in the order they were requested. It replaces
+-- transcripts_pending_idx, which couldn't serve that order.
+DROP INDEX IF EXISTS transcripts_pending_idx;
+CREATE INDEX IF NOT EXISTS transcripts_pending_requested_idx
+    ON transcripts (requested_at, recording_id) WHERE status = 'pending';
+
+-- Objects to remove from storage (ARCHITECTURE.md §8.1), each once due_at
+-- (Unix seconds) has passed. Deleting a recording or its room queues its
+-- files, due at once, in the transaction that deletes the rows; handing a
+-- machine an attempt queues the attempt's staging keys, due when their URLs
+-- expire. The recording reconciler removes due objects every minute and
+-- keeps those storage didn't remove.
+CREATE TABLE IF NOT EXISTS object_removals (
+    key TEXT PRIMARY KEY,
+    due_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS object_removals_due_idx
+    ON object_removals (due_at, key);

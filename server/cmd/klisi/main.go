@@ -2,53 +2,82 @@ package main
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"log"
+	"net"
 	"net/http"
+	"os/signal"
+	"syscall"
 	"time"
 
 	klisi "klisi"
 	"klisi/internal/config"
 	"klisi/internal/httpapi"
 	"klisi/internal/store"
+	"klisi/internal/transcripts"
 )
+
+// shutdownGrace bounds how long a stopping server waits for requests in
+// flight. Lobby streams end as soon as it stops.
+const shutdownGrace = 10 * time.Second
 
 func main() {
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatal(err)
 	}
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	go func() {
+		<-ctx.Done()
+		// Give the signals back to the runtime, so that a second one stops
+		// klisi at once, as it would any program.
+		stop()
+		log.Print("klisi: stopping; a second signal stops it at once")
+	}()
+	if err := run(ctx, cfg); err != nil {
+		log.Fatal(err)
+	}
+}
+
+// run serves klisi until ctx is done, then stops it as httpapi.Serve says,
+// and closes the database last, once nothing uses it.
+func run(ctx context.Context, cfg config.Config) error {
 	if cfg.DevMode {
 		log.Print("WARNING: dev mode is on — unauthenticated /api/dev/token is exposed and dev secrets are in use")
 	}
 	db, err := store.Open(cfg.DBPath)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer func() {
 		if err := db.Close(); err != nil {
 			log.Printf("close database: %v", err)
 		}
 	}()
-	apiHandler, recorder := httpapi.New(cfg, klisi.WebFS(), db)
+	transcribe, err := transcripts.Bundle()
+	if err != nil {
+		return fmt.Errorf("load the transcribe bundle: %w", err)
+	}
+	apiHandler, background, err := httpapi.New(cfg, klisi.WebFS(), db, transcribe)
+	if err != nil {
+		return err
+	}
+	listener, err := net.Listen("tcp", cfg.Addr)
+	if err != nil {
+		_ = background.Close()
+		return err
+	}
 	// Read/Write timeouts bound slow-loris bodies and wedged writers on every
 	// route; the lobby SSE handlers clear their own deadlines via
-	// http.ResponseController when a stream starts.
+	// http.ResponseController when a stream starts, and hijacking a
+	// connection for a machine's WebSocket clears them too.
 	server := &http.Server{
-		Addr:              cfg.Addr,
 		Handler:           apiHandler,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
 	}
-
-	// Heal recording rows whose LiveKit webhooks were lost (startup + 1 min).
-	reconcilerCtx, stopReconciler := context.WithCancel(context.Background())
-	defer stopReconciler()
-	go recorder.RunReconciler(reconcilerCtx, time.Minute)
-
-	log.Printf("klisi listening on %s", cfg.Addr)
-	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatal(err)
-	}
+	log.Printf("klisi listening on %s", listener.Addr())
+	return httpapi.Serve(ctx, server, listener, background, shutdownGrace)
 }

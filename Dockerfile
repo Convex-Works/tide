@@ -18,6 +18,9 @@ FROM golang:1.24.13-alpine3.22 AS go-builder
 WORKDIR /src/server
 
 COPY server/go.mod server/go.sum ./
+# go.mod replaces the moil SDK with its vendored copy (ARCHITECTURE.md §17),
+# which module resolution needs before anything is downloaded.
+COPY server/third_party ./third_party
 RUN go mod download
 
 COPY server/ ./

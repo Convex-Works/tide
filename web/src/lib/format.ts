@@ -12,6 +12,14 @@ export function relativeDate(timestamp: number): string {
   return formatter.format(Math.round(hours / 24), 'day');
 }
 
+/** Date and time for accessible names, e.g. "Sep 26, 2026, 2:00 PM". */
+export function dateTimeLabel(timestamp: number): string {
+  return new Date(timestamp * 1000).toLocaleString(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short'
+  });
+}
+
 /** Compact past form for dense chips, e.g. "just now", "4d ago", "3mo ago". */
 export function compactAgo(timestamp: number): string {
   const seconds = Math.max(0, Math.floor(Date.now() / 1000 - timestamp));
@@ -42,4 +50,16 @@ export function sizeLabel(bytes?: number | null): string {
   if (bytes == null) return '—';
   if (bytes < 1_000_000) return `${Math.max(1, Math.round(bytes / 1_000))} KB`;
   return `${(bytes / 1_000_000).toFixed(1)} MB`;
+}
+
+const systemNames: Record<string, string> = { macos: 'macOS', linux: 'Linux', windows: 'Windows' };
+
+/** A machine's OS and architecture as moil reports them, e.g. "macOS · aarch64". */
+export function systemLabel(os: string, arch: string): string {
+  return [systemNames[os] ?? os, arch].filter(Boolean).join(' · ');
+}
+
+/** The first 12 hex characters of a bundle hash — what the moil app shows. */
+export function shortHash(hash: string): string {
+  return hash.slice(0, 12);
 }

@@ -22,6 +22,18 @@ const (
 	RoomRecordingsPath    = "/api/rooms/{slug}/recordings"
 	RecordingPath         = "/api/recordings/{id}"
 	RecordingDownloadPath = "/api/recordings/{id}/download"
+
+	// Transcripts and the machines that make them (ARCHITECTURE.md §8.1).
+	RecordingTranscriptPath         = "/api/recordings/{id}/transcript"
+	RecordingTranscriptDownloadPath = "/api/recordings/{id}/transcript/download"
+	MachinesPath                    = "/api/machines"
+	MachinePath                     = "/api/machines/{id}"
+	PairingPath                     = "/api/machines/pairings/{code}"
+	PairingConfirmPath              = "/api/machines/pairings/{code}/confirm"
+	PairingDenyPath                 = "/api/machines/pairings/{code}/deny"
+	// MoilBasePath is where the moil SDK serves machines: the moil base URL
+	// is the base URL plus this path.
+	MoilBasePath = "/moil"
 )
 
 type TokenResponse struct {
@@ -126,4 +138,112 @@ type RecordingInfo struct {
 	DurationS *int64  `json:"duration_s"`
 	S3Key     *string `json:"s3_key"`
 	SizeBytes *int64  `json:"size_bytes"`
+	// Transcript is null when the recording has no transcript and can't get
+	// one: it isn't completed, or its room's owner has no paired machine.
+	// Only the list path fills it in.
+	Transcript *TranscriptInfo `json:"transcript"`
+}
+
+// Transcript statuses (ARCHITECTURE.md §8.1).
+const (
+	// TranscriptAvailable: a completed recording whose room owner has a
+	// machine, with no transcript requested yet.
+	TranscriptAvailable = "available"
+	// TranscriptWaiting: requested, and no machine is working on it.
+	TranscriptWaiting = "waiting"
+	// TranscriptRunning: a machine is working on it.
+	TranscriptRunning = "running"
+	// TranscriptCompleted: ready to download.
+	TranscriptCompleted = "completed"
+	// TranscriptFailed: the last job failed; requesting again retries.
+	TranscriptFailed = "failed"
+)
+
+// The transcript download's format query parameter.
+const (
+	// TranscriptFormatText is the readable transcript: one line per
+	// utterance, with its time and speaker.
+	TranscriptFormatText = "txt"
+	// TranscriptFormatVTT is WebVTT captions, which players load beside the
+	// recording.
+	TranscriptFormatVTT = "vtt"
+)
+
+type TranscriptInfo struct {
+	// Status is one of the Transcript* statuses.
+	Status string `json:"status"`
+	// Progress is the running job's progress from 0 to 1, when its machine
+	// reported one.
+	Progress *float64 `json:"progress"`
+	// Message explains a waiting transcript (why no machine is on it) or
+	// describes a running one's current step.
+	Message string `json:"message,omitempty"`
+	// Error says why a failed transcript failed.
+	Error string `json:"error,omitempty"`
+	// Speakers is how many speakers a completed transcript found.
+	Speakers *int `json:"speakers"`
+}
+
+// MachinesResponse lists the signed-in host's paired machines.
+type MachinesResponse struct {
+	Machines []MachineInfo `json:"machines"`
+	// Bundle is the transcription bundle klisi publishes; a machine takes
+	// transcript jobs only once its owner approved exactly this hash.
+	Bundle BundleInfo `json:"bundle"`
+	// MoilURL is the address the moil app pairs with, e.g.
+	// https://klisi.example.com/moil.
+	MoilURL string `json:"moil_url"`
+	// AppURL is where hosts get the moil app: its latest release, as the
+	// moil SDK names it (moil.AppURL).
+	AppURL string `json:"app_url"`
+}
+
+type MachineInfo struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	OS         string `json:"os"`
+	Arch       string `json:"arch"`
+	AppVersion string `json:"app_version"`
+	PairedAt   int64  `json:"paired_at"`
+	// LastSeenAt is Unix seconds of the machine's last connection or report,
+	// or null if it never connected.
+	LastSeenAt *int64 `json:"last_seen_at"`
+	// State is one of the Machine* states.
+	State string `json:"state"`
+	// Approved is true when the machine last reported MachinesResponse.Bundle
+	// as approved by its owner.
+	Approved bool `json:"approved"`
+}
+
+// Machine states (MachineInfo.State).
+const (
+	// MachineIdle: connected and able to take a job.
+	MachineIdle = "idle"
+	// MachineBusy: connected and running a job, for klisi or another service.
+	MachineBusy = "busy"
+	// MachinePaused: connected, and its owner paused it in the moil app.
+	MachinePaused = "paused"
+	// MachineOffline: not connected.
+	MachineOffline = "offline"
+)
+
+type BundleInfo struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	Hash    string `json:"hash"`
+}
+
+// PairingInfo is a machine waiting for a signed-in host to confirm its code.
+type PairingInfo struct {
+	// Code is the user code the moil app shows, formatted XXXX-XXXX.
+	Code       string `json:"code"`
+	Name       string `json:"name"`
+	OS         string `json:"os"`
+	Arch       string `json:"arch"`
+	AppVersion string `json:"app_version"`
+	ExpiresAt  int64  `json:"expires_at"`
+	// MoilURL is klisi's moil address, which the machine's moil app must
+	// show it is pairing with: a pairing relayed through another address
+	// shows the same code, so this is the host's check that it isn't one.
+	MoilURL string `json:"moil_url"`
 }

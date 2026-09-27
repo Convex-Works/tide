@@ -20,7 +20,10 @@ const reconcileGrace = 2 * time.Minute
 // (partial unique index) and its deletion. Active rows are compared against
 // LiveKit's actual egress state: finished egresses finalize the row,
 // still-running egresses stuck in "finalizing" get their stop re-issued, and
-// egresses LiveKit no longer knows are failed after a grace period. Runs once
+// egresses LiveKit no longer knows are failed after a grace period. Each pass
+// then removes the files queued for removal that are due, and retries those
+// storage kept (ARCHITECTURE.md §8.1), for up to removeDueTimeout: storage
+// out of reach delays neither the healing nor the next pass. Runs once
 // immediately, then every interval; blocks until ctx is done.
 func (h *Handler) RunReconciler(ctx context.Context, interval time.Duration) {
 	h.reconcile(ctx)
@@ -37,6 +40,12 @@ func (h *Handler) RunReconciler(ctx context.Context, interval time.Duration) {
 }
 
 func (h *Handler) reconcile(ctx context.Context) {
+	h.healEgresses(ctx)
+	h.removeDue(ctx)
+}
+
+// healEgresses compares the active recordings with LiveKit's egresses.
+func (h *Handler) healEgresses(ctx context.Context) {
 	active, err := h.store.ListActiveRecordings(ctx)
 	if err != nil {
 		log.Printf("recording reconciler: list active recordings: %v", err)

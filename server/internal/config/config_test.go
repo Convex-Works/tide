@@ -17,7 +17,8 @@ func clearKlisiEnv(t *testing.T) {
 		"KLISI_S3_ENDPOINT", "KLISI_S3_PUBLIC_ENDPOINT",
 		"KLISI_S3_EGRESS_ENDPOINT", "KLISI_S3_BUCKET", "KLISI_S3_ACCESS_KEY",
 		"KLISI_S3_SECRET_KEY", "KLISI_S3_REGION", "KLISI_EGRESS_TEMPLATE_URL",
-		"KLISI_DEV_MODE",
+		"KLISI_DEV_MODE", "KLISI_JOIN_RATE_LIMIT", "KLISI_WAIT_RATE_LIMIT",
+		"KLISI_LOGIN_RATE_LIMIT", "KLISI_PAIR_RATE_LIMIT",
 	} {
 		// t.Setenv registers restoration of the original value; the explicit
 		// Unsetenv afterwards gives LookupEnv-miss semantics during the test.
@@ -129,9 +130,10 @@ func TestLoadRateLimits(t *testing.T) {
 		}
 		if cfg.JoinRateLimit != DefaultJoinRateLimit ||
 			cfg.WaitRateLimit != DefaultWaitRateLimit ||
-			cfg.LoginRateLimit != DefaultLoginRateLimit {
-			t.Fatalf("expected published defaults, got %d/%d/%d",
-				cfg.JoinRateLimit, cfg.WaitRateLimit, cfg.LoginRateLimit)
+			cfg.LoginRateLimit != DefaultLoginRateLimit ||
+			cfg.PairRateLimit != DefaultPairRateLimit {
+			t.Fatalf("expected published defaults, got %d/%d/%d/%d",
+				cfg.JoinRateLimit, cfg.WaitRateLimit, cfg.LoginRateLimit, cfg.PairRateLimit)
 		}
 	})
 
@@ -139,12 +141,13 @@ func TestLoadRateLimits(t *testing.T) {
 		clearKlisiEnv(t)
 		t.Setenv("KLISI_DEV_MODE", "true")
 		t.Setenv("KLISI_JOIN_RATE_LIMIT", "5000")
+		t.Setenv("KLISI_PAIR_RATE_LIMIT", "300")
 		cfg, err := Load()
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg.JoinRateLimit != 5000 {
-			t.Fatalf("JoinRateLimit = %d", cfg.JoinRateLimit)
+		if cfg.JoinRateLimit != 5000 || cfg.PairRateLimit != 300 {
+			t.Fatalf("JoinRateLimit = %d, PairRateLimit = %d", cfg.JoinRateLimit, cfg.PairRateLimit)
 		}
 	})
 

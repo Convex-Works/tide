@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"mime"
 	"net/http"
 	"path"
@@ -28,14 +29,16 @@ const activeRecordingMessage = "This room already has an active recording."
 
 type recordingStore interface {
 	RoomBySlug(context.Context, string) (store.Room, error)
+	RoomByID(context.Context, string) (store.Room, error)
 	ActiveRecordingByRoomID(context.Context, string) (store.Recording, error)
 	InsertRecording(context.Context, store.Recording) error
 	UpdateRecordingByEgress(context.Context, string, store.RecordingUpdate) error
 	RecordingsByRoomSlug(context.Context, string) ([]store.Recording, error)
 	RecordingByID(context.Context, string) (store.Recording, error)
 	RecordingByEgressID(context.Context, string) (store.Recording, error)
-	DeleteRecording(context.Context, string) error
+	DeleteRecording(ctx context.Context, id string, now int64) ([]string, error)
 	ListActiveRecordings(context.Context) ([]store.Recording, error)
+	RemovalQueue
 }
 
 type EgressClient interface {
@@ -53,6 +56,13 @@ type ObjectStore interface {
 	PresignedGet(context.Context, string, time.Duration) (string, error)
 }
 
+// TranscriptSource adds transcript state to listed recordings
+// (ARCHITECTURE.md §8.1). The map is keyed by recording ID; a recording
+// missing from it has no transcript and can't get one.
+type TranscriptSource interface {
+	Transcripts(ctx context.Context, room store.Room, recordings []store.Recording) (map[string]*api.TranscriptInfo, error)
+}
+
 type Handler struct {
 	store       recordingStore
 	egress      EgressClient
@@ -66,6 +76,36 @@ type Handler struct {
 	// onParticipantJoined lets the webhook fan participant_joined events out
 	// to moderation (kick-ban enforcement) without a package dependency.
 	onParticipantJoined func(ctx context.Context, room, identity string)
+	// transcripts, if set, fills RecordingInfo.Transcript on the list path.
+	transcripts TranscriptSource
+	// onRecordingsChanged is called after a recording ends or is deleted, so
+	// that the transcripts reconciler can act without waiting for its tick.
+	onRecordingsChanged func()
+	// removeDueTimeout bounds each reconciler pass's removals.
+	removeDueTimeout time.Duration
+}
+
+// SetTranscripts makes the list path report each recording's transcript.
+func (h *Handler) SetTranscripts(source TranscriptSource) {
+	h.transcripts = source
+}
+
+// SetRecordingsChangedHook registers a callback invoked after a recording
+// ends (by webhook or reconciliation) or is deleted. It must not block.
+func (h *Handler) SetRecordingsChangedHook(hook func()) {
+	h.onRecordingsChanged = hook
+}
+
+func (h *Handler) recordingsChanged() {
+	if h.onRecordingsChanged != nil {
+		h.onRecordingsChanged()
+	}
+}
+
+// SetClock replaces the clock the handler stamps recordings and due
+// removals with, for tests that move time on.
+func (h *Handler) SetClock(now func() time.Time) {
+	h.now = now
 }
 
 // SetParticipantJoinedHook registers a callback invoked for every verified
@@ -85,6 +125,7 @@ func NewHandler(
 	return &Handler{
 		store: recordings, egress: egress, rooms: rooms, objects: objects,
 		templateURL: templateURL, now: time.Now, newID: randomID, receiver: receiver,
+		removeDueTimeout: removeDueTimeout,
 	}
 }
 
@@ -232,15 +273,27 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not load recordings. Try again.")
 		return
 	}
+	// Transcripts are best effort: without them the recordings are still
+	// there to play, download and delete.
+	var transcripts map[string]*api.TranscriptInfo
+	if h.transcripts != nil {
+		transcripts, err = h.transcripts.Transcripts(r.Context(), room, recordings)
+		if err != nil {
+			log.Printf("recordings: room %s: list without transcripts: %v", room.ID, err)
+			transcripts = nil
+		}
+	}
 	response := make([]api.RecordingInfo, 0, len(recordings))
 	for _, recording := range recordings {
-		response = append(response, recordingInfo(recording))
+		info := recordingInfo(recording)
+		info.Transcript = transcripts[recording.ID]
+		response = append(response, info)
 	}
 	httpx.WriteJSON(w, http.StatusOK, response)
 }
 
 func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
-	recording, ok := h.requireManagerByRecording(w, r)
+	recording, ok := h.requireManagerByRecording(w, r, "Only a room administrator can delete recordings.")
 	if !ok {
 		return
 	}
@@ -248,25 +301,30 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusConflict, "Stop the recording before deleting it.")
 		return
 	}
-	if recording.S3Key != nil && *recording.S3Key != "" {
-		if err := h.objects.Remove(r.Context(), *recording.S3Key); err != nil {
-			httpx.WriteError(w, http.StatusBadGateway, "Could not delete the recording file. Try again.")
-			return
-		}
+	// The row goes, and its files and transcript sidecars are queued for
+	// removal, at once (ARCHITECTURE.md §8.1): from then on the files are
+	// removed even if storage is down now.
+	now := h.now().Unix()
+	keys, err := h.store.DeleteRecording(r.Context(), recording.ID, now)
+	if errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteError(w, http.StatusNotFound, "Recording not found.")
+		return
 	}
-	if err := h.store.DeleteRecording(r.Context(), recording.ID); err != nil {
+	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not delete the recording. Try again.")
 		return
 	}
+	h.recordingsChanged()
+	RemoveDeleted(r.Context(), h.objects, h.store, keys, now)
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) Download(w http.ResponseWriter, r *http.Request) {
-	recording, ok := h.requireManagerByRecording(w, r)
+	recording, ok := h.requireManagerByRecording(w, r, "Only a room administrator can download recordings.")
 	if !ok {
 		return
 	}
-	if recording.Status != "completed" || recording.S3Key == nil || *recording.S3Key == "" {
+	if recording.Status != "completed" || !recording.HasFile() {
 		httpx.WriteError(w, http.StatusConflict, "The recording is not ready to download.")
 		return
 	}
@@ -282,27 +340,9 @@ func (h *Handler) requireManagerBySlug(w http.ResponseWriter, r *http.Request, f
 	return httpx.RequireRoomManager(w, r, h.store, r.PathValue("slug"), forbidden)
 }
 
-func (h *Handler) requireManagerByRecording(w http.ResponseWriter, r *http.Request) (store.Recording, bool) {
-	_, ok := auth.SessionFromContext(r.Context())
-	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "Authentication required.")
-		return store.Recording{}, false
-	}
-	recording, err := h.store.RecordingByID(r.Context(), r.PathValue("id"))
-	if errors.Is(err, sql.ErrNoRows) {
-		httpx.WriteError(w, http.StatusNotFound, "Recording not found.")
-		return store.Recording{}, false
-	}
-	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "Could not load the recording. Try again.")
-		return store.Recording{}, false
-	}
-	if _, _, ok := httpx.RequireRoomManager(
-		w, r, h.store, recording.RoomSlug, "Only a room administrator can manage recordings.",
-	); !ok {
-		return store.Recording{}, false
-	}
-	return recording, true
+func (h *Handler) requireManagerByRecording(w http.ResponseWriter, r *http.Request, forbidden string) (store.Recording, bool) {
+	recording, _, _, ok := httpx.RequireRecordingManager(w, r, h.store, r.PathValue("id"), forbidden)
+	return recording, ok
 }
 
 func (h *Handler) setRecordingMetadata(ctx context.Context, roomSlug string, active bool) error {

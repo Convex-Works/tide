@@ -13,7 +13,7 @@ import (
 
 func TestIPRateLimiterBurstRefillAndIsolation(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
-	limiter := newIPRateLimiterWithClock(2, time.Minute, func() time.Time { return now })
+	limiter := newRateLimiterWithClock(2, time.Minute, func() time.Time { return now })
 
 	if !limiter.allow("192.0.2.1") || !limiter.allow("192.0.2.1") {
 		t.Fatal("initial burst should be allowed")
@@ -36,7 +36,7 @@ func TestIPRateLimiterBurstRefillAndIsolation(t *testing.T) {
 
 func TestIPRateLimiterCleansStaleBuckets(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
-	limiter := newIPRateLimiterWithClock(1, time.Minute, func() time.Time { return now })
+	limiter := newRateLimiterWithClock(1, time.Minute, func() time.Time { return now })
 	if !limiter.allow("192.0.2.1") {
 		t.Fatal("initial request should be allowed")
 	}
@@ -56,7 +56,7 @@ func TestIPRateLimiterCleansStaleBuckets(t *testing.T) {
 
 func TestRateLimitMiddlewareReturnsJSON(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
-	limiter := newIPRateLimiterWithClock(1, time.Minute, func() time.Time { return now })
+	limiter := newRateLimiterWithClock(1, time.Minute, func() time.Time { return now })
 	handler := withRateLimit(limiter, newClientIPResolver(nil), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -119,5 +119,23 @@ func TestClientIPResolver(t *testing.T) {
 	// Trusted peer with no header: peer address.
 	if got := behindProxy.resolve(newRequest("10.0.0.1:1234", "")); got != "10.0.0.1" {
 		t.Fatalf("expected peer, got %q", got)
+	}
+}
+
+func TestRateLimitKeyCountsIPv6ByItsSlash64(t *testing.T) {
+	resolver := newClientIPResolver(nil)
+	for _, test := range []struct{ remote, want string }{
+		{"192.0.2.1:1234", "192.0.2.1"},
+		{"[::ffff:192.0.2.1]:1234", "192.0.2.1"},
+		{"[2001:db8:1:2:3:4:5:6]:1234", "2001:db8:1:2::/64"},
+		{"[2001:db8:1:2::9]:1234", "2001:db8:1:2::/64"},
+		{"[fe80::1%en0]:1234", "fe80::/64"},
+		{"not-an-address", "not-an-address"},
+	} {
+		request := httptest.NewRequest(http.MethodGet, "/", nil)
+		request.RemoteAddr = test.remote
+		if got := resolver.key(request); got != test.want {
+			t.Errorf("key(%s) = %q, want %q", test.remote, got, test.want)
+		}
 	}
 }

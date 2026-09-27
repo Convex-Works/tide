@@ -24,6 +24,21 @@ export const RecordingStopPath = "/api/rooms/{slug}/recording/stop";
 export const RoomRecordingsPath = "/api/rooms/{slug}/recordings";
 export const RecordingPath = "/api/recordings/{id}";
 export const RecordingDownloadPath = "/api/recordings/{id}/download";
+/**
+ * Transcripts and the machines that make them (ARCHITECTURE.md §8.1).
+ */
+export const RecordingTranscriptPath = "/api/recordings/{id}/transcript";
+export const RecordingTranscriptDownloadPath = "/api/recordings/{id}/transcript/download";
+export const MachinesPath = "/api/machines";
+export const MachinePath = "/api/machines/{id}";
+export const PairingPath = "/api/machines/pairings/{code}";
+export const PairingConfirmPath = "/api/machines/pairings/{code}/confirm";
+export const PairingDenyPath = "/api/machines/pairings/{code}/deny";
+/**
+ * MoilBasePath is where the moil SDK serves machines: the moil base URL
+ * is the base URL plus this path.
+ */
+export const MoilBasePath = "/moil";
 export interface TokenResponse {
   token: string;
   ws_url: string;
@@ -120,4 +135,149 @@ export interface RecordingInfo {
   duration_s?: number /* int64 */;
   s3_key?: string;
   size_bytes?: number /* int64 */;
+  /**
+   * Transcript is null when the recording has no transcript and can't get
+   * one: it isn't completed, or its room's owner has no paired machine.
+   * Only the list path fills it in.
+   */
+  transcript?: TranscriptInfo;
+}
+/**
+ * TranscriptAvailable: a completed recording whose room owner has a
+ * machine, with no transcript requested yet.
+ */
+export const TranscriptAvailable = "available";
+/**
+ * TranscriptWaiting: requested, and no machine is working on it.
+ */
+export const TranscriptWaiting = "waiting";
+/**
+ * TranscriptRunning: a machine is working on it.
+ */
+export const TranscriptRunning = "running";
+/**
+ * TranscriptCompleted: ready to download.
+ */
+export const TranscriptCompleted = "completed";
+/**
+ * TranscriptFailed: the last job failed; requesting again retries.
+ */
+export const TranscriptFailed = "failed";
+/**
+ * TranscriptFormatText is the readable transcript: one line per
+ * utterance, with its time and speaker.
+ */
+export const TranscriptFormatText = "txt";
+/**
+ * TranscriptFormatVTT is WebVTT captions, which players load beside the
+ * recording.
+ */
+export const TranscriptFormatVTT = "vtt";
+export interface TranscriptInfo {
+  /**
+   * Status is one of the Transcript* statuses.
+   */
+  status: string;
+  /**
+   * Progress is the running job's progress from 0 to 1, when its machine
+   * reported one.
+   */
+  progress?: number /* float64 */;
+  /**
+   * Message explains a waiting transcript (why no machine is on it) or
+   * describes a running one's current step.
+   */
+  message?: string;
+  /**
+   * Error says why a failed transcript failed.
+   */
+  error?: string;
+  /**
+   * Speakers is how many speakers a completed transcript found.
+   */
+  speakers?: number /* int */;
+}
+/**
+ * MachinesResponse lists the signed-in host's paired machines.
+ */
+export interface MachinesResponse {
+  machines: MachineInfo[];
+  /**
+   * Bundle is the transcription bundle klisi publishes; a machine takes
+   * transcript jobs only once its owner approved exactly this hash.
+   */
+  bundle: BundleInfo;
+  /**
+   * MoilURL is the address the moil app pairs with, e.g.
+   * https://klisi.example.com/moil.
+   */
+  moil_url: string;
+  /**
+   * AppURL is where hosts get the moil app: its latest release, as the
+   * moil SDK names it (moil.AppURL).
+   */
+  app_url: string;
+}
+export interface MachineInfo {
+  id: string;
+  name: string;
+  os: string;
+  arch: string;
+  app_version: string;
+  paired_at: number /* int64 */;
+  /**
+   * LastSeenAt is Unix seconds of the machine's last connection or report,
+   * or null if it never connected.
+   */
+  last_seen_at?: number /* int64 */;
+  /**
+   * State is one of the Machine* states.
+   */
+  state: string;
+  /**
+   * Approved is true when the machine last reported MachinesResponse.Bundle
+   * as approved by its owner.
+   */
+  approved: boolean;
+}
+/**
+ * MachineIdle: connected and able to take a job.
+ */
+export const MachineIdle = "idle";
+/**
+ * MachineBusy: connected and running a job, for klisi or another service.
+ */
+export const MachineBusy = "busy";
+/**
+ * MachinePaused: connected, and its owner paused it in the moil app.
+ */
+export const MachinePaused = "paused";
+/**
+ * MachineOffline: not connected.
+ */
+export const MachineOffline = "offline";
+export interface BundleInfo {
+  name: string;
+  version: string;
+  hash: string;
+}
+/**
+ * PairingInfo is a machine waiting for a signed-in host to confirm its code.
+ */
+export interface PairingInfo {
+  /**
+   * Code is the user code the moil app shows, formatted XXXX-XXXX.
+   */
+  code: string;
+  name: string;
+  os: string;
+  arch: string;
+  app_version: string;
+  expires_at: number /* int64 */;
+  /**
+   * MoilURL is klisi's moil address, which the machine's moil app must
+   * show it is pairing with: a pairing relayed through another address
+   * shows the same code, so this is the host's check that it isn't one.
+   */
+  moil_url: string;
 }

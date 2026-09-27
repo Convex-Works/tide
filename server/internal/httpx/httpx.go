@@ -19,6 +19,12 @@ type RoomLoader interface {
 	RoomBySlug(context.Context, string) (store.Room, error)
 }
 
+// RecordingLoader loads a recording, and its room by the room's ID.
+type RecordingLoader interface {
+	RecordingByID(context.Context, string) (store.Recording, error)
+	RoomByID(context.Context, string) (store.Room, error)
+}
+
 func WriteJSON(w http.ResponseWriter, status int, value any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
@@ -72,4 +78,40 @@ func RequireRoomManager(
 		return store.Room{}, sessionctx.Session{}, false
 	}
 	return room, session, true
+}
+
+// RequireRecordingManager loads the recording with the given ID and its
+// room, and checks that the session may manage the room: its owner, or an
+// administrator. Otherwise it answers the request and returns false.
+func RequireRecordingManager(
+	w http.ResponseWriter,
+	r *http.Request,
+	recordings RecordingLoader,
+	id string,
+	forbidden string,
+) (store.Recording, store.Room, sessionctx.Session, bool) {
+	session, ok := sessionctx.FromContext(r.Context())
+	if !ok {
+		WriteError(w, http.StatusUnauthorized, "Authentication required.")
+		return store.Recording{}, store.Room{}, sessionctx.Session{}, false
+	}
+	recording, err := recordings.RecordingByID(r.Context(), id)
+	if err == nil {
+		var room store.Room
+		room, err = recordings.RoomByID(r.Context(), recording.RoomID)
+		switch {
+		case err == nil && !CanManageRoom(session, room):
+			WriteError(w, http.StatusForbidden, forbidden)
+			return store.Recording{}, store.Room{}, sessionctx.Session{}, false
+		case err == nil:
+			return recording, room, session, true
+		}
+	}
+	// A recording whose room is gone is being deleted with it.
+	if errors.Is(err, sql.ErrNoRows) {
+		WriteError(w, http.StatusNotFound, "Recording not found.")
+	} else {
+		WriteError(w, http.StatusInternalServerError, "Could not load the recording. Try again.")
+	}
+	return store.Recording{}, store.Room{}, sessionctx.Session{}, false
 }

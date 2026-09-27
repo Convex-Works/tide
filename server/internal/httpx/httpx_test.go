@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -129,5 +130,73 @@ func TestRequireRoomManager(t *testing.T) {
 				t.Fatalf("room/session = %#v/%#v", room, session)
 			}
 		})
+	}
+}
+
+// A recording route answers only its room's managers, finding the room by
+// its ID: the slug copied onto a recording is only a denormalized copy.
+func TestRequireRecordingManager(t *testing.T) {
+	db, err := store.Open(filepath.Join(t.TempDir(), "klisi.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	for _, room := range []store.Room{
+		{ID: "room-alice", Slug: "standup", Name: "Standup", OwnerSub: "alice", CreatedAt: 1},
+		{ID: "room-bob", Slug: "retro", Name: "Retro", OwnerSub: "bob", CreatedAt: 1},
+	} {
+		if err := db.CreateRoom(ctx, room); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Alice's recording, with a slug that names Bob's room.
+	if err := db.InsertRecording(ctx, store.Recording{
+		ID: "rec-1", RoomID: "room-alice", RoomSlug: "retro", EgressID: "egress-1",
+		Status: "completed", StartedBy: "alice", StartedAt: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	call := func(session *auth.Session, id string) (*httptest.ResponseRecorder, store.Recording, store.Room, bool) {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodGet, "/api/recordings/"+id, nil)
+		if session != nil {
+			request = request.WithContext(auth.WithSession(request.Context(), *session))
+		}
+		recording, room, _, ok := httpx.RequireRecordingManager(recorder, request, db, id, "Owners only.")
+		return recorder, recording, room, ok
+	}
+	for _, test := range []struct {
+		name     string
+		session  *auth.Session
+		id       string
+		status   int
+		body     string
+		wantRoom string
+	}{
+		{name: "signed out", id: "rec-1", status: http.StatusUnauthorized, body: `{"error":"Authentication required."}`},
+		{name: "signed out, no such recording", id: "nope", status: http.StatusUnauthorized, body: `{"error":"Authentication required."}`},
+		{name: "no such recording", session: &auth.Session{Sub: "alice"}, id: "nope", status: http.StatusNotFound, body: `{"error":"Recording not found."}`},
+		{name: "the slug's room owner", session: &auth.Session{Sub: "bob"}, id: "rec-1", status: http.StatusForbidden, body: `{"error":"Owners only."}`},
+		{name: "the room's owner", session: &auth.Session{Sub: "alice"}, id: "rec-1", status: http.StatusOK, wantRoom: "room-alice"},
+		{name: "an administrator", session: &auth.Session{Sub: "root", IsAdmin: true}, id: "rec-1", status: http.StatusOK, wantRoom: "room-alice"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			recorder, recording, room, ok := call(test.session, test.id)
+			if recorder.Code != test.status || strings.TrimSpace(recorder.Body.String()) != test.body {
+				t.Fatalf("answer = %d %s, want %d %s", recorder.Code, recorder.Body, test.status, test.body)
+			}
+			if ok != (test.wantRoom != "") || (ok && (recording.ID != test.id || room.ID != test.wantRoom)) {
+				t.Fatalf("ok = %t, recording %q, room %q", ok, recording.ID, room.ID)
+			}
+		})
+	}
+
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	recorder, _, _, ok := call(&auth.Session{Sub: "alice"}, "rec-1")
+	if ok || recorder.Code != http.StatusInternalServerError ||
+		strings.TrimSpace(recorder.Body.String()) != `{"error":"Could not load the recording. Try again."}` {
+		t.Fatalf("with the database closed: %d %s", recorder.Code, recorder.Body)
 	}
 }

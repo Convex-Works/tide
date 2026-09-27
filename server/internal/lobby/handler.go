@@ -40,13 +40,25 @@ type Handler struct {
 	registry *Registry
 	minter   *klisilivekit.Minter
 	streams  *streamCaps
+
+	// ending is closed by EndStreams.
+	ending    chan struct{}
+	endStream sync.Once
 }
 
 func NewHandler(roomStore *store.Store, registry *Registry, minter *klisilivekit.Minter) *Handler {
 	return &Handler{
 		store: roomStore, registry: registry, minter: minter,
 		streams: newStreamCaps(maxStreamsPerKey),
+		ending:  make(chan struct{}),
 	}
+}
+
+// EndStreams ends every lobby stream, open or opening, for a server that is
+// shutting down: they would otherwise hold it until its grace runs out.
+// Browsers reconnect a stream that ends, and find the next server.
+func (h *Handler) EndStreams() {
+	h.endStream.Do(func() { close(h.ending) })
 }
 
 // streamCaps counts live SSE streams per key.
@@ -165,6 +177,8 @@ func (h *Handler) Wait(w http.ResponseWriter, r *http.Request) {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-h.ending:
+			return
 		case <-request.Decision:
 			resolved, exists := h.registry.Get(request.ID)
 			if !exists {
@@ -207,6 +221,8 @@ func (h *Handler) Host(w http.ResponseWriter, r *http.Request) {
 	for {
 		select {
 		case <-r.Context().Done():
+			return
+		case <-h.ending:
 			return
 		case <-updates:
 			if err := h.writePending(stream, room.Slug); err != nil {

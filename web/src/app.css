@@ -98,11 +98,15 @@ body {
   background: var(--paper);
 }
 
-button,
-input,
-select,
-textarea {
-  font: inherit;
+/* In the base layer, so a text or font utility on a control wins over the
+   reset: an unlayered rule would beat every Tailwind utility. */
+@layer base {
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+  }
 }
 
 button {

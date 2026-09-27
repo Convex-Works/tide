@@ -11,7 +11,8 @@ The feature list is frozen:
 - Microphone, camera, screen sharing, device selection, and reconnection
 - Per-participant controls for local camera hiding and host mute/remove
 - Ephemeral in-room chat
-- Server-owned room recording with download and delete management
+- Server-owned room recording with download and delete management, and
+  speaker-labelled transcripts made on the host's own computer
 
 The system shape and design rules are in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -72,6 +73,14 @@ share, a departure, a reconnect. See
 [Architecture §14](docs/ARCHITECTURE.md#14-ci) for the rule those encode and
 why an assertion has to prove presence before it proves flow.
 
+### Transcripts with the real moil
+
+`make moil-e2e` builds the moil command line from a checkout at `../moil`
+(or `MOIL_REPO`) and runs `server/e2e`: klisi in process, with machines
+that run the real `moil pair`, `moil approve` and `moil agent`, real uv,
+and MinIO in Docker. It isn't part of `make check`; see
+[server/e2e/README.md](server/e2e/README.md).
+
 ## Recording
 
 The server starts a LiveKit room-composite Egress job and includes the S3
@@ -79,6 +88,32 @@ destination in that request. Egress renders klisi's own `/egress-template`,
 writes OGG audio or MP4 video to S3-compatible storage, and reports state
 through signed LiveKit webhooks. Object names include the UTC start time and
 meeting name, with identifying recording metadata stored alongside the file.
+
+## Transcripts
+
+Hosts can pair their own computer with klisi through the
+[moil](https://git.convex.works/ConvexWorks/moil) app. From then on, each
+recording of a room they own is transcribed on that computer, never on the
+server: the machine downloads the recording, runs the transcription bundle
+klisi publishes (Nemotron 3 Diarization and Parakeet), and returns a
+plain-text transcript and WebVTT captions, which klisi keeps beside the
+recording. Older recordings can be transcribed on request. Jobs only go to the
+room owner's own machines, and the owner approves the bundle's exact code in
+the app first. A machine's first transcript downloads 2.9 GB of models, and
+transcribing uses up to 10 GB of memory. On an M3 Max an hour of meeting takes
+about a minute and a half on the GPU, or four minutes on the CPU.
+
+To try it in development, open `/machines` and choose **Add a machine**, or
+pair from a terminal with the moil CLI:
+
+```sh
+moil pair http://localhost:5173/moil   # confirm the code on the page it opens
+moil review klisi                      # the transcription bundle and its hash
+moil approve klisi <hash>              # read it in full, then approve it
+moil agent                             # take jobs until Ctrl-C
+```
+
+[Architecture §8.1](docs/ARCHITECTURE.md#81-transcripts) has the design.
 
 ## Production notes
 
