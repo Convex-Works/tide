@@ -231,7 +231,9 @@ func (s *fakeS3) Stat(ctx context.Context, key string) (int64, string, error) {
 }
 
 // Copy copies src to dst server-side, stored as contentType, as long as src
-// still has the entity tag etag: S3's x-amz-copy-source-if-match.
+// still has the entity tag etag: S3's x-amz-copy-source-if-match, which
+// MinIOStore leaves out when etag is "", and S3 then copies whatever is
+// there.
 func (s *fakeS3) Copy(ctx context.Context, src, etag, dst, contentType string) error {
 	if err := s.enter(ctx, opCopy); err != nil {
 		return err
@@ -242,7 +244,7 @@ func (s *fakeS3) Copy(ctx context.Context, src, etag, dst, contentType string) e
 	switch {
 	case !ok:
 		return fmt.Errorf("fake S3: %s: NoSuchKey", src)
-	case o.etag() != etag:
+	case etag != "" && o.etag() != etag:
 		return fmt.Errorf("fake S3: %s: PreconditionFailed", src)
 	}
 	s.objects[dst] = object{data: slices.Clone(o.data), contentType: contentType}
