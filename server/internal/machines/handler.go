@@ -7,7 +7,9 @@ package machines
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"sync"
 
 	"git.convex.works/ConvexWorks/moil/sdk/go/moil"
 
@@ -21,6 +23,15 @@ const (
 	unknownCode     = "No machine is waiting with this code. Check the code, or start pairing again in the moil app."
 )
 
+// MaxMachinesPerHost is how many machines one host may pair. Every machine
+// keeps a connection open to klisi, so the limit bounds what one account can
+// make klisi hold.
+const MaxMachinesPerHost = 10
+
+var tooManyMachines = fmt.Sprintf(
+	"You have %d machines paired, the most klisi allows. Unpair one you no longer use, then confirm this code again.",
+	MaxMachinesPerHost)
+
 // Handler serves the machine and pairing routes of internal/api. Every route
 // runs behind the session middleware; mutating ones also behind the CSRF
 // check.
@@ -31,6 +42,9 @@ type Handler struct {
 	bundle *moil.Bundle
 	// moilURL is the moil base URL machines pair with: base URL + /moil.
 	moilURL string
+	// confirming is held while a pairing is confirmed, so that two
+	// confirmations at once can't both find room for one more machine.
+	confirming sync.Mutex
 }
 
 func NewHandler(server *moil.Server, bundle *moil.Bundle, moilURL string) *Handler {
@@ -96,20 +110,39 @@ func (h *Handler) Pairing(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	httpx.WriteJSON(w, http.StatusOK, api.PairingInfo{
-		Code: pairing.Code, Name: pairing.Name, OS: pairing.OS, Arch: pairing.Arch,
-		AppVersion: pairing.AppVersion, ExpiresAt: pairing.Expires.Unix(),
+		Code: pairing.Code, Name: httpx.Plain(pairing.Name), OS: httpx.Plain(pairing.OS),
+		Arch: httpx.Plain(pairing.Arch), AppVersion: httpx.Plain(pairing.AppVersion),
+		ExpiresAt: pairing.Expires.Unix(), MoilURL: h.moilURL,
 	})
 }
 
 // Confirm serves POST api.PairingConfirmPath: pairs the waiting machine with
 // the session's host as its owner, and returns it as an api.MachineInfo.
 // The request has no body to read: nothing in it could name another owner.
+// A host who has MaxMachinesPerHost machines is refused, and the code stays
+// pending, to be confirmed once they unpair one.
 func (h *Handler) Confirm(w http.ResponseWriter, r *http.Request) {
 	session, ok := requireSession(w, r)
 	if !ok {
 		return
 	}
-	machine, err := h.moil.ConfirmPairing(r.Context(), r.PathValue("code"), session.Sub)
+	code := r.PathValue("code")
+	if _, ok := h.moil.PendingPairing(code); !ok {
+		httpx.WriteError(w, http.StatusNotFound, unknownCode)
+		return
+	}
+	h.confirming.Lock()
+	defer h.confirming.Unlock()
+	paired, err := h.moil.Machines(r.Context(), session.Sub)
+	if err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not pair the machine. Try again.")
+		return
+	}
+	if len(paired) >= MaxMachinesPerHost {
+		httpx.WriteError(w, http.StatusConflict, tooManyMachines)
+		return
+	}
+	machine, err := h.moil.ConfirmPairing(r.Context(), code, session.Sub)
 	switch {
 	case errors.Is(err, moil.ErrUnknownCode):
 		httpx.WriteError(w, http.StatusNotFound, unknownCode)
@@ -146,15 +179,38 @@ func requireSession(w http.ResponseWriter, r *http.Request) (auth.Session, bool)
 	return session, ok
 }
 
+// machineInfo is a machine as the page shows it. Everything the machine
+// reported about itself is shown as plain text (httpx.Plain).
 func (h *Handler) machineInfo(machine moil.Machine) api.MachineInfo {
 	info := api.MachineInfo{
-		ID: machine.ID, Name: machine.Name, OS: machine.OS, Arch: machine.Arch,
-		AppVersion: machine.AppVersion, PairedAt: machine.PairedAt.Unix(),
-		State: string(machine.State), Approved: machine.HasApproved(h.bundle.Hash()),
+		ID: machine.ID, Name: httpx.Plain(machine.Name), OS: httpx.Plain(machine.OS),
+		Arch: httpx.Plain(machine.Arch), AppVersion: httpx.Plain(machine.AppVersion),
+		PairedAt: machine.PairedAt.Unix(), State: machineState(machine.State),
+		Approved: machine.HasApproved(h.bundle.Hash()),
 	}
 	if !machine.LastSeen.IsZero() {
 		lastSeen := machine.LastSeen.Unix()
 		info.LastSeenAt = &lastSeen
 	}
 	return info
+}
+
+// machineState is a moil state as one of the api.Machine* states.
+func machineState(state moil.MachineState) string {
+	switch state {
+	case moil.Idle:
+		return api.MachineIdle
+	case moil.Busy:
+		return api.MachineBusy
+	case moil.Paused:
+		return api.MachinePaused
+	case moil.Offline:
+		return api.MachineOffline
+	default:
+		// moil refuses states it doesn't know from machines, so this is a
+		// state from a newer moil SDK. moil calls every machine but an
+		// offline one connected, and offers jobs only to idle ones, so the
+		// machine is connected and not free to take a transcript: busy.
+		return api.MachineBusy
+	}
 }

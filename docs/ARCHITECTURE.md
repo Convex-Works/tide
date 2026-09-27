@@ -66,6 +66,12 @@ Single-instance by design for v1: SQLite for durable state, in-memory for
 ephemeral state (lobby). Nothing in the design blocks moving to Postgres +
 multi-replica later; nothing pays that cost now.
 
+The server stops in order on SIGTERM or SIGINT (`httpapi.Serve`): it stops
+taking connections and gives requests in flight 10 seconds, ending lobby
+streams at once; then it disconnects the machines, ending their jobs without
+touching the jobs' rows; then it waits for the reconcilers and job followers;
+and only then closes the database. A second signal stops it at once.
+
 ## 3. Repository layout
 
 ```
@@ -219,14 +225,17 @@ no new reader of the audio.
 
 **Machines.** A signed-in host pairs a computer running the moil app with
 moil's device flow (RFC 8628): the app shows a code and opens
-`/machines?code=XXXX-XXXX`, where the host checks the machine's name and
-confirms. The confirming session's `sub` becomes the machine's owner; nothing
-in the request body can name another. The moil SDK
+`/machines?code=XXXX-XXXX`, where the host checks the machine's name and the
+moil address the app must be pairing with, and confirms. The confirming
+session's `sub` becomes the machine's owner; nothing in the request body can
+name another. The moil SDK
 (`server/third_party/moil`) serves the machine side of the protocol under
 `/moil/` — the moil base URL is `<KLISI_BASE_URL>/moil` — and each machine keeps
 one WebSocket open to `/moil/v1/connect`. Paired machines live in the
 `machines` table, which stores only the SHA-256 of a machine's token. `/machines`
-lists the host's own machines and unpairs them.
+lists the host's own machines and unpairs them. A machine is `idle`, `busy`,
+`paused` or `offline`; a state klisi doesn't know, which only a newer moil SDK
+could report, shows as `busy`, since moil offers jobs only to idle machines.
 
 **The bundle.** klisi publishes one moil bundle, `transcribe` (Nemotron 3
 Diarization and Parakeet TDT 0.6B v3), vendored in
@@ -316,11 +325,13 @@ with an error naming the setting. Transcripts appear only in recording
 management; there is nothing in the meeting itself: no live captions,
 summaries or editing.
 
-**Limits.** A host can pair at most 10 machines. Looking up, confirming and
-denying pairing codes is rate limited per host. Text machines report (names,
-progress, errors) is shown without control or format characters. A job keeps
-at most 4 MiB of data events, and a finished job leaves moil's memory after 5
-minutes; the transcript itself travels as files.
+**Limits.** A host can pair at most 10 machines: confirming an eleventh is
+refused, and its code keeps waiting while they unpair one. Looking up,
+confirming and denying pairing codes is limited to 20 a minute per host, and 60
+per client address. Text machines report (names, OS, versions, progress, errors)
+is shown without control or format characters. A job keeps at most 4 MiB of data
+events, and a finished job leaves moil's memory after 5 minutes; the transcript
+itself travels as files.
 
 ## 9. Frontend
 
@@ -515,12 +526,13 @@ KLISI_JOIN_RATE_LIMIT=10         KLISI_WAIT_RATE_LIMIT=20
 KLISI_LOGIN_RATE_LIMIT=10        KLISI_PAIR_RATE_LIMIT=10
 ```
 
-The four rate limits are per-IP ceilings over a one-minute window. They are
-configuration because the right value depends on the deployment: a public
-install wants the defaults, while the media gate — where every browser shares
-one container IP — would throttle itself without raising them. A value that is
-missing, zero, negative or unparseable falls back to the default; it never
-becomes zero, which would deny every request.
+The four rate limits are per-client ceilings over a one-minute window, an IPv6
+client counting by its /64. They are configuration because the right value
+depends on the deployment: a public install wants the defaults, while the media
+gate — where every browser shares one container IP — would throttle itself
+without raising them. A value that is missing, zero, negative or unparseable
+falls back to the default; it never becomes zero, which would deny every
+request.
 
 Per-variable reference, defaults, and production rules: `docs/DEPLOYMENT.md`.
 
@@ -632,16 +644,18 @@ up between runs for iteration.
   login redirects (10/min) and machines starting a pairing (10/min,
   `POST /moil/v1/pair`, the one moil endpoint without credentials that creates
   state, which must be JSON so a web page can't post one without a CORS
-  preflight); stale buckets are cleaned in memory. IPv6 clients are counted by
-  their /64.
+  preflight; anything else is refused before it counts); stale buckets are
+  cleaned in memory. IPv6 clients are counted by their /64.
 - JSON request bodies are limited to 1 MB before decoding; lobby requests
   expire after 10 minutes.
 - Presigned download URLs are short-lived (5 min) and minted per request after
   an ownership check.
 - Machines (§8.1): pairing is confirmed only by a signed-in session with the
-  CSRF header, and the machine's owner is always that session; code lookups
-  are rate limited. The confirm page shows klisi's moil address, which the
-  moil app must be pairing with. Machine tokens are stored as SHA-256 hashes.
+  CSRF header, and the machine's owner is always that session. Looking up,
+  confirming and denying codes is limited to 20 a minute per host and 60 per
+  client address (RFC 8628 §5.1), and a host pairs at most 10 machines. The
+  confirm page shows klisi's moil address, which the moil app must be pairing
+  with. Machine tokens are stored as SHA-256 hashes.
   Transcript jobs go only to the room owner's machines. A machine gets
   presigned URLs for one attempt, valid for its time limit plus 15 minutes: a
   GET for the recording, and a PUT for each output to a staging key klisi

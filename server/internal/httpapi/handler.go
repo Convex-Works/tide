@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"git.convex.works/ConvexWorks/moil/sdk/go/moil"
@@ -43,20 +44,31 @@ type Handler struct {
 // Background is the work main runs beside the HTTP server: the reconcilers
 // that heal recording state when LiveKit webhooks are lost and project
 // transcript rows onto moil jobs, and the moil server machines connect to.
+// Serve runs it and stops it in order.
 type Background struct {
 	recording   *recording.Handler
 	transcripts *transcripts.Service
 	moil        *moil.Server
+	// lobby's streams end when the HTTP server shuts down.
+	lobby *lobby.Handler
 }
 
-// Run runs the reconcilers until ctx is done.
+// Run runs the reconcilers until ctx is done, and returns once both have
+// returned, transcript jobs' followers included.
 func (b *Background) Run(ctx context.Context) {
-	go b.recording.RunReconciler(ctx, time.Minute)
+	var reconciler sync.WaitGroup
+	reconciler.Add(1)
+	go func() {
+		defer reconciler.Done()
+		b.recording.RunReconciler(ctx, time.Minute)
+	}()
 	b.transcripts.Run(ctx, time.Minute)
+	reconciler.Wait()
 }
 
-// Close disconnects every machine. Transcript jobs in flight end without
-// touching their rows, which stay pending until the next start resubmits them.
+// Close disconnects every machine, ends every transcript job with
+// moil.ErrClosed, and saves what machines last reported. Jobs' rows stay
+// pending until the next start resubmits them.
 func (b *Background) Close() error {
 	return b.moil.Close()
 }
@@ -69,9 +81,9 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 	minter := klisilivekit.NewMinter(cfg)
 	registry := lobby.NewRegistry(lobby.DefaultRequestTTL)
 	ips := newClientIPResolver(cfg.TrustedProxies)
-	joinLimiter := newIPRateLimiter(orDefault(cfg.JoinRateLimit, config.DefaultJoinRateLimit), time.Minute)
-	waitLimiter := newIPRateLimiter(orDefault(cfg.WaitRateLimit, config.DefaultWaitRateLimit), time.Minute)
-	loginLimiter := newIPRateLimiter(
+	joinLimiter := newRateLimiter(orDefault(cfg.JoinRateLimit, config.DefaultJoinRateLimit), time.Minute)
+	waitLimiter := newRateLimiter(orDefault(cfg.WaitRateLimit, config.DefaultWaitRateLimit), time.Minute)
+	loginLimiter := newRateLimiter(
 		orDefault(cfg.LoginRateLimit, config.DefaultLoginRateLimit),
 		time.Minute,
 	)
@@ -98,7 +110,7 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 	})
 	recordingHandler.SetTranscripts(transcriptService)
 	recordingHandler.SetRecordingsChangedHook(transcriptService.Nudge)
-	pairLimiter := newIPRateLimiter(orDefault(cfg.PairRateLimit, config.DefaultPairRateLimit), time.Minute)
+	pairLimiter := newRateLimiter(orDefault(cfg.PairRateLimit, config.DefaultPairRateLimit), time.Minute)
 
 	// A participant joining both enforces bans (moderation) and marks the room
 	// active so the dashboard can show "idle · Nd ago" once it empties.
@@ -118,6 +130,12 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 		recording:  recordingHandler,
 		machines:   machines.NewHandler(moilServer, transcribe, baseURL+api.MoilBasePath),
 		minter:     minter,
+	}
+
+	codeHostLimiter := newRateLimiter(pairingCodesPerHost, time.Minute)
+	codeAddressLimiter := newRateLimiter(pairingCodesPerAddress, time.Minute)
+	pairingCodes := func(next http.HandlerFunc) http.Handler {
+		return handler.requireAuth(withPairingCodeLimit(codeHostLimiter, codeAddressLimiter, ips, next))
 	}
 
 	mux := http.NewServeMux()
@@ -160,14 +178,18 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 	mux.Handle("GET "+api.RecordingTranscriptDownloadPath, handler.requireAuth(http.HandlerFunc(transcriptService.Download)))
 	mux.Handle("GET "+api.MachinesPath, handler.requireAuth(http.HandlerFunc(handler.machines.List)))
 	mux.Handle("DELETE "+api.MachinePath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.machines.Remove))))
-	mux.Handle("GET "+api.PairingPath, handler.requireAuth(http.HandlerFunc(handler.machines.Pairing)))
-	mux.Handle("POST "+api.PairingConfirmPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.machines.Confirm))))
-	mux.Handle("POST "+api.PairingDenyPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.machines.Deny))))
+	// Pairing codes are short enough to guess at, so every route that takes
+	// one is rate limited per host and per client address.
+	mux.Handle("GET "+api.PairingPath, pairingCodes(handler.machines.Pairing))
+	mux.Handle("POST "+api.PairingConfirmPath, handler.csrf(pairingCodes(handler.machines.Confirm)))
+	mux.Handle("POST "+api.PairingDenyPath, handler.csrf(pairingCodes(handler.machines.Deny)))
 
 	// The machines' side of moil. Starting a pairing is the one moil endpoint
-	// that takes no credentials, so it is rate limited per IP.
+	// that creates state without credentials: it takes only JSON, so a web
+	// page can't post one without a CORS preflight, and it is rate limited
+	// per client address.
 	moilHandler := http.StripPrefix(api.MoilBasePath, moilServer.Handler())
-	mux.Handle("POST "+api.MoilBasePath+"/v1/pair", withMoilRateLimit(pairLimiter, ips, moilHandler))
+	mux.Handle("POST "+api.MoilBasePath+"/v1/pair", requireMoilJSON(withMoilRateLimit(pairLimiter, ips, moilHandler)))
 	mux.Handle(api.MoilBasePath+"/", moilHandler)
 
 	mux.HandleFunc("POST "+api.LiveKitWebhookPath, handler.recording.Webhook)
@@ -206,7 +228,9 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 		registerMethodFallback(mux, api.DevTokenPath, http.MethodGet)
 	}
 	mux.HandleFunc("/", handler.spa)
-	background := &Background{recording: recordingHandler, transcripts: transcriptService, moil: moilServer}
+	background := &Background{
+		recording: recordingHandler, transcripts: transcriptService, moil: moilServer, lobby: handler.lobby,
+	}
 	return securityHeaders(handler.withSession(mux)), background, nil
 }
 

@@ -139,6 +139,14 @@ secret values and refuses weak or shipped development secrets.
 | `KLISI_LOGIN_RATE_LIMIT`    | `10`                               | Sign-in redirects per client IP per minute.                                                                                                                                       |
 | `KLISI_PAIR_RATE_LIMIT`     | `10`                               | Machines starting a moil pairing (`POST /moil/v1/pair`, which takes no credentials) per client IP per minute.                                                                     |
 
+Rate limits count an IPv6 client by its /64, the network one subscriber gets,
+and an IPv4 client by its address; both come from `X-Forwarded-For` only
+through `KLISI_TRUSTED_PROXIES`. Pairing codes have fixed limits: a signed-in
+host may look up, confirm and deny 20 a minute, and a client address 60,
+whoever is signed in. `POST /moil/v1/pair` takes only
+`Content-Type: application/json`, which the moil app sends; a proxy or WAF in
+front of klisi must pass it through.
+
 ## Choose the WebRTC media path
 
 Make this choice before deploying LiveKit. The base config uses the single-port
@@ -257,6 +265,10 @@ own origin, under `/moil/`. Three things must hold:
   internal host, plain http behind a TLS proxy) is refused. Hosts should use
   the address `/machines` shows.
 
+A host can pair at most 10 machines. Confirming an eleventh is refused with a
+message saying to unpair one, and its code keeps waiting, so the host can
+unpair a machine on `/machines` and confirm it again.
+
 Paired machines, transcript state and the queue of objects to remove live in
 SQLite with the rest of klisi's records. Transcript files live in the bucket
 next to their recordings. Deleting a recording or a room queues all of their
@@ -335,6 +347,14 @@ Back up SQLite first. Build or pull the new klisi image, patch the image in the
 overlay, and apply it. The `Recreate` strategy stops the old single replica
 before starting the new one. The release artifact is one binary, so there is no
 Node runtime or separate SPA rollout.
+
+On SIGTERM klisi stops taking connections, ends lobby streams at once (lobby
+requests live in memory, so waiting guests ask again), and gives requests in
+flight 10 seconds. It then disconnects paired machines, saving what they last
+reported; they reconnect to the new replica, which starts their unfinished
+transcript jobs again. It closes the database last. That takes up to about 15
+seconds, well within Kubernetes' default 30-second grace; give `docker stop`
+`--time 20` rather than its default 10. A second SIGTERM stops klisi at once.
 
 Database initialization and additive migrations run synchronously when klisi
 opens the store, before the HTTP listener starts. Wait for `/healthz` to become
