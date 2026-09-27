@@ -82,7 +82,8 @@ func WithInsecureHTTP() Option { return func(m *Machine) { m.insecureHTTP = true
 
 // At makes Pair reach the service at baseURL, such as the moil prefix of
 // the service's own router, instead of serving the Server's handler on a
-// new test server.
+// new test server. Pair then checks the service's confirmation page is on
+// that URL's origin, as StartPairing does.
 func At(baseURL string) Option {
 	return func(m *Machine) { m.baseURL = strings.TrimSuffix(baseURL, "/") }
 }
@@ -95,6 +96,9 @@ type Machine struct {
 	timeout      time.Duration
 	info         wire.MachineInfo
 	insecureHTTP bool
+	// ownServer is set when Pair serves the Server on a test server of
+	// its own, whose origin no confirmation page can share.
+	ownServer bool
 
 	mu         sync.Mutex
 	id, token  string
@@ -164,11 +168,16 @@ func New(t testing.TB, baseURL string, opts ...Option) *Machine {
 // Pair returns a machine paired with srv for owner. It reaches srv on a new
 // test HTTP server, unless given At. It isn't connected yet: approve
 // bundles, then call Connect.
+//
+// On a test server of its own, whose origin no confirmation page can
+// share, Pair doesn't check the page's origin as StartPairing does; give
+// it At to have it checked.
 func Pair(t testing.TB, srv *moil.Server, owner string, opts ...Option) *Machine {
 	t.Helper()
 	m := New(t, "", append([]Option{WithName(owner + "'s machine")}, opts...)...)
 	if m.baseURL == "" {
 		m.baseURL = Serve(t, srv)
+		m.ownServer = true
 	}
 	code := m.StartPairing()
 	if _, err := srv.ConfirmPairing(context.Background(), code, owner); err != nil {
@@ -225,7 +234,10 @@ func (m *Machine) Twin() *Machine {
 // Pairing.
 
 // StartPairing asks the service to pair (POST /v1/pair) and returns the
-// user code a person would confirm on the service's page.
+// user code a person would confirm on the service's page. Like a real
+// machine, it refuses, failing the test, unless the page is on the origin
+// of the base URL it reaches the service at (spec §4): set
+// moil.Config.VerificationURL to a page there.
 func (m *Machine) StartPairing() string {
 	m.t.Helper()
 	var resp wire.PairResponse
@@ -233,6 +245,13 @@ func (m *Machine) StartPairing() string {
 		Name: m.info.Name, OS: m.info.OS, Arch: m.info.Arch, AppVersion: "moiltest",
 	}, &resp); status != http.StatusOK {
 		m.t.Fatalf("moiltest: POST /v1/pair: %d %s", status, body)
+	}
+	if !m.ownServer {
+		for _, page := range []string{resp.VerificationURI, resp.VerificationURIComplete} {
+			if err := wire.CheckPairingPage(m.baseURL, page); err != nil {
+				m.t.Fatalf("moiltest: machines refuse to pair: the confirmation page %v (spec §4)", err)
+			}
+		}
 	}
 	m.mu.Lock()
 	m.deviceCode = resp.DeviceCode

@@ -3,6 +3,7 @@ package wire
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/netip"
 	"net/url"
 	"strings"
@@ -59,6 +60,43 @@ func (p URLPolicy) Check(rawURL string) error {
 		return nil
 	}
 	return fmt.Errorf("uses %s; only https is allowed", u.Scheme)
+}
+
+// CheckPairingPage fails unless page, a confirmation page from the
+// service at baseURL, is one machines open (spec §4): an http or https URL
+// on the base URL's origin, without a user name or password. The error
+// completes the sentence "the confirmation page …".
+func CheckPairingPage(baseURL, page string) error {
+	u, err := url.Parse(page)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+		return fmt.Errorf("%q isn't a web address", page)
+	}
+	base, err := url.Parse(baseURL)
+	if err != nil {
+		return fmt.Errorf("can't be checked against the base URL %q: %v", baseURL, err)
+	}
+	if origin(u) != origin(base) {
+		return fmt.Errorf("%q is on %s, not on %s, the origin of the base URL", page, origin(u), origin(base))
+	}
+	if u.User != nil {
+		return fmt.Errorf("%q has a user name or password in it", page)
+	}
+	return nil
+}
+
+// origin is u's scheme, host and port, written alike for URLs that
+// browsers take for the same origin: the host in lower case, an IP address
+// in its canonical form, and the default port spelled out.
+func origin(u *url.URL) string {
+	host := strings.ToLower(u.Hostname())
+	if addr, err := netip.ParseAddr(host); err == nil {
+		host = addr.String()
+	}
+	port := u.Port()
+	if port == "" {
+		port = map[string]string{"http": "80", "https": "443"}[u.Scheme]
+	}
+	return u.Scheme + "://" + net.JoinHostPort(host, port)
 }
 
 // IsLoopback reports whether host is localhost, in 127.0.0.0/8, or ::1.
