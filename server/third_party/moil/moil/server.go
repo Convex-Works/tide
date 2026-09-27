@@ -23,6 +23,16 @@ type Config struct {
 	// confirms a pairing code. Machines open it with ?code=XXXX-XXXX
 	// appended; the page calls PendingPairing, then ConfirmPairing or
 	// DenyPairing.
+	//
+	// It must be on the same origin (scheme, host and port) as the base
+	// URL machines pair with, where the Handler is mounted, such as
+	// https://klisi.example.com/machines/pair for
+	// https://klisi.example.com/moil. Machines refuse to pair otherwise,
+	// so that no service can relay another's pairing and have the user
+	// confirm, on the other service's page, a machine of its choosing
+	// (spec §4). NewServer can't check this, since the Server doesn't know
+	// the URL it's mounted at; moiltest's fake machine checks it, as real
+	// machines do.
 	VerificationURL string
 	// Store keeps paired machines.
 	Store Store
@@ -96,8 +106,8 @@ func (c *Config) setDefaults() error {
 		return errors.New("moil: Config.Name must be at most 64 characters")
 	}
 	u, err := url.Parse(c.VerificationURL)
-	if err != nil || !u.IsAbs() || u.Host == "" {
-		return errors.New("moil: Config.VerificationURL must be an absolute URL, such as https://example.com/machines/pair")
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" || u.User != nil {
+		return errors.New("moil: Config.VerificationURL must be an http or https URL without a user name or password, on the same origin as the moil base URL, such as https://example.com/machines/pair for https://example.com/moil")
 	}
 	if c.Store == nil {
 		return errors.New("moil: Config.Store is required; use NewMemoryStore for tests or NewFileStore for a small deployment")

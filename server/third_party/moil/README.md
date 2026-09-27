@@ -33,10 +33,16 @@ mux.Handle("/moil/", http.StripPrefix("/moil", srv.Handler()))
 ```
 
 Users add your service in the moil app by its moil base URL, here
-`https://klisi.example.com/moil`. Machines need https, except on loopback
-addresses. Jobs' input and output URLs need https too: machines accept
-plain http only to loopback hosts, and only from a service they reach on
-loopback, as in local development, so `Submit` refuses other http URLs.
+`https://klisi.example.com/moil`. `VerificationURL` must be on the same
+origin (scheme, host and port): machines refuse to pair with a service
+whose confirmation page is anywhere else, since that's how one service
+would relay another's pairing, having the user confirm, on the other
+service's page, a machine of its choosing.
+
+Machines need https, except on loopback addresses. Jobs' input and output
+URLs need https too: machines accept plain http only to loopback hosts,
+and only from a service they reach on loopback, as in local development,
+so `Submit` refuses other http URLs.
 For development against storage without TLS, `Config.AllowInsecureHTTP`
 lifts that; machines then need their owners to allow insecure http in
 their settings too.
@@ -82,6 +88,9 @@ The confirmation page hands a machine the user's jobs, so guard it:
   pairing their own machine and send a victim the link; confirming it
   would send the victim's jobs, and their data, to the attacker. Say
   plainly on the page: only confirm a code your own moil app shows you.
+  Show your moil base URL there too, and ask users to check that their
+  app is pairing with it: a relay can have the app show your code, then
+  send the user on to your page from one of its own.
 - **Protect the confirmation from CSRF**, as any state-changing form: a
   CSRF token tied to the session, or refusing cross-site requests by
   their `Sec-Fetch-Site` or `Origin` header (`http.CrossOriginProtection`
@@ -242,9 +251,11 @@ something didn't happen, and `moiltest.At(url)` to reach the Server
 through your own router. Every message your service sends is checked
 against the protocol.
 
-The fake holds your service to what real machines do: it re-encodes
-params, data and meta as the app does, so compare them as JSON values,
-not bytes; it refuses input and output URLs machines refuse
+The fake holds your service to what real machines do: it refuses to pair
+unless your confirmation page is on the origin it reaches the Server at
+(through `moiltest.At`, or `moiltest.New` and `StartPairing`); it
+re-encodes params, data and meta as the app does, so compare them as JSON
+values, not bytes; it refuses input and output URLs machines refuse
 (`moiltest.WithInsecureHTTP()` for a service using
 `Config.AllowInsecureHTTP`); and it drops data and refuses meta that a
 machine wouldn't forward.

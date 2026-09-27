@@ -1,5 +1,8 @@
 import type { Page, Route } from '@playwright/test';
 import {
+  MachineIdle,
+  MachineOffline,
+  MachinePaused,
   MachinePath,
   MachinesPath,
   MePath,
@@ -9,6 +12,9 @@ import {
   RecordingTranscriptPath,
   RoomRecordingsPath,
   RoomsPath,
+  TranscriptCompleted,
+  TranscriptFailed,
+  TranscriptWaiting,
   type MachineInfo,
   type MachinesResponse,
   type Me,
@@ -21,7 +27,9 @@ import {
 // An in-memory klisi API for specs that run against the Vite dev server
 // alone: every /api request is answered here, from `state`, and recorded in
 // `calls`. Nothing reaches the proxy, so a request the mock doesn't know is
-// a 501 the spec can see.
+// a 501 the spec can see. It answers the way the server does
+// (server/internal/machines, server/internal/transcripts), with its
+// messages; a spec that needs a failure routes over it.
 
 export interface ApiCall {
   method: string;
@@ -36,9 +44,8 @@ export interface ApiState {
   rooms: RoomInfo[];
   recordings: RecordingInfo[];
   machines: MachinesResponse;
+  /** Machines waiting to pair, by their code as the moil app shows it (XXXX-XXXX). */
   pairings: Record<string, PairingInfo>;
-  /** What POST /api/recordings/{id}/transcript answers; the row takes it. */
-  requested: TranscriptInfo;
 }
 
 export interface MockApi {
@@ -68,7 +75,7 @@ export function machine(overrides: Partial<MachineInfo> = {}): MachineInfo {
     app_version: '0.4.2',
     paired_at: now - 86_400 * 3,
     last_seen_at: now - 30,
-    state: 'idle',
+    state: MachineIdle,
     approved: true,
     ...overrides
   };
@@ -114,10 +121,35 @@ export function defaultState(): ApiState {
     ],
     recordings: [],
     machines: { machines: [], bundle, moil_url: 'https://klisi.example.com/moil' },
-    pairings: {},
-    requested: { status: 'waiting', message: 'No machine is online.' }
+    pairings: {}
   };
 }
+
+/** The server's reason a pending transcript has no machine on it (transcripts/status.go). */
+export function waitingMessage(machines: MachineInfo[]): string {
+  const approved = machines.filter((item) => item.approved);
+  const online = approved.filter((item) => item.state !== MachineOffline);
+  if (machines.length === 0) return 'No machine is paired to transcribe it.';
+  if (approved.length === 0) {
+    return 'No paired machine has approved the transcriber yet. Approve it in the moil app.';
+  }
+  if (online.length === 0) return 'Waiting for a paired machine to come online.';
+  if (online.some((item) => item.state === MachineIdle))
+    return 'Waiting for a machine to start it.';
+  if (online.every((item) => item.state === MachinePaused)) {
+    return 'The paired machines are paused. Resume one in the moil app.';
+  }
+  return 'Waiting for a paired machine to finish its current job.';
+}
+
+/** A pairing code as the server reads it: any case, with or without the hyphen. */
+function pairingCode(entered: string): string {
+  const plain = entered.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return plain.length === 8 ? `${plain.slice(0, 4)}-${plain.slice(4)}` : plain;
+}
+
+const unknownCode =
+  'No machine is waiting with this code. Check the code, or start pairing again in the moil app.';
 
 /** Matches a concrete path against a generated path constant like /api/x/{id}. */
 function match(template: string, path: string): string[] | undefined {
@@ -140,7 +172,7 @@ export async function mockApi(page: Page, state: ApiState = defaultState()): Pro
       route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
     const empty = (status: number) => route.fulfill({ status, body: '' });
 
-    if (!state.signedIn) return json(401, { error: 'Sign in to continue.' });
+    if (!state.signedIn) return json(401, { error: 'Authentication required.' });
     const mutating = method !== 'GET';
     if (mutating && request.headers()['x-klisi-csrf'] !== '1') {
       return json(403, { error: 'Missing CSRF header.' });
@@ -161,8 +193,23 @@ export async function mockApi(page: Page, state: ApiState = defaultState()): Pro
     if (method === 'POST' && transcriptFor) {
       const target = state.recordings.find((item) => item.id === transcriptFor[0]);
       if (!target) return json(404, { error: 'Recording not found.' });
-      target.transcript = { ...state.requested };
-      return json(202, state.requested);
+      if (target.status !== 'completed') {
+        return json(409, { error: 'Only a completed recording can be transcribed.' });
+      }
+      const status = target.transcript?.status;
+      if (status === TranscriptCompleted) {
+        return json(409, { error: 'This recording already has a transcript.' });
+      }
+      // Pending: the request answers with where it is.
+      if (target.transcript && status !== TranscriptFailed && status !== 'available') {
+        return json(202, target.transcript);
+      }
+      const machines = state.machines.machines;
+      if (machines.length === 0) {
+        return json(409, { error: 'Pair a machine at /machines to transcribe recordings.' });
+      }
+      target.transcript = { status: TranscriptWaiting, message: waitingMessage(machines) };
+      return json(202, target.transcript);
     }
 
     if (method === 'GET' && path === MachinesPath) return json(200, state.machines);
@@ -178,17 +225,20 @@ export async function mockApi(page: Page, state: ApiState = defaultState()): Pro
 
     const confirmCode = match(PairingConfirmPath, path);
     if (method === 'POST' && confirmCode) {
-      const waiting = state.pairings[confirmCode[0]];
-      if (!waiting) return json(404, { error: 'This pairing code expired.' });
-      delete state.pairings[confirmCode[0]];
+      const code = pairingCode(confirmCode[0]);
+      const waiting = state.pairings[code];
+      if (!waiting) return json(404, { error: unknownCode });
+      delete state.pairings[code];
+      // Just paired: it hasn't connected, so it can't have approved anything.
       const paired = machine({
-        id: `m-${waiting.code.toLowerCase()}`,
+        id: `m-${code.toLowerCase()}`,
         name: waiting.name,
         os: waiting.os,
         arch: waiting.arch,
         app_version: waiting.app_version,
         paired_at: now,
-        last_seen_at: now,
+        last_seen_at: wireNull,
+        state: MachineOffline,
         approved: false
       });
       state.machines.machines = [...state.machines.machines, paired];
@@ -197,15 +247,16 @@ export async function mockApi(page: Page, state: ApiState = defaultState()): Pro
 
     const denyCode = match(PairingDenyPath, path);
     if (method === 'POST' && denyCode) {
-      if (!state.pairings[denyCode[0]]) return json(404, { error: 'This pairing code expired.' });
-      delete state.pairings[denyCode[0]];
+      const code = pairingCode(denyCode[0]);
+      if (!state.pairings[code]) return json(404, { error: unknownCode });
+      delete state.pairings[code];
       return empty(204);
     }
 
-    const code = match(PairingPath, path);
-    if (method === 'GET' && code) {
-      const waiting = state.pairings[code[0]];
-      return waiting ? json(200, waiting) : json(404, { error: 'This pairing code expired.' });
+    const lookup = match(PairingPath, path);
+    if (method === 'GET' && lookup) {
+      const waiting = state.pairings[pairingCode(lookup[0])];
+      return waiting ? json(200, waiting) : json(404, { error: unknownCode });
     }
 
     return json(501, { error: `The mock API has no ${method} ${path}.` });
