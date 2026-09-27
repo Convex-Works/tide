@@ -408,7 +408,7 @@
         <div class="mt-1.5 flex flex-wrap items-center gap-2 text-[12px] text-ink-2">
           <span>{stateText(room)}</span>
         </div>
-        <div class="mt-3 flex items-center gap-2">
+        <div class="mt-3 flex flex-wrap items-center gap-2">
           <Button href={`/m/${room.slug}`} variant="accent">
             Join meeting <ArrowRight size={14} weight="bold" aria-hidden="true" />
           </Button>
