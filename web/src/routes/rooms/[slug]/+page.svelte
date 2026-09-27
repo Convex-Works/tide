@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy, onMount, tick } from 'svelte';
   import { Switch } from 'bits-ui';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
@@ -14,9 +14,11 @@
     Trash
   } from 'phosphor-svelte';
   import {
+    ApiError,
     AuthRequiredError,
     deleteRecording,
     deleteRoom,
+    errorMessage,
     listRecordings,
     listRooms,
     recordingDownloadURL,
@@ -36,7 +38,7 @@
     type RoomInfo,
     type TranscriptInfo
   } from '$lib/api/types.gen';
-  import { compactAgo, durationLabel, relativeDate, sizeLabel } from '$lib/format';
+  import { compactAgo, dateTimeLabel, durationLabel, relativeDate, sizeLabel } from '$lib/format';
   import StateTile from '$lib/ui/StateTile.svelte';
   import Button from '$lib/ui/Button.svelte';
 
@@ -46,14 +48,23 @@
 
   // A running transcript reports progress, so it polls like a pending
   // recording. A waiting one can wait days for a machine to wake: poll it
-  // slowly, and stop once nothing is in flight.
+  // slowly, and stop once nothing is in flight. A failed poll retries at the
+  // slow pace too.
   const fastPollMs = 3_000;
   const slowPollMs = 15_000;
+
+  // The small bordered controls and status pills of a recording's row.
+  const rowControl =
+    'inline-flex h-6 shrink-0 items-center gap-1 rounded-control border px-2 text-[11px] no-underline transition-colors disabled:opacity-60';
+  const rowButton = `${rowControl} border-border bg-paper text-ink hover:bg-surface-2`;
+  const pill = 'w-max shrink-0 rounded-full border px-1.5 text-[10px] uppercase leading-[18px]';
 
   let loadState = $state<LoadState>('loading');
   let room = $state<RoomInfo>();
   let recordings = $state<RecordingInfo[]>([]);
   let recordingsLoading = $state(false);
+  // Set only when the first load of the list failed; later polls fail quietly.
+  let recordingsError = $state('');
   let error = $state('');
   let busy = $state(false);
   let copied = $state(false);
@@ -65,12 +76,21 @@
   let copyTimer: ReturnType<typeof setTimeout> | undefined;
   let slugSavedTimer: ReturnType<typeof setTimeout> | undefined;
   let recordingPoll: ReturnType<typeof setTimeout> | undefined;
+  // A poll came due while the tab was hidden; it runs when the tab is shown.
+  let pollWhenVisible = false;
   // Bumped by every local change to the list, so a poll that was already in
   // flight can't put back a deleted recording or a stale transcript.
   let recordingsGeneration = 0;
   let destroyed = false;
 
   const slug = $derived(page.params.slug ?? '');
+  // The transcript column only earns its width once a recording has one:
+  // hosts without a machine never see transcripts (ARCHITECTURE.md §8.1).
+  const rowGrid = $derived(
+    recordings.some((recording) => recording.transcript)
+      ? 'grid-cols-[max-content_minmax(0,1fr)_auto] sm:grid-cols-[max-content_minmax(0,1fr)_56px_64px_auto] lg:grid-cols-[max-content_minmax(0,1fr)_56px_64px_248px_auto]'
+      : 'grid-cols-[max-content_minmax(0,1fr)_auto] sm:grid-cols-[max-content_minmax(0,1fr)_56px_64px_auto]'
+  );
 
   async function load(): Promise<void> {
     loadState = 'loading';
@@ -91,11 +111,15 @@
         loadState = 'signed-out';
         return;
       }
-      error = cause instanceof Error ? cause.message : 'Could not load the room. Reload the page.';
+      error = errorMessage(
+        cause,
+        'Could not load the room. Check your connection, then try again.'
+      );
       loadState = 'error';
     }
   }
 
+  /** How soon to look at the list again, or undefined when nothing can change. */
   function pollDelay(list: RecordingInfo[]): number | undefined {
     const transcripts = list.map((recording) => recording.transcript?.status);
     if (
@@ -108,27 +132,53 @@
     return undefined;
   }
 
-  function schedulePoll(list: RecordingInfo[]): void {
-    if (recordingPoll) clearTimeout(recordingPoll);
+  function schedulePoll(delay: number | undefined): void {
+    clearTimeout(recordingPoll);
     recordingPoll = undefined;
-    const delay = pollDelay(list);
-    if (delay != null && !destroyed) {
-      recordingPoll = setTimeout(() => void loadRecordings(), delay);
-    }
+    pollWhenVisible = false;
+    if (delay == null || destroyed) return;
+    recordingPoll = setTimeout(() => {
+      recordingPoll = undefined;
+      // A hidden tab doesn't poll; it catches up when it's shown again.
+      if (document.hidden) pollWhenVisible = true;
+      else void loadRecordings(true);
+    }, delay);
   }
 
-  async function loadRecordings(): Promise<void> {
-    if (destroyed) return;
+  function onVisibilityChange(): void {
+    if (document.hidden || !pollWhenVisible) return;
+    pollWhenVisible = false;
+    void loadRecordings(true);
+  }
+
+  /**
+   * Loads the list. Only the first load (background false) reports a
+   * failure; a background poll keeps what's shown and tries again later.
+   */
+  async function loadRecordings(background = false): Promise<void> {
+    if (destroyed || !room) return;
     const generation = recordingsGeneration;
     recordingsLoading = true;
     try {
-      const list = await listRecordings(room?.slug ?? slug);
+      const list = await listRecordings(room.slug);
       if (destroyed || generation !== recordingsGeneration) return;
       recordings = list;
-      schedulePoll(list);
+      recordingsError = '';
+      schedulePoll(pollDelay(list));
     } catch (cause) {
-      if (destroyed) return;
-      error = cause instanceof Error ? cause.message : 'Could not load recordings. Try again.';
+      // A local change since the request started has already rescheduled.
+      if (destroyed || generation !== recordingsGeneration) return;
+      if (cause instanceof AuthRequiredError) {
+        loadState = 'signed-out';
+      } else if (background) {
+        const delay = pollDelay(recordings);
+        schedulePoll(delay == null ? undefined : Math.max(delay, slowPollMs));
+      } else {
+        recordingsError = errorMessage(
+          cause,
+          'Could not load the recordings. Check your connection, then try again.'
+        );
+      }
     } finally {
       recordingsLoading = false;
     }
@@ -166,7 +216,10 @@
       if (slugSavedTimer) clearTimeout(slugSavedTimer);
       slugSavedTimer = setTimeout(() => (slugSaved = false), 1600);
     } catch (cause) {
-      error = cause instanceof Error ? cause.message : 'Could not change the room link. Try again.';
+      error = errorMessage(
+        cause,
+        'Could not change the room link. Check your connection, then try again.'
+      );
     } finally {
       busy = false;
     }
@@ -183,7 +236,10 @@
       // already have and only take the changed setting.
       room = { ...current, lobby_enabled: updated.lobby_enabled, name: updated.name };
     } catch (cause) {
-      error = cause instanceof Error ? cause.message : 'Could not change the lobby. Try again.';
+      error = errorMessage(
+        cause,
+        'Could not change the lobby. Check your connection, then try again.'
+      );
       // Re-assert the real state so the controlled switch snaps back.
       room = { ...current };
     } finally {
@@ -203,7 +259,10 @@
       await deleteRoom(room.slug);
       await goto('/');
     } catch (cause) {
-      error = cause instanceof Error ? cause.message : 'Could not delete the room. Try again.';
+      error = errorMessage(
+        cause,
+        'Could not delete the room. Check your connection, then try again.'
+      );
       busy = false;
     }
   }
@@ -217,15 +276,33 @@
     error = '';
     try {
       await deleteRecording(id);
+      if (destroyed) return;
       recordingsGeneration += 1;
       recordings = recordings.filter((recording) => recording.id !== id);
-      schedulePoll(recordings);
+      schedulePoll(pollDelay(recordings));
       deleteRecordingID = '';
+      await focusOn(document.getElementById('recordings-heading'));
     } catch (cause) {
-      error = cause instanceof Error ? cause.message : 'Could not delete the recording. Try again.';
+      if (cause instanceof AuthRequiredError) loadState = 'signed-out';
+      else {
+        error = errorMessage(
+          cause,
+          'Could not delete the recording. Check your connection, then try again.'
+        );
+      }
     } finally {
       busy = false;
     }
+  }
+
+  async function focusOn(element: HTMLElement | null): Promise<void> {
+    await tick();
+    element?.focus();
+  }
+
+  /** The transcript cell of a recording's row, which takes focus after its button goes. */
+  function transcriptCellOf(id: string): HTMLElement | null {
+    return document.querySelector(`[data-recording-id="${CSS.escape(id)}"] [data-transcript]`);
   }
 
   async function transcribe(id: string): Promise<void> {
@@ -233,18 +310,35 @@
     transcriptBusyID = id;
     error = '';
     try {
+      // For a transcript already pending, this answers with its status.
       const transcript = await requestTranscript(id);
+      if (destroyed) return;
       recordingsGeneration += 1;
       recordings = recordings.map((recording) =>
         recording.id === id ? { ...recording, transcript } : recording
       );
-      schedulePoll(recordings);
+      schedulePoll(pollDelay(recordings));
     } catch (cause) {
-      error =
-        cause instanceof Error ? cause.message : 'Could not request the transcript. Try again.';
+      if (destroyed) return;
+      if (cause instanceof AuthRequiredError) {
+        loadState = 'signed-out';
+        return;
+      }
+      error = errorMessage(
+        cause,
+        'Could not request the transcript. Check your connection, then try again.'
+      );
+      // A conflict means the transcript changed since the list loaded
+      // (requested elsewhere, already done, the owner's machines unpaired):
+      // show what it is now.
+      if (cause instanceof ApiError && cause.status === 409) {
+        recordingsGeneration += 1;
+        await loadRecordings(true);
+      }
     } finally {
       transcriptBusyID = '';
     }
+    await focusOn(transcriptCellOf(id));
   }
 
   function percent(progress?: number | null): string {
@@ -270,12 +364,43 @@
     return 'text-ink-2 border-border bg-surface';
   }
 
-  onMount(() => void load());
+  function transcriptTone(status: string): string {
+    if (status === TranscriptRunning) return 'border-warn/40 bg-warn/10 text-warn';
+    if (status === TranscriptFailed) return 'border-rec/30 bg-rec/10 text-rec';
+    return 'border-border text-ink-2';
+  }
+
+  /** The words the row's live region reads out: the status, never the progress. */
+  function transcriptWords(transcript: TranscriptInfo | undefined, when: string): string {
+    const words: Record<string, string> = {
+      [TranscriptWaiting]: 'Transcript waiting',
+      [TranscriptRunning]: 'Transcribing',
+      [TranscriptCompleted]: 'Transcript ready',
+      [TranscriptFailed]: 'Transcript failed'
+    };
+    const status = transcript && words[transcript.status];
+    return status ? `${status}: recording from ${when}` : '';
+  }
+
+  /** The line under the row: why a transcript waits, what a machine is doing, or why it failed. */
+  function transcriptNote(transcript?: TranscriptInfo): string | undefined {
+    if (transcript?.status === TranscriptFailed) return transcript.error;
+    if (transcript?.status === TranscriptWaiting || transcript?.status === TranscriptRunning) {
+      return transcript.message;
+    }
+    return undefined;
+  }
+
+  onMount(() => {
+    void load();
+    document.addEventListener('visibilitychange', onVisibilityChange);
+  });
   onDestroy(() => {
     destroyed = true;
     if (copyTimer) clearTimeout(copyTimer);
     if (slugSavedTimer) clearTimeout(slugSavedTimer);
-    if (recordingPoll) clearTimeout(recordingPoll);
+    clearTimeout(recordingPoll);
+    document.removeEventListener('visibilitychange', onVisibilityChange);
   });
 </script>
 
@@ -283,43 +408,18 @@
   <title>{room?.name ?? 'Room'} · klisi</title>
 </svelte:head>
 
-{#snippet transcriptCell(id: string, transcript: TranscriptInfo)}
+{#snippet transcriptCell(id: string, transcript: TranscriptInfo, when: string)}
+  <span class="sr-only">Transcript:</span>
   {#if transcript.status === TranscriptAvailable}
     <button
       type="button"
       disabled={transcriptBusyID !== ''}
-      class="inline-flex h-6 shrink-0 items-center gap-1 rounded-control border border-border bg-paper px-2 text-[11px] text-ink transition-colors hover:bg-surface-2 disabled:opacity-60"
+      class={rowButton}
+      aria-label="Transcribe the recording from {when}"
       onclick={() => void transcribe(id)}
     >
       <Subtitles size={16} weight="regular" aria-hidden="true" /> Transcribe
     </button>
-  {:else if transcript.status === TranscriptWaiting}
-    <span
-      class="w-max shrink-0 rounded-full border border-border px-1.5 text-[10px] uppercase leading-[18px] text-ink-2"
-      title={transcript.message}
-    >
-      waiting
-    </span>
-    {#if transcript.message}
-      <span class="min-w-0 truncate text-[11px] text-ink-2" title={transcript.message}>
-        {transcript.message}
-      </span>
-    {/if}
-  {:else if transcript.status === TranscriptRunning}
-    <span
-      class="w-max shrink-0 rounded-full border border-warn/40 bg-warn/10 px-1.5 text-[10px] uppercase leading-[18px] text-warn"
-      title={transcript.message}
-    >
-      transcribing
-    </span>
-    {#if transcript.progress != null}
-      <span class="mono shrink-0 text-[11px] text-ink">{percent(transcript.progress)}</span>
-    {/if}
-    {#if transcript.message}
-      <span class="min-w-0 truncate text-[11px] text-ink-2" title={transcript.message}>
-        {transcript.message}
-      </span>
-    {/if}
   {:else if transcript.status === TranscriptCompleted}
     {#if transcript.speakers != null}
       <span class="shrink-0 text-[11px] text-ink-2">
@@ -328,43 +428,41 @@
       </span>
     {/if}
     <a
-      class="inline-flex h-6 shrink-0 items-center gap-1 rounded-control border border-border bg-paper px-2 text-[11px] text-ink no-underline transition-colors hover:bg-surface-2"
+      class={rowButton}
       href={transcriptDownloadURL(id, TranscriptFormatText)}
       target="_blank"
       rel="noreferrer"
-      title="Download the transcript (.txt)"
+      aria-label="Download transcript of the recording from {when} (.txt)"
     >
       <DownloadSimple size={16} weight="regular" aria-hidden="true" /> Transcript
     </a>
     <a
-      class="inline-flex h-6 shrink-0 items-center gap-1 rounded-control border border-border bg-paper px-2 text-[11px] text-ink no-underline transition-colors hover:bg-surface-2"
+      class={rowButton}
       href={transcriptDownloadURL(id, TranscriptFormatVTT)}
       target="_blank"
       rel="noreferrer"
-      title="Download captions (.vtt)"
+      aria-label="Download captions of the recording from {when} (.vtt)"
     >
       <DownloadSimple size={16} weight="regular" aria-hidden="true" /> Captions
     </a>
-  {:else if transcript.status === TranscriptFailed}
-    <span
-      class="w-max shrink-0 rounded-full border border-rec/30 bg-rec/10 px-1.5 text-[10px] uppercase leading-[18px] text-rec"
-      title={transcript.error}
-    >
-      failed
+  {:else}
+    <span class="{pill} {transcriptTone(transcript.status)}">
+      {transcript.status === TranscriptRunning ? 'transcribing' : transcript.status}
     </span>
-    {#if transcript.error}
-      <span class="min-w-0 truncate text-[11px] text-ink-2" title={transcript.error}>
-        {transcript.error}
-      </span>
+    {#if transcript.status === TranscriptRunning && transcript.progress != null}
+      <span class="mono shrink-0 text-[11px] text-ink">{percent(transcript.progress)}</span>
     {/if}
-    <button
-      type="button"
-      disabled={transcriptBusyID !== ''}
-      class="inline-flex h-6 shrink-0 items-center gap-1 rounded-control border border-border bg-paper px-2 text-[11px] text-ink transition-colors hover:bg-surface-2 disabled:opacity-60"
-      onclick={() => void transcribe(id)}
-    >
-      <ArrowClockwise size={16} weight="regular" aria-hidden="true" /> Retry
-    </button>
+    {#if transcript.status === TranscriptFailed}
+      <button
+        type="button"
+        disabled={transcriptBusyID !== ''}
+        class={rowButton}
+        aria-label="Retry the transcript of the recording from {when}"
+        onclick={() => void transcribe(id)}
+      >
+        <ArrowClockwise size={16} weight="regular" aria-hidden="true" /> Retry
+      </button>
+    {/if}
   {/if}
 {/snippet}
 
@@ -408,7 +506,7 @@
         <div class="mt-1.5 flex flex-wrap items-center gap-2 text-[12px] text-ink-2">
           <span>{stateText(room)}</span>
         </div>
-        <div class="mt-3 flex items-center gap-2">
+        <div class="mt-3 flex flex-wrap items-center gap-2">
           <Button href={`/m/${room.slug}`} variant="accent">
             Join meeting <ArrowRight size={14} weight="bold" aria-hidden="true" />
           </Button>
@@ -429,7 +527,9 @@
     <!-- Recordings / past meetings -->
     <section class="mt-8">
       <div class="flex items-center justify-between">
-        <h2 class="text-[13px] font-[550] text-ink">Recordings</h2>
+        <h2 id="recordings-heading" tabindex="-1" class="text-[13px] font-[550] text-ink">
+          Recordings
+        </h2>
         {#if recordings.length > 0}
           <span class="text-[12px] text-ink-2">{recordings.length} total</span>
         {/if}
@@ -441,6 +541,17 @@
         >
           Loading recordings…
         </p>
+      {:else if recordingsError && recordings.length === 0}
+        <div class="mt-2 rounded-card border border-border bg-surface px-3 py-6 text-center">
+          <p class="m-0 text-[12px] text-rec" role="alert">{recordingsError}</p>
+          <button
+            class="mt-2 border-0 bg-transparent p-0 text-[12px] text-accent"
+            type="button"
+            onclick={() => void loadRecordings()}
+          >
+            Try again
+          </button>
+        </div>
       {:else if recordings.length === 0}
         <p
           class="mt-2 rounded-card border border-border bg-surface px-3 py-6 text-center text-[12px] text-ink-2"
@@ -450,26 +561,26 @@
       {:else}
         <div class="mt-2 overflow-hidden rounded-card border border-border bg-surface">
           {#each recordings as recording (recording.id)}
+            {@const when = dateTimeLabel(recording.started_at)}
+            {@const note = transcriptNote(recording.transcript)}
+            <!-- DOM order is the narrow layout's reading order: the actions end
+                 the first line and the transcript gets lines of its own. At lg
+                 the actions move to the last column, and reading-flow keeps
+                 Tab order visual where browsers support it. -->
             <div
-              class="grid grid-cols-[max-content_minmax(90px,1fr)_auto] items-center gap-x-3 gap-y-2 border-b border-border px-3 py-2.5 last:border-b-0 sm:grid-cols-[max-content_minmax(90px,1fr)_56px_64px_auto] lg:grid-cols-[max-content_minmax(90px,1fr)_56px_64px_236px_auto]"
+              class="grid {rowGrid} items-center gap-x-3 gap-y-1.5 border-b border-border px-3 py-2.5 [reading-flow:grid-rows] last:border-b-0"
               data-recording-id={recording.id}
             >
               <span class="flex w-max items-center gap-1">
-                <span
-                  class="w-max rounded-full border px-1.5 text-[10px] uppercase leading-[18px] {statusTone(
-                    recording.status
-                  )}"
-                >
+                <span class="{pill} {statusTone(recording.status)}">
                   {recording.status}
                 </span>
-                <span
-                  class="mono w-max rounded-full border border-border px-1.5 text-[10px] uppercase leading-[18px] text-ink-2"
-                >
+                <span class="{pill} mono border-border text-ink-2">
                   {recording.audio_only ? 'audio' : 'video'}
                 </span>
               </span>
               <time
-                class="truncate text-[11px] text-ink-2"
+                class="min-w-0 truncate text-[11px] text-ink-2"
                 datetime={new Date(recording.started_at * 1000).toISOString()}
               >
                 {relativeDate(recording.started_at)}
@@ -480,40 +591,28 @@
               <span class="hidden text-[11px] text-ink-2 sm:block">
                 {sizeLabel(recording.size_bytes)}
               </span>
-              <!-- Its own column when there's room; below the row when there isn't. -->
-              <div
-                class="order-last col-span-full min-w-0 items-center gap-1.5 lg:order-none lg:col-span-1 {recording.transcript
-                  ? 'flex'
-                  : 'hidden lg:block'}"
-                data-testid="transcript"
-                data-status={recording.transcript?.status}
-              >
-                {#if recording.transcript}
-                  <span class="sr-only">Transcript:</span>
-                  {@render transcriptCell(recording.id, recording.transcript)}
-                {/if}
-              </div>
-              <div class="flex justify-end gap-1">
+              <div class="flex justify-end gap-1 lg:col-[-2/-1] lg:row-start-1">
                 {#if recording.status === 'completed'}
                   <a
-                    class="inline-flex h-6 items-center gap-1 rounded-control border border-border bg-paper px-2 text-[11px] text-ink no-underline transition-colors hover:bg-surface-2"
+                    class={rowButton}
                     href={recordingDownloadURL(recording.id)}
                     target="_blank"
                     rel="noreferrer"
+                    aria-label="Download the recording from {when}"
                   >
-                    <DownloadSimple size={16} weight="regular" aria-hidden="true" /> Download
+                    <DownloadSimple size={16} weight="regular" aria-hidden="true" />
+                    <span class="hidden sm:inline">Download</span>
                   </a>
                 {/if}
                 <button
                   type="button"
                   disabled={busy || pendingStatuses.includes(recording.status)}
-                  class="inline-flex h-6 items-center gap-1 rounded-control border px-2 text-[11px] transition-colors disabled:opacity-60 {deleteRecordingID ===
-                  recording.id
+                  class="{rowControl} {deleteRecordingID === recording.id
                     ? 'border-rec bg-rec text-white'
                     : 'border-border bg-paper text-ink-2 hover:bg-surface-2 hover:text-ink'}"
                   aria-label={deleteRecordingID === recording.id
-                    ? 'Confirm delete recording'
-                    : 'Delete recording'}
+                    ? `Confirm delete the recording from ${when}`
+                    : `Delete the recording from ${when}`}
                   onclick={() => void removeRecording(recording.id)}
                 >
                   {#if deleteRecordingID === recording.id}
@@ -523,6 +622,35 @@
                   {/if}
                 </button>
               </div>
+              <!-- Its own column when there's room; its own line when there isn't.
+                   The inner box takes focus when its button goes: a focusable
+                   grid item would take its buttons out of the reading flow. -->
+              <div
+                class="col-span-full min-w-0 lg:col-span-1 {recording.transcript ? '' : 'hidden'}"
+              >
+                <div
+                  class="flex w-fit max-w-full flex-wrap items-center gap-1.5 rounded-control"
+                  tabindex="-1"
+                  data-transcript
+                  data-testid="transcript"
+                  data-status={recording.transcript?.status}
+                >
+                  {#if recording.transcript}
+                    {@render transcriptCell(recording.id, recording.transcript, when)}
+                  {/if}
+                </div>
+              </div>
+              {#if note}
+                <p
+                  class="col-span-full m-0 text-[11px] leading-4 text-ink [contain:inline-size] lg:col-[5/-1]"
+                  data-testid="transcript-note"
+                >
+                  {note}
+                </p>
+              {/if}
+              <span class="sr-only" aria-live="polite" data-testid="transcript-live">
+                {transcriptWords(recording.transcript, when)}
+              </span>
             </div>
           {/each}
         </div>
