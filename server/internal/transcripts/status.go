@@ -23,6 +23,13 @@ const maxMessage = 300
 // of its request.
 const expired = "No machine transcribed it within 14 days. Check that a paired machine is online and has approved the transcribe bundle in the moil app, then request it again."
 
+// stoppedOnMachine is the error of a job a machine ended as cancelled when
+// klisi hadn't asked it to.
+const stoppedOnMachine = "Transcription was stopped on the machine before it finished. Try again, and if it keeps stopping, check the room owner's machine in the moil app."
+
+// noFile is the error of a transcript whose recording has no file.
+const noFile = "This recording has no file, so it can't be transcribed."
+
 // The errors of a job that succeeded with files klisi won't keep.
 const (
 	missingOutputs = "The machine finished without uploading the transcript. Try again."

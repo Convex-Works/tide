@@ -114,12 +114,14 @@ type job struct {
 	run         *moil.Run
 
 	// Guarded by Service.mu: each attempt's staging directory, by attempt
-	// number; what the current attempt last reported; and whether the run
-	// ended without its end recorded, for the next pass to record.
+	// number; what the current attempt last reported; whether klisi
+	// cancelled the run; and whether the run ended without its end
+	// recorded, for the next pass to record.
 	staging    map[int]string
 	attempt    int
 	progress   *float64
 	message    string
+	cancelled  bool
 	unrecorded bool
 }
 
@@ -211,6 +213,9 @@ func (s *Service) reconcile(ctx context.Context) {
 	s.mu.Lock()
 	for id, j := range s.jobs {
 		if !wanted[id] {
+			// Before Cancel: a run that ends cancelled without this, a
+			// machine ended of its own accord (ended).
+			j.cancelled = true
 			unwanted = append(unwanted, j.run)
 		}
 	}
@@ -396,7 +401,7 @@ func (s *Service) follow(ctx context.Context, j *job) {
 func (s *Service) settle(ctx context.Context, j *job) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), settleTimeout)
 	defer cancel()
-	err := s.ended(ctx, j)
+	resubmit, err := s.ended(ctx, j)
 	s.mu.Lock()
 	j.unrecorded = err != nil
 	if err == nil && s.jobs[j.recordingID] == j {
@@ -407,8 +412,12 @@ func (s *Service) settle(ctx context.Context, j *job) {
 		log.Printf("transcripts: recording %s: record how its job ended, again next pass: %v", j.recordingID, err)
 		return
 	}
-	// A row the run left pending gets its next job without waiting a tick.
-	s.Nudge()
+	// Only an end klisi brought about can leave the row wanting a new job:
+	// a run that ends for a machine's reasons never makes the next pass
+	// start another at once.
+	if resubmit {
+		s.Nudge()
+	}
 }
 
 // recordUnrecorded tries again to record the ends that failed to be.
@@ -454,27 +463,48 @@ func (j *job) observe(event moil.Event) {
 
 // ended records how a run ended on its row: completed, with its files
 // beside the recording, or failed with an error the recording list shows. A
-// run cancelled because its row is gone or no longer pending, or ended by a
-// shutdown, leaves the row as it is. It fails only if storage or the
-// database did, and then can be tried again.
-func (s *Service) ended(ctx context.Context, j *job) error {
+// run klisi cancelled, because its row is gone or no longer pending, or
+// ended by a shutdown, leaves the row as it is; so does one Prepare ended
+// because the room changed hands. It reports whether the row may want a new
+// job now: only after those ends of klisi's own making. It fails only if
+// storage or the database did, and then can be tried again.
+func (s *Service) ended(ctx context.Context, j *job) (resubmit bool, err error) {
 	result, err := j.run.Wait(ctx) // the run has ended
 	now := s.cfg.Now().Unix()
+	s.mu.Lock()
+	cancelled := j.cancelled
+	s.mu.Unlock()
 	switch {
 	case errors.Is(err, moil.ErrClosed):
 		// klisi is shutting down; the pending row is submitted again at the
 		// next start.
-		return nil
-	case errors.Is(err, moil.ErrCancelled), errors.Is(err, errRecordingGone), errors.Is(err, errOwnerChanged):
-		return nil
+		return false, nil
+	case errors.Is(err, moil.ErrCancelled) && cancelled:
+		// The row was gone or no longer pending; it may have been
+		// requested again since.
+		return true, nil
+	case errors.Is(err, moil.ErrCancelled):
+		// A machine said it cancelled an attempt klisi never asked it to.
+		// Submitting it again would go round as fast as the machine
+		// answers.
+		log.Printf("transcripts: recording %s: machine ended the job as cancelled unasked", j.recordingID)
+		return false, s.cfg.Store.FailTranscript(ctx, j.recordingID, stoppedOnMachine, now)
+	case errors.Is(err, errOwnerChanged):
+		// The next pass submits it for the room's new owner.
+		return true, nil
+	case errors.Is(err, errRecordingGone):
+		// Its row went with the recording; if it is still there, it can
+		// never be made.
+		return false, s.cfg.Store.FailTranscript(ctx, j.recordingID, noFile, now)
 	case err != nil:
-		log.Printf("transcripts: recording %s: %v", j.recordingID, err)
-		return s.cfg.Store.FailTranscript(ctx, j.recordingID, failure(err), now)
+		// %q: a machine's error, whose text could otherwise forge log lines.
+		log.Printf("transcripts: recording %s: %q", j.recordingID, err.Error())
+		return false, s.cfg.Store.FailTranscript(ctx, j.recordingID, failure(err), now)
 	}
 	s.mu.Lock()
 	dir := j.staging[result.Attempt]
 	s.mu.Unlock()
-	return s.promote(ctx, j.recordingID, dir, result, now)
+	return false, s.promote(ctx, j.recordingID, dir, result, now)
 }
 
 // promote checks the files a succeeded attempt uploaded to its staging

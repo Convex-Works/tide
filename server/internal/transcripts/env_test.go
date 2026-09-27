@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"path"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -239,6 +240,23 @@ func (e *env) reconciled() {
 		e.t.Fatal(err)
 	}
 	waitFor(e.t, "a recording reconciler pass", func() bool { _, ok := e.s3.Object(probe); return !ok })
+}
+
+// queuedStaging is the staging keys queued for removal, whenever they are
+// due.
+func (e *env) queuedStaging() []string {
+	e.t.Helper()
+	keys, err := e.db.DueRemovals(context.Background(), e.clock.Now().Add(100*365*24*time.Hour).Unix(), 1000)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	var staged []string
+	for _, key := range keys {
+		if strings.HasPrefix(key, "transcripts-staging/") {
+			staged = append(staged, key)
+		}
+	}
+	return staged
 }
 
 // sql changes klisi's database behind its back, over a connection of its

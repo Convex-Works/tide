@@ -31,7 +31,7 @@ func (s *Service) Request(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusConflict, "This recording hasn't finished yet. Request its transcript once it has.")
 		return
 	case !transcribable(recording):
-		httpx.WriteError(w, http.StatusConflict, "This recording has no file, so it can't be transcribed.")
+		httpx.WriteError(w, http.StatusConflict, noFile)
 		return
 	}
 	row, exists, ok := s.loadRow(w, r, recording.ID)
