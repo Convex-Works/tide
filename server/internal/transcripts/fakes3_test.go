@@ -56,9 +56,10 @@ type fakeS3 struct {
 
 	mu      sync.Mutex
 	objects map[string]object
-	broken  map[string]bool  // operations that fail, by name
+	broken  map[string]bool  // operations that fail, by name, or by name and key
 	held    map[string]*hold // operations that wait, by name
 	calls   map[string]int   // how often klisi asked for each operation
+	noETags bool             // Stat returns no entity tags
 }
 
 type object struct {
@@ -109,6 +110,28 @@ func (s *fakeS3) Mend(op string) {
 	delete(s.broken, op)
 }
 
+// BreakKey makes storage refuse op on key (a copy's destination) until
+// MendKey.
+func (s *fakeS3) BreakKey(op, key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.broken[op+" "+key] = true
+}
+
+func (s *fakeS3) MendKey(op, key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.broken, op+" "+key)
+}
+
+// NoETags makes storage one that keeps no entity tags, or doesn't report
+// them: Stat returns none, and a copy then copies whatever is there.
+func (s *fakeS3) NoETags() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.noETags = true
+}
+
 // Calls reports how often klisi asked storage for op.
 func (s *fakeS3) Calls(op string) int {
 	s.mu.Lock()
@@ -147,8 +170,8 @@ func (h *hold) Release() { h.once.Do(func() { close(h.released) }) }
 
 // enter is how every call klisi makes starts: it fails once its context is
 // done, as a real client does, waits on a hold, and fails while op is
-// broken.
-func (s *fakeS3) enter(ctx context.Context, op string) error {
+// broken, or broken for key.
+func (s *fakeS3) enter(ctx context.Context, op string, key ...string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -166,7 +189,7 @@ func (s *fakeS3) enter(ctx context.Context, op string) error {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.broken[op] {
+	if s.broken[op] || (len(key) > 0 && s.broken[op+" "+key[0]]) {
 		return fmt.Errorf("fake S3: %s refused: InternalError", op)
 	}
 	return nil
@@ -225,8 +248,11 @@ func (s *fakeS3) Stat(ctx context.Context, key string) (int64, string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	o, ok := s.objects[key]
-	if !ok {
+	switch {
+	case !ok:
 		return 0, "", fmt.Errorf("fake S3: %s: NoSuchKey: %w", key, fs.ErrNotExist)
+	case s.noETags:
+		return int64(len(o.data)), "", nil
 	}
 	return int64(len(o.data)), o.etag(), nil
 }
@@ -236,7 +262,7 @@ func (s *fakeS3) Stat(ctx context.Context, key string) (int64, string, error) {
 // MinIOStore leaves out when etag is "", and S3 then copies whatever is
 // there.
 func (s *fakeS3) Copy(ctx context.Context, src, etag, dst, contentType string) error {
-	if err := s.enter(ctx, opCopy); err != nil {
+	if err := s.enter(ctx, opCopy, dst); err != nil {
 		return err
 	}
 	s.mu.Lock()

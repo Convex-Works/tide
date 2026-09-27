@@ -268,8 +268,13 @@ attempt belongs to the room's current owner. Each attempt may run for three
 hours or for one hour plus twice the recording's duration, whichever is
 longer: a machine's first attempt also downloads 2.9 GB of models. When a job
 succeeds its row becomes `completed` with the speaker count; when it fails,
-`failed` with an error the UI can show. Cancellation and server shutdown leave
-the row as it is. A `pending` row no machine has finished within 14 days of
+`failed` with an error the UI can show. A machine that ends a job as cancelled
+when klisi didn't cancel it fails it too, rather than have klisi submit it again
+as fast as the machine answers. If klisi can't save the transcript a machine
+made, its storage or database failing, it tries again every pass for an hour,
+or until the staged files' URLs expire if that's sooner, then fails the row,
+blaming its storage. klisi cancelling a job and server shutdown leave the row
+as it is. A `pending` row no machine has finished within 14 days of
 its request fails ("No machine transcribed it within 14 days"); requesting it
 again retries. The end of a job is recorded even if klisi is stopping; if the
 write fails, the row stays `pending` and is retried rather than re-run.
@@ -286,24 +291,28 @@ transcripts-staging/<recording-id>/<attempt>-<16 hex digits>/transcript.txt
 transcripts-staging/<recording-id>/<attempt>-<16 hex digits>/transcript.vtt
 ```
 
-named for the attempt klisi made it for, and unique by its random part: moil
-numbers the attempts of a job submitted again from 1 once it has forgotten the
-last run, as it has after klisi restarts. A machine that takes the job again
-within ten minutes of klisi making its directory, having let it go before
-starting, is handed the same directory, with URLs that expire when the first
-ones do; another machine, or the same one later, gets a new one. A machine that
-keeps taking a job and letting it go so costs klisi at most one directory every
-ten minutes.
-
-and when the job succeeds klisi checks each file (at most 16 MiB), copies it
-beside the recording under the recording's basename, as a video player
-expects sidecar captions, and removes the staged copy:
+and when the job succeeds klisi checks each file against what moil says the
+machine uploaded (both formats, the size the machine reported, at most 16 MiB),
+before asking storage anything; checks storage has it at that size; copies it
+beside the recording under the recording's basename, as a video player expects
+sidecar captions; checks the copy's size too, since storage that reports no
+entity tag copies whatever is staged by then; and removes the staged copy. A
+file that fails a check fails the row, and klisi removes what it copied:
 
 ```
 recordings/<room>/<recording-id>/2026-09-27 14-00 - Standup.ogg
 recordings/<room>/<recording-id>/2026-09-27 14-00 - Standup.txt   transcript
 recordings/<room>/<recording-id>/2026-09-27 14-00 - Standup.vtt   WebVTT captions
 ```
+
+A staging directory is named for the attempt klisi made it for, and unique by
+its random part: moil numbers the attempts of a job submitted again from 1 once
+it has forgotten the last run, as it has after klisi restarts. A machine that
+takes the job again within ten minutes of klisi making its directory, having let
+it go before starting, is handed the same directory, with URLs that expire when
+the first ones do; another machine, or the same one later, gets a new one. A
+machine that keeps taking a job and letting it go so costs klisi at most one
+directory every ten minutes.
 
 **Removing files.** The `object_removals` table lists objects to remove, each
 from a due time. Deleting a recording, or its room, deletes the rows and
@@ -313,7 +322,10 @@ removal that failed, so a deleted recording never keeps its files, even when
 S3 is briefly down. `Prepare` queues each staging key for when its URL
 expires, so an upload that arrives late, from a machine that lost klisi but
 not S3, is removed too. A transcript copied beside a recording that was
-deleted meanwhile is removed again.
+deleted meanwhile is removed again, however klisi's work on it ends: a job
+knows where its files go beside the recording from its submission, and the try
+that finds the recording gone queues both for removal, whether or not they
+landed.
 
 **Status.** `RecordingInfo.transcript` combines the row with the live job:
 
@@ -668,8 +680,9 @@ up between runs for iteration.
   Transcript jobs go only to the room owner's machines. A machine gets
   presigned URLs for one attempt, valid for its time limit plus 15 minutes: a
   GET for the recording, and a PUT for each output to a staging key klisi
-  never serves from; klisi checks the size and copies the file beside the
-  recording, and removes staging keys when their URLs expire. The moil app
+  never serves from; klisi checks each file against the size the machine
+  reported, copies it beside the recording, checks the copy, and removes
+  staging keys when their URLs expire. The moil app
   accepts plain http only to loopback storage and only when klisi itself is on
   loopback, so production needs an https `KLISI_S3_PUBLIC_ENDPOINT`.
 - The transcript bundle runs with the machine owner's permissions and no

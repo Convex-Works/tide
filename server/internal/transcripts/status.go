@@ -34,7 +34,12 @@ const noFile = "This recording has no file, so it can't be transcribed."
 const (
 	missingOutputs = "The machine finished without uploading the transcript. Try again."
 	tooLarge       = "The transcript the machine uploaded is larger than 16 MiB, more than klisi keeps. Try again."
+	notAsReported  = "The transcript in klisi's storage isn't the one the machine reported uploading. Try again."
 )
+
+// notSaved is the error of a job that succeeded with a transcript klisi
+// couldn't save.
+const notSaved = "The machine made the transcript, but klisi couldn't save it to its storage. Try again, and if it keeps failing, ask klisi's administrator to check klisi's storage."
 
 // Transcripts implements recording.TranscriptSource: each recording's
 // transcript, from its row and, while pending, its job. It reads the room's

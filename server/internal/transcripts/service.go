@@ -74,6 +74,11 @@ const (
 	// pendingFor is how long a transcript waits for a machine to make it,
 	// from its request, before it fails.
 	pendingFor = 14 * 24 * time.Hour
+	// promoteFor is how long klisi keeps trying to save a transcript a
+	// machine made, while its storage or database fails, before it fails
+	// the transcript. It gives up sooner once the staged files' URLs have
+	// expired: they are removed soon after.
+	promoteFor = time.Hour
 	// sweepMargin is how long after its URL expires a staging key is
 	// removed: for an upload that began just before, and for storage's
 	// clock running behind klisi's.
@@ -119,18 +124,26 @@ type job struct {
 	// timeout is how long each attempt may take, and valid how long the
 	// URLs of a staging directory last from when klisi makes it.
 	timeout, valid time.Duration
+	// finals are where the transcript's formats go beside the recording,
+	// in store.TranscriptFormats order: what to remove if the recording is
+	// deleted while klisi copies them.
+	finals []string
 
 	// Guarded by Service.mu: the staging directory of each attempt, by
 	// attempt number, and the one klisi made last; what the current
-	// attempt last reported; whether klisi cancelled the run; and whether
-	// the run ended without its end recorded, for the next pass to record.
-	staging    map[int]*staging
-	last       *staging
-	attempt    int
-	progress   *float64
-	message    string
-	cancelled  bool
-	unrecorded bool
+	// attempt last reported; whether klisi cancelled the run; whether the
+	// run ended without its end recorded, for the next pass to record, and
+	// since when klisi has failed to save its transcript; and whether a
+	// try may have copied files beside the recording.
+	staging      map[int]*staging
+	last         *staging
+	attempt      int
+	progress     *float64
+	message      string
+	cancelled    bool
+	unrecorded   bool
+	failingSince time.Time
+	copied       bool
 }
 
 // staging is a directory klisi made for a machine's uploads of a job's
@@ -271,6 +284,9 @@ func (s *Service) submit(ctx context.Context, transcript store.PendingTranscript
 	j := &job{
 		recordingID: recording.ID, timeout: timeout, valid: min(timeout+urlGrace, maxURLValidity),
 		staging: make(map[int]*staging),
+	}
+	for _, format := range store.TranscriptFormats {
+		j.finals = append(j.finals, recording.TranscriptKey(format))
 	}
 	run, err := s.cfg.Moil.Submit(ctx, moil.Job{
 		ID:       "recording-" + recording.ID,
@@ -551,87 +567,195 @@ func (s *Service) ended(ctx context.Context, j *job) (resubmit bool, err error) 
 		return false, s.cfg.Store.FailTranscript(ctx, j.recordingID, failure(err), now)
 	}
 	s.mu.Lock()
+	staged := j.staging[result.Attempt]
+	s.mu.Unlock()
 	var dir string
-	if staged := j.staging[result.Attempt]; staged != nil {
+	if staged != nil {
 		dir = staged.dir
 	}
+	err = s.promote(ctx, j, dir, result, now)
+	if err == nil {
+		return false, nil
+	}
+	// Storage or the database failed. Try again next pass, for a while.
+	s.mu.Lock()
+	if j.failingSince.IsZero() {
+		j.failingSince = s.cfg.Now()
+	}
+	giveUp := j.failingSince.Add(promoteFor)
 	s.mu.Unlock()
-	return false, s.promote(ctx, j.recordingID, dir, result, now)
+	if staged != nil && staged.until.Before(giveUp) {
+		giveUp = staged.until
+	}
+	if s.cfg.Now().Before(giveUp) {
+		return false, err
+	}
+	log.Printf("transcripts: recording %s: couldn't save its transcript since %v, failing it: %v", j.recordingID, giveUp, err)
+	return false, s.notSaved(ctx, j, dir, now)
 }
 
 // promote checks the files a succeeded attempt uploaded to its staging
 // directory, copies them beside the recording, where klisi serves them
-// from, and completes the row. A file that is missing or larger than
-// maxTranscriptBytes fails the row instead, and nothing is copied.
-func (s *Service) promote(ctx context.Context, recordingID, dir string, result *moil.Result, now int64) error {
-	rec, err := s.cfg.Store.RecordingByID(ctx, recordingID)
-	var row store.Transcript
-	if err == nil {
-		row, err = s.cfg.Store.Transcript(ctx, recordingID)
-	}
-	if errors.Is(err, sql.ErrNoRows) || (err == nil && row.Status != "pending") {
-		// Deleted, or failed for waiting too long, while the machine worked.
-		s.removeStaged(ctx, recordingID, dir)
-		return nil
-	}
-	if err != nil {
+// from, checks the copies, and completes the row. It rejects the attempt,
+// failing the row, when a file is missing, larger than maxTranscriptBytes,
+// or not the one moil says the machine uploaded, and removes whatever it
+// copied then. It fails, to be tried again, only if storage or the
+// database did.
+func (s *Service) promote(ctx context.Context, j *job, dir string, result *moil.Result, now int64) error {
+	_, err := s.cfg.Store.RecordingByID(ctx, j.recordingID)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		// Deleted while the machine worked, or while a try copied.
+		return s.discard(ctx, j, dir, now)
+	case err != nil:
 		return err
 	}
-	if dir == "" {
+	row, err := s.cfg.Store.Transcript(ctx, j.recordingID)
+	switch {
+	case errors.Is(err, sql.ErrNoRows) || (err == nil && row.Status != "pending"):
+		// Not wanted any more, or completed by a try whose end wasn't
+		// recorded: its files beside the recording, if any, are its own.
+		s.removeStaged(ctx, j.recordingID, dir)
+		return nil
+	case err != nil:
+		return err
+	case dir == "":
 		// Not an attempt this service prepared: nothing to check.
-		return s.reject(ctx, recordingID, dir, missingOutputs, now)
+		return s.reject(ctx, j, dir, missingOutputs, now)
+	}
+	// What moil says the machine uploaded, before asking storage: a file
+	// it didn't is refused however storage answers for a missing key.
+	sizes := make([]int64, len(store.TranscriptFormats))
+	for i, format := range store.TranscriptFormats {
+		file, uploaded := result.Files[outputName(format)]
+		switch {
+		case !uploaded:
+			log.Printf("transcripts: recording %s: machine %s succeeded without uploading %s", j.recordingID, result.Machine, outputName(format))
+			return s.reject(ctx, j, dir, missingOutputs, now)
+		case file.SizeBytes > maxTranscriptBytes:
+			log.Printf("transcripts: recording %s: machine %s uploaded %d bytes of %s", j.recordingID, result.Machine, file.SizeBytes, outputName(format))
+			return s.reject(ctx, j, dir, tooLarge, now)
+		}
+		sizes[i] = file.SizeBytes
 	}
 	etags := make([]string, len(store.TranscriptFormats))
 	for i, format := range store.TranscriptFormats {
 		size, etag, err := s.cfg.Objects.Stat(ctx, stagedKey(dir, format))
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
-			log.Printf("transcripts: recording %s: machine %s succeeded without uploading %s", recordingID, result.Machine, outputName(format))
-			return s.reject(ctx, recordingID, dir, missingOutputs, now)
+			size = -1
 		case err != nil:
 			return err
-		case size > maxTranscriptBytes:
-			log.Printf("transcripts: recording %s: machine %s uploaded %d bytes of %s", recordingID, result.Machine, size, outputName(format))
-			return s.reject(ctx, recordingID, dir, tooLarge, now)
+		}
+		if size != sizes[i] {
+			return s.reject(ctx, j, dir, s.notAsReported(j, result, format, "staged", sizes[i], size), now)
 		}
 		etags[i] = etag
 	}
-	finals := make([]string, 0, len(store.TranscriptFormats))
 	for i, format := range store.TranscriptFormats {
-		final := rec.TranscriptKey(format)
-		if err := s.cfg.Objects.Copy(ctx, stagedKey(dir, format), etags[i], final, format.ContentType); err != nil {
+		s.mu.Lock()
+		j.copied = true // before copying: a copy that reports failure may land
+		s.mu.Unlock()
+		if err := s.cfg.Objects.Copy(ctx, stagedKey(dir, format), etags[i], j.finals[i], format.ContentType); err != nil {
 			return err
 		}
-		finals = append(finals, final)
+		// Storage without entity tags copies whatever is staged by now,
+		// which the machine could have replaced since it was checked.
+		size, _, err := s.cfg.Objects.Stat(ctx, j.finals[i])
+		if err != nil {
+			return err
+		}
+		if size != sizes[i] {
+			return s.reject(ctx, j, dir, s.notAsReported(j, result, format, "copied", sizes[i], size), now)
+		}
 	}
 	// The recording may have been deleted while its files were copied, its
 	// files removed before these were there: remove them too.
-	if _, err := s.cfg.Store.RecordingByID(ctx, recordingID); errors.Is(err, sql.ErrNoRows) {
-		if err := s.cfg.Store.QueueRemovals(ctx, finals, now); err != nil {
-			return err
-		}
-		if err := recording.RemoveQueued(ctx, s.cfg.Objects, s.cfg.Store, finals, now); err != nil {
-			log.Printf("transcripts: recording %s: storage kept its transcript; the reconciler will retry: %v", recordingID, err)
-		}
-		s.removeStaged(ctx, recordingID, dir)
-		return nil
+	if _, err := s.cfg.Store.RecordingByID(ctx, j.recordingID); errors.Is(err, sql.ErrNoRows) {
+		return s.discard(ctx, j, dir, now)
 	} else if err != nil {
 		return err
 	}
-	if err := s.cfg.Store.CompleteTranscript(ctx, recordingID, speakers(result.Meta), now); err != nil {
+	if err := s.cfg.Store.CompleteTranscript(ctx, j.recordingID, speakers(result.Meta), now); err != nil {
 		return err
 	}
-	s.removeStaged(ctx, recordingID, dir)
+	s.removeStaged(ctx, j.recordingID, dir)
 	return nil
 }
 
-// reject fails a row for what its machine uploaded, and removes the
-// uploads.
-func (s *Service) reject(ctx context.Context, recordingID, dir, message string, now int64) error {
-	if err := s.cfg.Store.FailTranscript(ctx, recordingID, message, now); err != nil {
+// notAsReported logs a file storage holds as size bytes (-1: none) where
+// moil says the machine uploaded reported bytes, and is the row's error.
+func (s *Service) notAsReported(j *job, result *moil.Result, format store.TranscriptFormat, where string, reported, size int64) string {
+	log.Printf("transcripts: recording %s: machine %s reported uploading %d bytes of %s; the %s file has %d",
+		j.recordingID, result.Machine, reported, outputName(format), where, size)
+	if size > maxTranscriptBytes {
+		return tooLarge
+	}
+	return notAsReported
+}
+
+// reject fails a row for what its machine uploaded, once whatever a try
+// copied beside the recording is removed, and removes the uploads.
+func (s *Service) reject(ctx context.Context, j *job, dir, message string, now int64) error {
+	if err := s.removeCopies(ctx, j); err != nil {
 		return err
 	}
-	s.removeStaged(ctx, recordingID, dir)
+	if err := s.cfg.Store.FailTranscript(ctx, j.recordingID, message, now); err != nil {
+		return err
+	}
+	s.removeStaged(ctx, j.recordingID, dir)
+	return nil
+}
+
+// notSaved fails a row whose transcript klisi couldn't save, blaming its
+// storage, after trying once more to remove what a try copied.
+func (s *Service) notSaved(ctx context.Context, j *job, dir string, now int64) error {
+	if err := s.removeCopies(ctx, j); err != nil {
+		log.Printf("transcripts: recording %s: remove the transcript copied beside it: %v", j.recordingID, err)
+	}
+	if err := s.cfg.Store.FailTranscript(ctx, j.recordingID, notSaved, now); err != nil {
+		return err
+	}
+	s.removeStaged(ctx, j.recordingID, dir)
+	return nil
+}
+
+// removeCopies removes the files a try copied beside the recording, if one
+// may have. They aren't a transcript klisi serves, the row being pending,
+// and nothing else writes there until the row is requested again, so they
+// are removed at once rather than queued.
+func (s *Service) removeCopies(ctx context.Context, j *job) error {
+	s.mu.Lock()
+	copied := j.copied
+	s.mu.Unlock()
+	if !copied {
+		return nil
+	}
+	for _, final := range j.finals {
+		if err := s.cfg.Objects.Remove(ctx, final); err != nil {
+			return err
+		}
+	}
+	s.mu.Lock()
+	j.copied = false
+	s.mu.Unlock()
+	return nil
+}
+
+// discard removes what a succeeded attempt left of a recording deleted
+// meanwhile: its uploads, and the transcript a try may have copied beside
+// the recording after the deletion removed its files. The files beside it
+// are the deleted recording's own, so removing them whether or not they
+// are there is safe. They are queued first, so that the recording
+// reconciler removes those storage keeps.
+func (s *Service) discard(ctx context.Context, j *job, dir string, now int64) error {
+	if err := s.cfg.Store.QueueRemovals(ctx, j.finals, now); err != nil {
+		return err
+	}
+	if err := recording.RemoveQueued(ctx, s.cfg.Objects, s.cfg.Store, j.finals, now); err != nil {
+		log.Printf("transcripts: recording %s: storage kept its transcript; the reconciler will retry: %v", j.recordingID, err)
+	}
+	s.removeStaged(ctx, j.recordingID, dir)
 	return nil
 }
 

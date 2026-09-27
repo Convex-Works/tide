@@ -1,15 +1,11 @@
 package transcripts_test
 
 import (
-	"bytes"
 	"context"
-	"io"
-	"log"
 	"net/http"
 	"path"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -82,10 +78,7 @@ func cancelUnasked(m *moiltest.Machine, a *moiltest.Attempt) {
 // A machine's error goes into klisi's log quoted, on one line: a message
 // with line breaks can't forge lines of klisi's own.
 func TestAMachinesErrorCantForgeLogLines(t *testing.T) {
-	logs := &lockedBuffer{}
-	previous := log.Writer()
-	log.SetOutput(io.MultiWriter(previous, logs))
-	t.Cleanup(func() { log.SetOutput(previous) })
+	logs := watchLogs(t)
 	e := newEnv(t)
 	room := e.room("alice", "Standup")
 	machine := e.machine("alice")
@@ -102,23 +95,6 @@ func TestAMachinesErrorCantForgeLogLines(t *testing.T) {
 	if !strings.Contains(logs.String(), `can't read the recording\n`+forged) {
 		t.Fatalf("the machine's error isn't logged:\n%s", logs.String())
 	}
-}
-
-type lockedBuffer struct {
-	mu     sync.Mutex
-	buffer bytes.Buffer
-}
-
-func (b *lockedBuffer) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buffer.Write(p)
-}
-
-func (b *lockedBuffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buffer.String()
 }
 
 // A machine that takes a job and lets it go before it starts, which moil

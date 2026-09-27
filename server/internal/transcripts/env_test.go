@@ -1,11 +1,14 @@
 package transcripts_test
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"path"
@@ -447,4 +450,32 @@ func errorMessage(t *testing.T, response *httptest.ResponseRecorder) string {
 		t.Fatalf("error body %q: %v", response.Body, err)
 	}
 	return body.Error
+}
+
+// watchLogs copies what klisi logs, from now to the end of the test, to
+// the buffer it returns.
+func watchLogs(t *testing.T) *lockedBuffer {
+	t.Helper()
+	logs := &lockedBuffer{}
+	previous := log.Writer()
+	log.SetOutput(io.MultiWriter(previous, logs))
+	t.Cleanup(func() { log.SetOutput(previous) })
+	return logs
+}
+
+type lockedBuffer struct {
+	mu     sync.Mutex
+	buffer bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buffer.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buffer.String()
 }
