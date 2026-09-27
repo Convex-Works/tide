@@ -17,9 +17,11 @@ import (
 // maxMessage bounds, in characters, the messages from machines klisi shows.
 const maxMessage = 300
 
-// missingOutputs is the error of a job that succeeded without uploading
-// every sidecar.
-const missingOutputs = "The machine finished without uploading the transcript. Try again."
+// The errors of a job that succeeded with files klisi won't keep.
+const (
+	missingOutputs = "The machine finished without uploading the transcript. Try again."
+	tooLarge       = "The transcript the machine uploaded is larger than 16 MiB, more than klisi keeps. Try again."
+)
 
 // Transcripts implements recording.TranscriptSource: each recording's
 // transcript, from its row and, while pending, its job. It reads the room's

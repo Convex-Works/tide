@@ -1,11 +1,13 @@
 package transcripts_test
 
 import (
+	"bytes"
 	"net/http"
 	"testing"
 	"time"
 
 	"klisi/internal/api"
+	"klisi/internal/store"
 )
 
 // Deleting a recording succeeds while storage refuses to remove anything,
@@ -55,10 +57,9 @@ func TestAnEndTheDatabaseRefusedIsRecordedLaterNotRunAgain(t *testing.T) {
 	e.sql(`CREATE TRIGGER refuse_ends BEFORE UPDATE ON transcripts
 		BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END`)
 	finish(t, a, 3)
-	for range 20 {
-		e.service.Nudge()
-		time.Sleep(5 * time.Millisecond)
-	}
+	// Each try checks the staged files again: the follower's, then passes'.
+	tries := func() int { return e.s3.Calls(opStat) / len(store.TranscriptFormats) }
+	waitFor(t, "three tries to record the end", func() bool { e.service.Nudge(); return tries() >= 3 })
 	machine.Sync()
 	if offers := machine.Offers(); len(offers) != 1 {
 		t.Fatalf("the machine was offered %+v", offers)
@@ -79,5 +80,168 @@ func TestAnEndTheDatabaseRefusedIsRecordedLaterNotRunAgain(t *testing.T) {
 	machine.Sync()
 	if offers := machine.Offers(); len(offers) != 1 {
 		t.Fatalf("the machine was offered %+v", offers)
+	}
+}
+
+// A transcript file over 16 MiB fails the job, and nothing of it is kept or
+// served, not even the files within the limit. One of exactly 16 MiB is
+// kept.
+func TestAnOversizedTranscriptIsRefused(t *testing.T) {
+	e := newEnv(t)
+	room := e.room("alice", "Standup")
+	machine := e.machine("alice")
+	rec := e.record(room, time.Now())
+	txtKey, vttKey := sidecars(rec)
+	limit := bytes.Repeat([]byte("a"), 16<<20)
+
+	a := machine.NextAttempt()
+	a.Output("transcript.txt", limit)
+	a.Output("transcript.vtt", append(bytes.Repeat([]byte("v"), 16<<20), 'v'))
+	a.Succeed(map[string]any{"speakers": 2})
+	info := e.waitStatus(room, rec, api.TranscriptFailed)
+	if info.Error != "The transcript the machine uploaded is larger than 16 MiB, more than klisi keeps. Try again." {
+		t.Fatalf("error = %q", info.Error)
+	}
+	for _, key := range []string{txtKey, vttKey} {
+		if _, ok := e.s3.Object(key); ok {
+			t.Fatalf("%s was kept", key)
+		}
+	}
+	if keys := e.s3.Keys("transcripts-staging/"); len(keys) != 0 {
+		t.Fatalf("staged uploads left: %q", keys)
+	}
+	if response := e.download(rec, session("alice"), "txt"); response.Code != http.StatusConflict {
+		t.Fatalf("download of a refused transcript: %d", response.Code)
+	}
+
+	if response := e.requestTranscript(rec, session("alice")); response.Code != http.StatusAccepted {
+		t.Fatalf("retry: %d %s", response.Code, response.Body)
+	}
+	b := machine.NextAttempt()
+	b.Output("transcript.txt", limit)
+	b.Output("transcript.vtt", []byte("WEBVTT\n"))
+	b.Succeed(map[string]any{"speakers": 2})
+	e.waitStatus(room, rec, api.TranscriptCompleted)
+	if got, _ := e.s3.Object(txtKey); !bytes.Equal(got, limit) {
+		t.Fatalf("kept %d bytes of the 16 MiB transcript", len(got))
+	}
+}
+
+// The URLs a machine holds outlive its job, but they only ever name its
+// attempt's staging keys: replayed after the transcript is done, they can't
+// replace it, and what they upload is removed once they expire.
+func TestAReplayedURLCantReplaceATranscript(t *testing.T) {
+	e := newEnv(t)
+	room := e.room("alice", "Standup")
+	machine := e.machine("alice")
+	rec := e.record(room, time.Now())
+	a := machine.NextAttempt()
+	txt, vtt := finish(t, a, 2)
+	e.waitStatus(room, rec, api.TranscriptCompleted)
+
+	for _, name := range []string{"transcript.txt", "transcript.vtt"} {
+		if status := statusOf(t, http.MethodPut, a.Outputs[name].URL, []byte("forged")); status != http.StatusOK {
+			t.Fatalf("replaying the %s URL: %d", name, status)
+		}
+	}
+	txtKey, vttKey := sidecars(rec)
+	for key, want := range map[string][]byte{txtKey: txt, vttKey: vtt} {
+		if got, _ := e.s3.Object(key); !bytes.Equal(got, want) {
+			t.Fatalf("%s after the replay = %q", key, got)
+		}
+	}
+	response := e.download(rec, session("alice"), "txt")
+	if got, _ := get(t, response.Header().Get("Location")); !bytes.Equal(got, txt) {
+		t.Fatalf("download after the replay = %q", got)
+	}
+
+	e.clock.Advance(a.Timeout + time.Hour)
+	waitFor(t, "the replayed uploads to be removed", func() bool { return len(e.s3.Keys("transcripts-staging/")) == 0 })
+	if got, _ := e.s3.Object(txtKey); !bytes.Equal(got, txt) {
+		t.Fatalf("the transcript after the sweep = %q", got)
+	}
+}
+
+// A transcript whose files klisi is still checking when it starts to stop
+// is kept: recording a run's end goes on, storage included, until it's done.
+func TestATranscriptThatEndsAsKlisiStopsIsKept(t *testing.T) {
+	e := newEnv(t)
+	room := e.room("alice", "Standup")
+	machine := e.machine("alice")
+	rec := e.record(room, time.Now())
+	a := machine.NextAttempt()
+
+	stat := e.s3.Hold(opStat)
+	txt, _ := finish(t, a, 2)
+	stat.Entered(t)
+	e.cancelService()
+	stat.Release()
+	e.waitService()
+	if row, ok := e.row(rec); !ok || row.Status != "completed" || row.Speakers == nil || *row.Speakers != 2 {
+		t.Fatalf("row after klisi stopped = %+v, %t", row, ok)
+	}
+	txtKey, _ := sidecars(rec)
+	if got, _ := e.s3.Object(txtKey); !bytes.Equal(got, txt) {
+		t.Fatalf("stored txt = %q", got)
+	}
+}
+
+// klisi copies only the file it checked: a machine that replaces its upload
+// between the check and the copy, with the URL it still holds, gets it
+// checked again, and refused.
+func TestAFileReplacedAfterItsCheckIsntCopied(t *testing.T) {
+	e := newEnv(t)
+	room := e.room("alice", "Standup")
+	machine := e.machine("alice")
+	rec := e.record(room, time.Now())
+	a := machine.NextAttempt()
+
+	copying := e.s3.Hold(opCopy)
+	finish(t, a, 2)
+	copying.Entered(t)
+	oversized := bytes.Repeat([]byte("a"), 16<<20+1)
+	if status := statusOf(t, http.MethodPut, a.Outputs["transcript.txt"].URL, oversized); status != http.StatusOK {
+		t.Fatalf("replacing the upload: %d", status)
+	}
+	copying.Release()
+	waitFor(t, "the transcript to fail", func() bool {
+		e.service.Nudge()
+		row, ok := e.row(rec)
+		return ok && row.Status == "failed"
+	})
+	if row, _ := e.row(rec); row.Error != "The transcript the machine uploaded is larger than 16 MiB, more than klisi keeps. Try again." {
+		t.Fatalf("error = %q", row.Error)
+	}
+	txtKey, _ := sidecars(rec)
+	if got, ok := e.s3.Object(txtKey); ok {
+		t.Fatalf("kept %d bytes", len(got))
+	}
+}
+
+// A recording deleted while klisi copies its transcript beside it, after
+// the deletion removed its files, doesn't keep the copies.
+func TestATranscriptCopiedAsItsRecordingIsDeletedIsRemoved(t *testing.T) {
+	e := newEnv(t)
+	room := e.room("alice", "Standup")
+	machine := e.machine("alice")
+	rec := e.record(room, time.Now())
+	a := machine.NextAttempt()
+
+	copying := e.s3.Hold(opCopy)
+	finish(t, a, 2)
+	copying.Entered(t)
+	if response := e.deleteRecording(rec, session("alice")); response.Code != http.StatusNoContent {
+		t.Fatalf("delete: %d %s", response.Code, response.Body)
+	}
+	if keys := e.s3.Keys("recordings/"); len(keys) != 0 {
+		t.Fatalf("files after the deletion: %q", keys)
+	}
+	copying.Release()
+	waitFor(t, "the copies to be removed", func() bool {
+		return e.s3.Calls(opCopy) == len(store.TranscriptFormats) && len(e.s3.Keys("recordings/")) == 0 &&
+			len(e.s3.Keys("transcripts-staging/")) == 0
+	})
+	if _, ok := e.row(rec); ok {
+		t.Fatal("the transcript outlived its recording")
 	}
 }

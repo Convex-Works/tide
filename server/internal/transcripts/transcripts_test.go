@@ -8,6 +8,7 @@ import (
 	"maps"
 	"mime"
 	"net/http"
+	"path"
 	"slices"
 	"strings"
 	"testing"
@@ -58,6 +59,18 @@ func TestTranscribesRecordingOnOwnersMachine(t *testing.T) {
 	if names := slices.Sorted(maps.Keys(a.Outputs)); !slices.Equal(names, []string{"transcript.txt", "transcript.vtt"}) {
 		t.Fatalf("outputs = %v", names)
 	}
+	// It uploads to keys of its own attempt, which klisi never serves from,
+	// and reads only the recording.
+	txtKey, vttKey := sidecars(rec)
+	staged := []string{e.s3.Key(t, a.Outputs["transcript.txt"].URL), e.s3.Key(t, a.Outputs["transcript.vtt"].URL)}
+	attemptDir := path.Dir(staged[0])
+	if !strings.HasPrefix(attemptDir, "transcripts-staging/"+rec.ID+"/") ||
+		staged[0] != attemptDir+"/transcript.txt" || staged[1] != attemptDir+"/transcript.vtt" {
+		t.Fatalf("the machine uploads to %q", staged)
+	}
+	if input := e.s3.Key(t, a.Inputs["recording.ogg"].URL); input != *rec.S3Key {
+		t.Fatalf("the machine downloads %q", input)
+	}
 	if a.Timeout != time.Hour+20*time.Minute {
 		t.Fatalf("timeout = %v", a.Timeout)
 	}
@@ -80,13 +93,21 @@ func TestTranscribesRecordingOnOwnersMachine(t *testing.T) {
 		return info != nil && info.Status == api.TranscriptRunning && info.Message == "Uploading the transcript"
 	})
 
+	a.Output("transcript.vtt", []byte("WEBVTT\n\n"))
+	if keys := e.s3.Keys("recordings/"); !slices.Equal(keys, []string{*rec.S3Key}) {
+		t.Fatalf("an upload reached %q", keys)
+	}
+	if response := e.download(rec, session("alice"), "vtt"); response.Code != http.StatusConflict {
+		t.Fatalf("download while the machine uploads: %d", response.Code)
+	}
+
 	txt, vtt := finish(t, a, 3)
 	info := e.waitStatus(room, rec, api.TranscriptCompleted)
 	if info.Speakers == nil || *info.Speakers != 3 || info.Error != "" {
 		t.Fatalf("completed transcript = %+v", info)
 	}
-	// The sidecars sit beside the recording, under its basename.
-	txtKey, vttKey := sidecars(rec)
+	// The sidecars sit beside the recording, under its basename, stored as
+	// text, and the staged copies are gone.
 	recordingName := strings.TrimSuffix(*rec.S3Key, ".ogg")
 	if txtKey != recordingName+".txt" || vttKey != recordingName+".vtt" {
 		t.Fatalf("sidecars of %q = %q, %q", *rec.S3Key, txtKey, vttKey)
@@ -96,6 +117,12 @@ func TestTranscribesRecordingOnOwnersMachine(t *testing.T) {
 	}
 	if got, _ := e.s3.Object(vttKey); !bytes.Equal(got, vtt) {
 		t.Fatalf("stored vtt = %q", got)
+	}
+	if txtType, vttType := e.s3.ContentType(txtKey), e.s3.ContentType(vttKey); txtType != "text/plain; charset=utf-8" || vttType != "text/vtt; charset=utf-8" {
+		t.Fatalf("stored as %q and %q", txtType, vttType)
+	}
+	if keys := e.s3.Keys("transcripts-staging/"); len(keys) != 0 {
+		t.Fatalf("staged copies left: %q", keys)
 	}
 
 	for _, test := range []struct {
@@ -286,7 +313,11 @@ func TestDeletingARecordingStopsItsTranscript(t *testing.T) {
 		}
 	})
 
-	t.Run("a job that succeeds anyway leaves nothing behind", func(t *testing.T) {
+	// A machine that lost klisi but not storage uploads after the deletion,
+	// and again after its job ended: the uploads land in the attempt's
+	// staging keys, never beside the recording, and are removed once the
+	// attempt's URLs expire.
+	t.Run("an upload after the deletion is removed once its URL expires", func(t *testing.T) {
 		e := newEnv(t)
 		room := e.room("alice", "Standup")
 		machine := e.machine("alice")
@@ -298,14 +329,32 @@ func TestDeletingARecordingStopsItsTranscript(t *testing.T) {
 			t.Fatalf("delete: %d %s", response.Code, response.Body)
 		}
 		a.WaitCancelled()
-		// The URLs outlive the recording: the machine uploads anyway.
 		a.Output("transcript.txt", []byte("late"))
 		a.Output("transcript.vtt", []byte("WEBVTT late"))
-		if keys := e.s3.Keys("recordings/"); len(keys) != 2 {
+		staging := "transcripts-staging/" + rec.ID + "/"
+		if keys := e.s3.Keys(staging); len(keys) != 2 {
 			t.Fatalf("uploaded after the deletion: %v", keys)
 		}
 		a.Succeed(map[string]any{"speakers": 2})
-		waitFor(t, "the late sidecars to be removed", func() bool { return len(e.s3.Keys("recordings/")) == 0 })
+		run, _ := e.moil.Run("recording-" + rec.ID)
+		waitFor(t, "the job to end", func() bool { return run.State() != moil.Running })
+		// And once more, with the URL it still holds.
+		if status := statusOf(t, http.MethodPut, a.Outputs["transcript.vtt"].URL, []byte("WEBVTT later")); status != http.StatusOK {
+			t.Fatalf("upload after the job ended: %d", status)
+		}
+
+		// Not before the URLs expire: an upload could still be under way.
+		e.clock.Advance(a.Timeout + 15*time.Minute - time.Second)
+		removals := e.s3.Calls(opRemove)
+		time.Sleep(50 * time.Millisecond) // ten reconciler passes
+		if keys := e.s3.Keys(staging); len(keys) == 0 || e.s3.Calls(opRemove) != removals {
+			t.Fatalf("staging while its URLs are valid: %v", keys)
+		}
+		e.clock.Advance(time.Hour)
+		waitFor(t, "the late uploads to be removed", func() bool { return len(e.s3.Keys(staging)) == 0 })
+		if keys := e.s3.Keys("recordings/"); len(keys) != 0 {
+			t.Fatalf("files left: %v", keys)
+		}
 		if _, ok := e.row(rec); ok {
 			t.Fatal("the transcript outlived its recording")
 		}

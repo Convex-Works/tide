@@ -2,6 +2,8 @@ package recording
 
 import (
 	"context"
+	"fmt"
+	"io/fs"
 	"mime"
 	"net/http"
 	"net/url"
@@ -148,6 +150,40 @@ func (s *MinIOStore) PresignedPut(ctx context.Context, key string, expiry time.D
 		return "", err
 	}
 	return location.String(), nil
+}
+
+// Stat returns the size and entity tag of the object at key, or an error
+// wrapping fs.ErrNotExist if there is none: klisi checks a transcript a
+// machine uploaded before copying it (ARCHITECTURE.md §8.1).
+func (s *MinIOStore) Stat(ctx context.Context, key string) (int64, string, error) {
+	client, err := s.client(s.endpoint)
+	if err != nil {
+		return 0, "", err
+	}
+	info, err := client.StatObject(ctx, s.bucket, key, minio.StatObjectOptions{})
+	if err != nil {
+		if code := minio.ToErrorResponse(err).Code; code == "NoSuchKey" || code == "NotFound" {
+			return 0, "", fmt.Errorf("%s: %w", key, fs.ErrNotExist)
+		}
+		return 0, "", err
+	}
+	return info.Size, info.ETag, nil
+}
+
+// Copy copies the object at src to dst, within the bucket and without the
+// bytes leaving storage, stored as contentType. It copies only while src's
+// entity tag is still etag, so an object replaced since it was checked is
+// never copied.
+func (s *MinIOStore) Copy(ctx context.Context, src, etag, dst, contentType string) error {
+	client, err := s.client(s.endpoint)
+	if err != nil {
+		return err
+	}
+	_, err = client.CopyObject(ctx,
+		minio.CopyDestOptions{Bucket: s.bucket, Object: dst, ReplaceMetadata: true, ContentType: contentType},
+		minio.CopySrcOptions{Bucket: s.bucket, Object: src, MatchETag: etag},
+	)
+	return err
 }
 
 func (s *MinIOStore) client(rawEndpoint string) (*minio.Client, error) {

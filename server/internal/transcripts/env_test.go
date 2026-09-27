@@ -48,11 +48,12 @@ type env struct {
 	mu   sync.Mutex
 	moil *moil.Server // the one the front door serves
 
-	service     *transcripts.Service
-	recordings  *recording.Handler
-	rooms       *rooms.Handler
-	stopService func()
-	recorded    int
+	service       *transcripts.Service
+	recordings    *recording.Handler
+	rooms         *rooms.Handler
+	cancelService func() // klisi starts stopping
+	waitService   func() // and has stopped
+	recorded      int
 }
 
 func newEnv(t *testing.T) *env {
@@ -117,10 +118,13 @@ func (e *env) start() {
 		defer done.Done()
 		recordings.RunReconciler(ctx, 5*time.Millisecond)
 	}()
-	e.stopService = func() {
-		cancel()
-		done.Wait()
-	}
+	e.cancelService, e.waitService = cancel, done.Wait
+}
+
+// stopService stops the transcripts service and the recording reconciler.
+func (e *env) stopService() {
+	e.cancelService()
+	e.waitService()
 }
 
 // stop stops the service, then closes moil, as klisi does when it exits.
