@@ -45,15 +45,19 @@ func (s *Store) CreateTranscripts(ctx context.Context, now int64) (int64, error)
 	return result.RowsAffected()
 }
 
+// pendingTranscriptsQuery lists the pending transcripts' recordings in the
+// order transcripts_pending_requested_idx keeps them.
+const pendingTranscriptsQuery = `
+	SELECT r.id, r.room_id, r.room_slug, r.egress_id, r.status, r.started_by, r.started_at,
+	       r.audio_only, r.ended_at, r.duration_s, r.s3_key, r.size_bytes
+	FROM transcripts t JOIN recordings r ON r.id = t.recording_id
+	WHERE t.status = 'pending'
+	ORDER BY t.requested_at ASC, t.recording_id ASC`
+
 // PendingTranscripts returns the recordings whose transcripts are pending,
 // the ones requested first first.
 func (s *Store) PendingTranscripts(ctx context.Context) ([]Recording, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT r.id, r.room_id, r.room_slug, r.egress_id, r.status, r.started_by, r.started_at,
-		       r.audio_only, r.ended_at, r.duration_s, r.s3_key, r.size_bytes
-		FROM transcripts t JOIN recordings r ON r.id = t.recording_id
-		WHERE t.status = 'pending'
-		ORDER BY t.requested_at ASC, r.id ASC`)
+	rows, err := s.db.QueryContext(ctx, pendingTranscriptsQuery)
 	if err != nil {
 		return nil, err
 	}
@@ -76,13 +80,17 @@ func (s *Store) Transcript(ctx context.Context, recordingID string) (Transcript,
 		`SELECT `+transcriptColumns+` FROM transcripts t WHERE t.recording_id = ?`, recordingID))
 }
 
+// transcriptsByRoomQuery finds a room's recordings by recordings_room_idx,
+// and each one's transcript by its primary key.
+const transcriptsByRoomQuery = `
+	SELECT ` + transcriptColumns + `
+	FROM transcripts t JOIN recordings r ON r.id = t.recording_id
+	WHERE r.room_id = ?`
+
 // TranscriptsByRoom returns the transcripts of a room's recordings, by
 // recording ID.
 func (s *Store) TranscriptsByRoom(ctx context.Context, roomID string) (map[string]Transcript, error) {
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT `+transcriptColumns+`
-		FROM transcripts t JOIN recordings r ON r.id = t.recording_id
-		WHERE r.room_id = ?`, roomID)
+	rows, err := s.db.QueryContext(ctx, transcriptsByRoomQuery, roomID)
 	if err != nil {
 		return nil, err
 	}

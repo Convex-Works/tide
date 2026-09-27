@@ -76,3 +76,56 @@ func TestOpenMigratesLegacyRoomsTable(t *testing.T) {
 		t.Fatalf("monotonic guard failed: %v", room.LastActiveAt)
 	}
 }
+
+// A database made before the transcript indexes changed gets the new ones,
+// and loses the pending index that couldn't serve the reconciler's order.
+func TestOpenMigratesTranscriptIndexes(t *testing.T) {
+	path := t.TempDir() + "/transcripts.db"
+	raw, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`CREATE TABLE rooms (id TEXT PRIMARY KEY, slug TEXT UNIQUE NOT NULL, name TEXT NOT NULL,
+			owner_sub TEXT NOT NULL, lobby_enabled INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL,
+			last_active_at INTEGER)`,
+		`CREATE TABLE recordings (id TEXT PRIMARY KEY, room_id TEXT NOT NULL, room_slug TEXT NOT NULL,
+			egress_id TEXT UNIQUE NOT NULL, status TEXT NOT NULL, started_by TEXT NOT NULL,
+			started_at INTEGER NOT NULL, ended_at INTEGER NULL, duration_s INTEGER NULL, s3_key TEXT NULL,
+			size_bytes INTEGER NULL, audio_only INTEGER NOT NULL DEFAULT 0,
+			FOREIGN KEY (room_id) REFERENCES rooms (id) ON DELETE CASCADE)`,
+		`CREATE TABLE transcripts (recording_id TEXT PRIMARY KEY, status TEXT NOT NULL,
+			requested_at INTEGER NOT NULL, finished_at INTEGER NULL, speakers INTEGER NULL, error TEXT NULL,
+			FOREIGN KEY (recording_id) REFERENCES recordings (id) ON DELETE CASCADE)`,
+		`CREATE INDEX transcripts_pending_idx ON transcripts (recording_id) WHERE status = 'pending'`,
+	} {
+		if _, err := raw.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open migrate: %v", err)
+	}
+	defer s.Close()
+	indexes := make(map[string]bool)
+	rows, err := s.db.Query(`SELECT name FROM sqlite_schema WHERE type = 'index'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			t.Fatal(err)
+		}
+		indexes[name] = true
+	}
+	if !indexes["recordings_room_idx"] || !indexes["transcripts_pending_requested_idx"] || indexes["transcripts_pending_idx"] {
+		t.Fatalf("indexes after Open = %v", indexes)
+	}
+}
