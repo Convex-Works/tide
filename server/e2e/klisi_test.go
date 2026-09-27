@@ -135,30 +135,17 @@ func (k *klisi) start(listener net.Listener) {
 		WriteTimeout:      30 * time.Second,
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	ran := make(chan struct{})
-	go func() {
-		defer close(ran)
-		background.Run(ctx)
-	}()
 	served := make(chan error, 1)
-	go func() { served <- server.Serve(listener) }()
+	go func() { served <- httpapi.Serve(ctx, server, listener, background, 10*time.Second) }()
 	k.db = db
-	// As main does on SIGTERM: stop the background work and the HTTP
-	// server, then close moil, which disconnects the machines.
+	// As main does on SIGTERM: Serve drains the HTTP server, closes moil,
+	// which disconnects the machines, and waits for the background work;
+	// then the database closes.
 	k.stop = sync.OnceFunc(func() {
 		cancel()
-		shutdown, cancelShutdown := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancelShutdown()
-		if err := server.Shutdown(shutdown); err != nil {
-			k.t.Errorf("shutting klisi's HTTP server down: %v", err)
-		}
-		if err := <-served; !errors.Is(err, http.ErrServerClosed) {
+		if err := <-served; err != nil {
 			k.t.Errorf("klisi served until %v", err)
 		}
-		if err := background.Close(); err != nil {
-			k.t.Errorf("closing moil: %v", err)
-		}
-		<-ran
 		if err := db.Close(); err != nil {
 			k.t.Errorf("closing klisi's database: %v", err)
 		}

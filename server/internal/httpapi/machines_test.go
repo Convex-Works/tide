@@ -9,7 +9,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -322,48 +321,118 @@ func TestMachineChannelOutlivesServerTimeouts(t *testing.T) {
 	}
 }
 
-// klisiServer is klisi served as main serves it, on a loopback port.
+// klisiServer is klisi served as main serves it, on a loopback port: New's
+// handler behind an http.Server with main's timeouts, run by Serve, with
+// SQLite on disk.
 type klisiServer struct {
 	t      *testing.T
 	cfg    config.Config
 	url    string
 	client *http.Client
 	moil   *moil.Server
+	// db is klisi's store, at dbPath.
+	db     *store.Store
+	dbPath string
+	// served receives what Serve returned, once it has.
+	served chan error
+	// shutdown starts stopping klisi, as a signal does in main.
+	shutdown context.CancelFunc
 }
 
+// shutdownGrace is how long the test klisi waits for requests in flight when
+// it stops. It is long, so that a test that stops klisi sees what holds it.
+const shutdownGrace = time.Minute
+
 // startKlisi serves klisi with a fresh database. configure, if set, adjusts
-// the configuration and the HTTP server before klisi starts.
+// the configuration and the HTTP server before klisi starts. The test's end
+// stops klisi, then closes the database, as main does.
 func startKlisi(t *testing.T, configure func(*config.Config, *http.Server)) *klisiServer {
 	t.Helper()
-	db, err := store.Open(filepath.Join(t.TempDir(), "klisi.db"))
+	db, dbPath := openStore(t)
+	return startKlisiOn(t, db, dbPath, configure)
+}
+
+// openStore opens a fresh database, which the test's end closes.
+func openStore(t *testing.T) (*store.Store, string) {
+	t.Helper()
+	dbPath := filepath.Join(t.TempDir(), "klisi.db")
+	db, err := store.Open(dbPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = db.Close() })
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Errorf("closing the database: %v", err)
+		}
+	})
+	return db, dbPath
+}
+
+// startKlisiOn is startKlisi on a database the test opened with openStore.
+func startKlisiOn(t *testing.T, db *store.Store, dbPath string, configure func(*config.Config, *http.Server)) *klisiServer {
+	t.Helper()
 	// The listener comes first, so that klisi knows the base URL it's
 	// served at, and tells machines the moil URL they can reach.
-	server := httptest.NewUnstartedServer(nil)
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	url := "http://" + listener.Addr().String()
 	cfg := config.Config{
-		BaseURL: "http://" + server.Listener.Addr().String(), SessionSecret: "test-session-secret",
+		BaseURL: url, SessionSecret: "test-session-secret",
 		LiveKitURL: "ws://livekit.example", LiveKitAPIKey: "devkey",
 		LiveKitAPISecret: "test-livekit-secret-with-enough-bytes",
 	}
+	server := &http.Server{
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
+	}
 	if configure != nil {
-		configure(&cfg, server.Config)
+		configure(&cfg, server)
 	}
 	handler, background, err := New(cfg, nil, db, transcribeBundle(t))
 	if err != nil {
 		t.Fatal(err)
 	}
-	server.Config.Handler = handler
-	server.Start()
-	t.Cleanup(server.Close)
-	// Machines' WebSockets are hijacked, so the server doesn't wait for them:
-	// closing moil ends them, as in main.
-	t.Cleanup(func() { _ = background.Close() })
-	client := &http.Client{Transport: &http.Transport{}, Timeout: 10 * time.Second}
-	t.Cleanup(client.CloseIdleConnections)
-	return &klisiServer{t: t, cfg: cfg, url: server.URL, client: client, moil: background.moil}
+	server.Handler = handler
+	ctx, shutdown := context.WithCancel(context.Background())
+	k := &klisiServer{
+		t: t, cfg: cfg, url: url, moil: background.moil, db: db, dbPath: dbPath,
+		client:   &http.Client{Transport: &http.Transport{}, Timeout: 10 * time.Second},
+		served:   make(chan error, 1),
+		shutdown: shutdown,
+	}
+	go func() { k.served <- Serve(ctx, server, listener, background, shutdownGrace) }()
+	t.Cleanup(func() {
+		k.client.CloseIdleConnections()
+		if err := k.stop(); err != nil {
+			t.Errorf("klisi stopped with %v", err)
+		}
+	})
+	return k
+}
+
+// stop stops klisi, if the test hasn't, and returns what Serve returned.
+func (k *klisiServer) stop() error {
+	k.shutdown()
+	err, stopped := k.stopped(shutdownGrace + 30*time.Second)
+	if !stopped {
+		k.t.Fatal("klisi never stopped")
+	}
+	return err
+}
+
+// stopped waits up to within for Serve to return, and says whether it did
+// and what it returned.
+func (k *klisiServer) stopped(within time.Duration) (error, bool) {
+	select {
+	case err := <-k.served:
+		k.served <- err // for the next caller
+		return err, true
+	case <-time.After(within):
+		return nil, false
+	}
 }
 
 // transcribeBundle is the bundle main hands klisi.

@@ -34,18 +34,18 @@ It needs:
 | Test | Story |
 |---|---|
 | `TestAHostPairsAMachineAndGetsTranscripts` | `moil pair` shows a code; the host finds the machine under it and confirms, with a real session and CSRF header, and `moil pair` succeeds. `moil review` lists the bundle `/machines` names, the owner approves it with `moil approve`, and once `moil agent` runs, `/machines` shows it idle and approved. A forged `egress_ended` webhook is refused; LiveKit's signed one completes the recording and sends it to the machine. The transcript is `running` (held mid-job), then `completed`, and downloads from S3, named like the recording, holding the recording's SHA-256. Deleting the recording leaves nothing under its prefix. Unpairing mid-job ends the job's process; the agent logs that klisi removed it and never reconnects, and `moil review` says the service no longer accepts the machine. |
-| `TestTranscriptsSurviveAKlisiRestart` | klisi stops as `main` does (HTTP shutdown, then `Background.Close`) while the machine is on a transcript, and a new klisi starts on the same database and address. The agent reconnects, drops the attempt the old klisi gave it and ends its process, and runs the resubmitted job, which completes. The transcript row goes from `pending` to `completed`, and nothing in between. |
+| `TestTranscriptsSurviveAKlisiRestart` | klisi stops as `main` does (`httpapi.Serve`: HTTP drains, moil closes, the background work returns, then the database closes) while the machine is on a transcript, and a new klisi starts on the same database and address. The agent reconnects, drops the attempt the old klisi gave it and ends its process, and runs the resubmitted job, which completes. The transcript row goes from `pending` to `completed`, and nothing in between. |
 | `TestOnlyTheOwnersMachinesGetTheJob` | Bob's machine is paired, approved and idle while alice's recording waits for her offline laptop, well past moil's bid window; it never starts an attempt. Alice's laptop comes online and transcribes it. Bob's machine then transcribes bob's own recording, so it could have. |
 | `TestTheStubIsABundleMoilAccepts` | `moil check` accepts the stub bundle, and `moil hash` agrees with the Go SDK's hash of it. |
 
 ## How it's built
 
 - `klisi_test.go`: klisi in this process: `httpapi.New` behind an
-  `http.Server` with `main`'s timeouts on 127.0.0.1, its `Background` work
-  and SQLite on disk, plus `Restart`. Hosts use the API as the SPA does.
-  Recordings are made as `recording.Start` and Egress would make them: the
-  row, the file in S3 at the key Egress is given, and webhooks signed as
-  LiveKit signs them.
+  `http.Server` with `main`'s timeouts on 127.0.0.1, run by `httpapi.Serve`
+  as `main` runs it, with SQLite on disk, plus `Restart`. Hosts use the API
+  as the SPA does. Recordings are made as `recording.Start` and Egress would
+  make them: the row, the file in S3 at the key Egress is given, and
+  webhooks signed as LiveKit signs them.
 - `machine_test.go`: a machine driven with the moil command line, as moil's
   own end-to-end tests drive it: its own `MOIL_HOME`, `MOIL_SECRETS=file`,
   `moil pair`, `moil approve`, `moil agent`.

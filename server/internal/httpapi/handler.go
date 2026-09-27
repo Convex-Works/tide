@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"git.convex.works/ConvexWorks/moil/sdk/go/moil"
@@ -43,20 +44,31 @@ type Handler struct {
 // Background is the work main runs beside the HTTP server: the reconcilers
 // that heal recording state when LiveKit webhooks are lost and project
 // transcript rows onto moil jobs, and the moil server machines connect to.
+// Serve runs it and stops it in order.
 type Background struct {
 	recording   *recording.Handler
 	transcripts *transcripts.Service
 	moil        *moil.Server
+	// lobby's streams end when the HTTP server shuts down.
+	lobby *lobby.Handler
 }
 
-// Run runs the reconcilers until ctx is done.
+// Run runs the reconcilers until ctx is done, and returns once both have
+// returned, transcript jobs' followers included.
 func (b *Background) Run(ctx context.Context) {
-	go b.recording.RunReconciler(ctx, time.Minute)
+	var reconciler sync.WaitGroup
+	reconciler.Add(1)
+	go func() {
+		defer reconciler.Done()
+		b.recording.RunReconciler(ctx, time.Minute)
+	}()
 	b.transcripts.Run(ctx, time.Minute)
+	reconciler.Wait()
 }
 
-// Close disconnects every machine. Transcript jobs in flight end without
-// touching their rows, which stay pending until the next start resubmits them.
+// Close disconnects every machine, ends every transcript job with
+// moil.ErrClosed, and saves what machines last reported. Jobs' rows stay
+// pending until the next start resubmits them.
 func (b *Background) Close() error {
 	return b.moil.Close()
 }
@@ -206,7 +218,9 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 		registerMethodFallback(mux, api.DevTokenPath, http.MethodGet)
 	}
 	mux.HandleFunc("/", handler.spa)
-	background := &Background{recording: recordingHandler, transcripts: transcriptService, moil: moilServer}
+	background := &Background{
+		recording: recordingHandler, transcripts: transcriptService, moil: moilServer, lobby: handler.lobby,
+	}
 	return securityHeaders(handler.withSession(mux)), background, nil
 }
 
