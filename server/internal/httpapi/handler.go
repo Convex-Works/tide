@@ -90,6 +90,11 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store) (http.Handler, *B
 		VerificationURL: baseURL + "/machines",
 		Store:           roomStore,
 		Logger:          slog.Default(),
+		// A transcript travels as files, and klisi ignores data events: a
+		// machine may make a job hold 4 MiB of them at most, and a finished
+		// job leaves moil's memory after 5 minutes (ARCHITECTURE.md §8.1).
+		MaxDataBytes: 4 << 20,
+		KeepFinished: 5 * time.Minute,
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("start moil: %w", err)
