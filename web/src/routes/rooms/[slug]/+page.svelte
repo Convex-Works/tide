@@ -3,7 +3,16 @@
   import { Switch } from 'bits-ui';
   import { goto } from '$app/navigation';
   import { page } from '$app/state';
-  import { ArrowLeft, ArrowRight, Check, Copy, DownloadSimple, Trash } from 'phosphor-svelte';
+  import {
+    ArrowClockwise,
+    ArrowLeft,
+    ArrowRight,
+    Check,
+    Copy,
+    DownloadSimple,
+    Subtitles,
+    Trash
+  } from 'phosphor-svelte';
   import {
     AuthRequiredError,
     deleteRecording,
@@ -11,9 +20,22 @@
     listRecordings,
     listRooms,
     recordingDownloadURL,
+    requestTranscript,
+    transcriptDownloadURL,
     updateRoom
   } from '$lib/api/client';
-  import type { RecordingInfo, RoomInfo } from '$lib/api/types.gen';
+  import {
+    TranscriptAvailable,
+    TranscriptCompleted,
+    TranscriptFailed,
+    TranscriptFormatText,
+    TranscriptFormatVTT,
+    TranscriptRunning,
+    TranscriptWaiting,
+    type RecordingInfo,
+    type RoomInfo,
+    type TranscriptInfo
+  } from '$lib/api/types.gen';
   import { compactAgo, durationLabel, relativeDate, sizeLabel } from '$lib/format';
   import StateTile from '$lib/ui/StateTile.svelte';
   import Button from '$lib/ui/Button.svelte';
@@ -21,6 +43,12 @@
   type LoadState = 'loading' | 'signed-out' | 'not-found' | 'ready' | 'error';
 
   const pendingStatuses = ['starting', 'recording', 'finalizing'];
+
+  // A running transcript reports progress, so it polls like a pending
+  // recording. A waiting one can wait days for a machine to wake: poll it
+  // slowly, and stop once nothing is in flight.
+  const fastPollMs = 3_000;
+  const slowPollMs = 15_000;
 
   let loadState = $state<LoadState>('loading');
   let room = $state<RoomInfo>();
@@ -33,9 +61,13 @@
   let slugSaved = $state(false);
   let deleteConfirm = $state(false);
   let deleteRecordingID = $state('');
+  let transcriptBusyID = $state('');
   let copyTimer: ReturnType<typeof setTimeout> | undefined;
   let slugSavedTimer: ReturnType<typeof setTimeout> | undefined;
   let recordingPoll: ReturnType<typeof setTimeout> | undefined;
+  // Bumped by every local change to the list, so a poll that was already in
+  // flight can't put back a deleted recording or a stale transcript.
+  let recordingsGeneration = 0;
   let destroyed = false;
 
   const slug = $derived(page.params.slug ?? '');
@@ -64,17 +96,36 @@
     }
   }
 
+  function pollDelay(list: RecordingInfo[]): number | undefined {
+    const transcripts = list.map((recording) => recording.transcript?.status);
+    if (
+      list.some((recording) => pendingStatuses.includes(recording.status)) ||
+      transcripts.includes(TranscriptRunning)
+    ) {
+      return fastPollMs;
+    }
+    if (transcripts.includes(TranscriptWaiting)) return slowPollMs;
+    return undefined;
+  }
+
+  function schedulePoll(list: RecordingInfo[]): void {
+    if (recordingPoll) clearTimeout(recordingPoll);
+    recordingPoll = undefined;
+    const delay = pollDelay(list);
+    if (delay != null && !destroyed) {
+      recordingPoll = setTimeout(() => void loadRecordings(), delay);
+    }
+  }
+
   async function loadRecordings(): Promise<void> {
     if (destroyed) return;
+    const generation = recordingsGeneration;
     recordingsLoading = true;
     try {
       const list = await listRecordings(room?.slug ?? slug);
-      if (destroyed) return;
+      if (destroyed || generation !== recordingsGeneration) return;
       recordings = list;
-      if (list.some((recording) => pendingStatuses.includes(recording.status))) {
-        if (recordingPoll) clearTimeout(recordingPoll);
-        recordingPoll = setTimeout(() => void loadRecordings(), 3_000);
-      }
+      schedulePoll(list);
     } catch (cause) {
       if (destroyed) return;
       error = cause instanceof Error ? cause.message : 'Could not load recordings. Try again.';
@@ -166,13 +217,39 @@
     error = '';
     try {
       await deleteRecording(id);
+      recordingsGeneration += 1;
       recordings = recordings.filter((recording) => recording.id !== id);
+      schedulePoll(recordings);
       deleteRecordingID = '';
     } catch (cause) {
       error = cause instanceof Error ? cause.message : 'Could not delete the recording. Try again.';
     } finally {
       busy = false;
     }
+  }
+
+  async function transcribe(id: string): Promise<void> {
+    if (transcriptBusyID) return;
+    transcriptBusyID = id;
+    error = '';
+    try {
+      const transcript = await requestTranscript(id);
+      recordingsGeneration += 1;
+      recordings = recordings.map((recording) =>
+        recording.id === id ? { ...recording, transcript } : recording
+      );
+      schedulePoll(recordings);
+    } catch (cause) {
+      error =
+        cause instanceof Error ? cause.message : 'Could not request the transcript. Try again.';
+    } finally {
+      transcriptBusyID = '';
+    }
+  }
+
+  function percent(progress?: number | null): string {
+    if (progress == null) return '';
+    return `${Math.round(Math.min(1, Math.max(0, progress)) * 100)}%`;
   }
 
   function stateText(current: RoomInfo): string {
@@ -206,13 +283,98 @@
   <title>{room?.name ?? 'Room'} · klisi</title>
 </svelte:head>
 
+{#snippet transcriptCell(id: string, transcript: TranscriptInfo)}
+  {#if transcript.status === TranscriptAvailable}
+    <button
+      type="button"
+      disabled={transcriptBusyID !== ''}
+      class="inline-flex h-6 shrink-0 items-center gap-1 rounded-control border border-border bg-paper px-2 text-[11px] text-ink transition-colors hover:bg-surface-2 disabled:opacity-60"
+      onclick={() => void transcribe(id)}
+    >
+      <Subtitles size={16} weight="regular" aria-hidden="true" /> Transcribe
+    </button>
+  {:else if transcript.status === TranscriptWaiting}
+    <span
+      class="w-max shrink-0 rounded-full border border-border px-1.5 text-[10px] uppercase leading-[18px] text-ink-2"
+      title={transcript.message}
+    >
+      waiting
+    </span>
+    {#if transcript.message}
+      <span class="min-w-0 truncate text-[11px] text-ink-2" title={transcript.message}>
+        {transcript.message}
+      </span>
+    {/if}
+  {:else if transcript.status === TranscriptRunning}
+    <span
+      class="w-max shrink-0 rounded-full border border-warn/40 bg-warn/10 px-1.5 text-[10px] uppercase leading-[18px] text-warn"
+      title={transcript.message}
+    >
+      transcribing
+    </span>
+    {#if transcript.progress != null}
+      <span class="mono shrink-0 text-[11px] text-ink">{percent(transcript.progress)}</span>
+    {/if}
+    {#if transcript.message}
+      <span class="min-w-0 truncate text-[11px] text-ink-2" title={transcript.message}>
+        {transcript.message}
+      </span>
+    {/if}
+  {:else if transcript.status === TranscriptCompleted}
+    {#if transcript.speakers != null}
+      <span class="shrink-0 text-[11px] text-ink-2">
+        {transcript.speakers}
+        {transcript.speakers === 1 ? 'speaker' : 'speakers'}
+      </span>
+    {/if}
+    <a
+      class="inline-flex h-6 shrink-0 items-center gap-1 rounded-control border border-border bg-paper px-2 text-[11px] text-ink no-underline transition-colors hover:bg-surface-2"
+      href={transcriptDownloadURL(id, TranscriptFormatText)}
+      target="_blank"
+      rel="noreferrer"
+      title="Download the transcript (.txt)"
+    >
+      <DownloadSimple size={16} weight="regular" aria-hidden="true" /> Transcript
+    </a>
+    <a
+      class="inline-flex h-6 shrink-0 items-center gap-1 rounded-control border border-border bg-paper px-2 text-[11px] text-ink no-underline transition-colors hover:bg-surface-2"
+      href={transcriptDownloadURL(id, TranscriptFormatVTT)}
+      target="_blank"
+      rel="noreferrer"
+      title="Download captions (.vtt)"
+    >
+      <DownloadSimple size={16} weight="regular" aria-hidden="true" /> Captions
+    </a>
+  {:else if transcript.status === TranscriptFailed}
+    <span
+      class="w-max shrink-0 rounded-full border border-rec/30 bg-rec/10 px-1.5 text-[10px] uppercase leading-[18px] text-rec"
+      title={transcript.error}
+    >
+      failed
+    </span>
+    {#if transcript.error}
+      <span class="min-w-0 truncate text-[11px] text-ink-2" title={transcript.error}>
+        {transcript.error}
+      </span>
+    {/if}
+    <button
+      type="button"
+      disabled={transcriptBusyID !== ''}
+      class="inline-flex h-6 shrink-0 items-center gap-1 rounded-control border border-border bg-paper px-2 text-[11px] text-ink transition-colors hover:bg-surface-2 disabled:opacity-60"
+      onclick={() => void transcribe(id)}
+    >
+      <ArrowClockwise size={16} weight="regular" aria-hidden="true" /> Retry
+    </button>
+  {/if}
+{/snippet}
+
 <header class="flex h-12 items-center justify-between border-b border-border px-4">
   <a class="text-[15px] font-[550] tracking-[0.02em] text-accent no-underline" href="/">klisi</a>
   <a
     class="inline-flex items-center gap-1 text-[12px] text-ink-2 no-underline transition-colors hover:text-ink"
     href="/"
   >
-    <ArrowLeft size={14} weight="regular" aria-hidden="true" /> All rooms
+    <ArrowLeft size={16} weight="regular" aria-hidden="true" /> All rooms
   </a>
 </header>
 
@@ -289,7 +451,7 @@
         <div class="mt-2 overflow-hidden rounded-card border border-border bg-surface">
           {#each recordings as recording (recording.id)}
             <div
-              class="grid grid-cols-[max-content_minmax(90px,1fr)_auto] items-center gap-3 border-b border-border px-3 py-2.5 last:border-b-0 sm:grid-cols-[max-content_minmax(90px,1fr)_56px_64px_auto]"
+              class="grid grid-cols-[max-content_minmax(90px,1fr)_auto] items-center gap-x-3 gap-y-2 border-b border-border px-3 py-2.5 last:border-b-0 sm:grid-cols-[max-content_minmax(90px,1fr)_56px_64px_auto] lg:grid-cols-[max-content_minmax(90px,1fr)_56px_64px_236px_auto]"
               data-recording-id={recording.id}
             >
               <span class="flex w-max items-center gap-1">
@@ -318,6 +480,19 @@
               <span class="hidden text-[11px] text-ink-2 sm:block">
                 {sizeLabel(recording.size_bytes)}
               </span>
+              <!-- Its own column when there's room; below the row when there isn't. -->
+              <div
+                class="order-last col-span-full min-w-0 items-center gap-1.5 lg:order-none lg:col-span-1 {recording.transcript
+                  ? 'flex'
+                  : 'hidden lg:block'}"
+                data-testid="transcript"
+                data-status={recording.transcript?.status}
+              >
+                {#if recording.transcript}
+                  <span class="sr-only">Transcript:</span>
+                  {@render transcriptCell(recording.id, recording.transcript)}
+                {/if}
+              </div>
               <div class="flex justify-end gap-1">
                 {#if recording.status === 'completed'}
                   <a
@@ -326,7 +501,7 @@
                     target="_blank"
                     rel="noreferrer"
                   >
-                    <DownloadSimple size={14} weight="regular" aria-hidden="true" /> Download
+                    <DownloadSimple size={16} weight="regular" aria-hidden="true" /> Download
                   </a>
                 {/if}
                 <button
@@ -344,7 +519,7 @@
                   {#if deleteRecordingID === recording.id}
                     Delete?
                   {:else}
-                    <Trash size={14} weight="regular" aria-hidden="true" />
+                    <Trash size={16} weight="regular" aria-hidden="true" />
                   {/if}
                 </button>
               </div>
