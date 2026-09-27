@@ -336,7 +336,8 @@ func (s *Service) files(ctx context.Context, j *job, a moil.Assignment, valid ti
 
 // stagingDir is a new directory for an attempt's uploads. Its name starts
 // with the attempt's number, and ends with a random part: moil numbers the
-// attempts of a job submitted again, after a restart, from 1 again.
+// attempts of a job submitted again from 1 again once it has forgotten the
+// last run, as it has after a restart.
 func stagingDir(recordingID string, attempt int) (string, error) {
 	random := make([]byte, 8)
 	if _, err := rand.Read(random); err != nil {
