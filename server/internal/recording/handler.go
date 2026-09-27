@@ -81,6 +81,8 @@ type Handler struct {
 	// onRecordingsChanged is called after a recording ends or is deleted, so
 	// that the transcripts reconciler can act without waiting for its tick.
 	onRecordingsChanged func()
+	// removeDueTimeout bounds each reconciler pass's removals.
+	removeDueTimeout time.Duration
 }
 
 // SetTranscripts makes the list path report each recording's transcript.
@@ -123,6 +125,7 @@ func NewHandler(
 	return &Handler{
 		store: recordings, egress: egress, rooms: rooms, objects: objects,
 		templateURL: templateURL, now: time.Now, newID: randomID, receiver: receiver,
+		removeDueTimeout: removeDueTimeout,
 	}
 }
 
