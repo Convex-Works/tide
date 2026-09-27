@@ -34,6 +34,8 @@ do not apply it unchanged.
 
 klisi ── OIDC discovery, code flow ──► external OIDC issuer
 Egress ── loads /egress-template ────► klisi
+Hosts' machines (moil) ── WSS /moil/v1/connect ──► klisi
+                       ── presigned GET/PUT ─────► S3-compatible store
 ```
 
 The ingress has two HTTP routes: the klisi origin and the LiveKit signaling
@@ -123,7 +125,7 @@ secret values and refuses weak or shipped development secrets.
 | `KLISI_USER_GROUPS`         | empty                              | Comma-separated, case-sensitive OIDC groups allowed to sign in. Empty permits every verified OIDC user; administrators are always allowed.                                        |
 | `KLISI_ADMIN_GROUPS`        | empty                              | Comma-separated, case-sensitive OIDC groups whose members can administer every room. Empty grants no global administration.                                                       |
 | `KLISI_S3_ENDPOINT`         | `http://localhost:9000`            | S3 endpoint as seen by klisi for deletes and object management.                                                                                                                   |
-| `KLISI_S3_PUBLIC_ENDPOINT`  | `http://localhost:9000`            | Browser-reachable S3 endpoint used to sign five-minute download URLs. The hostname in the signature must be the hostname the browser uses.                                        |
+| `KLISI_S3_PUBLIC_ENDPOINT`  | `http://localhost:9000`            | Browser-reachable S3 endpoint used to sign five-minute download URLs, and the URLs hosts' machines use to fetch recordings and upload transcripts. The hostname in the signature must be the hostname the caller uses. Use HTTPS: moil machines refuse plain HTTP unless klisi itself is on loopback. |
 | `KLISI_S3_EGRESS_ENDPOINT`  | `http://minio:9000`                | S3 endpoint as seen by Egress. klisi sends it with every recording request.                                                                                                       |
 | `KLISI_S3_BUCKET`           | `klisi-recordings`                 | Existing bucket for timestamped OGG audio and MP4 video objects under `recordings/<room>/<recording-id>/`.                                                                         |
 | `KLISI_S3_ACCESS_KEY`       | none in production                 | S3 access key sent to the server-side client and Egress request. Required.                                                                                                        |
@@ -132,6 +134,10 @@ secret values and refuses weak or shipped development secrets.
 | `KLISI_EGRESS_TEMPLATE_URL` | `<KLISI_BASE_URL>/egress-template` | URL Egress Chrome loads for the room composite. Use the internal klisi Service URL when Egress can reach it.                                                                      |
 | `KLISI_TRUSTED_PROXIES`     | empty                              | Comma-separated proxy IPs or CIDRs whose `X-Forwarded-For` value klisi may trust. Leave empty unless rate limits must use forwarded client IPs. Restrict it to ingress addresses. |
 | `KLISI_DEV_MODE`            | `false`                            | Enables shipped development secrets and the unauthenticated development token route. Never enable it in production.                                                               |
+| `KLISI_JOIN_RATE_LIMIT`     | `10`                               | Guest joins per client IP per minute.                                                                                                                                             |
+| `KLISI_WAIT_RATE_LIMIT`     | `20`                               | Lobby wait streams per client IP per minute.                                                                                                                                      |
+| `KLISI_LOGIN_RATE_LIMIT`    | `10`                               | Sign-in redirects per client IP per minute.                                                                                                                                       |
+| `KLISI_PAIR_RATE_LIMIT`     | `10`                               | Machines starting a moil pairing (`POST /moil/v1/pair`, which takes no credentials) per client IP per minute.                                                                     |
 
 ## Choose the WebRTC media path
 
@@ -225,6 +231,28 @@ Recordings do not pass through the klisi pod. klisi includes the Egress endpoint
 and S3 credentials in each Egress request, and the worker writes the OGG or
 MP4 object directly to the bucket.
 
+## Serve transcripts
+
+Transcripts need nothing deployed: they run on computers hosts pair through the
+moil app (Architecture §8.1). klisi serves the machines' side of moil on its
+own origin, under `/moil/`. Three things must hold:
+
+- The klisi ingress passes WebSocket upgrades on `/moil/v1/connect`, as it
+  already does for any HTTP/1.1 upgrade. Each machine keeps one connection open
+  for as long as its app runs. klisi pings every 20 seconds, so any idle
+  timeout of a minute or more is enough.
+- `KLISI_S3_PUBLIC_ENDPOINT` is HTTPS and reachable from hosts' own networks,
+  not only from their browsers. Machines download the recording and upload
+  `.txt` and `.vtt` sidecars beside it with URLs klisi presigns for one
+  attempt, so the S3 key also needs `PutObject` on `recordings/*`. Egress
+  already uploads with it.
+- `KLISI_TRUSTED_PROXIES` names the ingress, so that the pairing rate limit
+  counts clients rather than the proxy.
+
+Paired machines and transcript state live in SQLite with the rest of klisi's
+records. Transcript files live in the bucket next to their recordings, and
+deleting a recording deletes them.
+
 ## Configure OIDC
 
 Use any spec-compliant OpenID Connect issuer. Dex is for development only.
@@ -285,7 +313,7 @@ Use one of these methods:
   is also safe when it captures the database and WAL files atomically.
 
 Test restores. Protect backups like production data because they contain room,
-recording, owner, and session-revocation records.
+recording, owner, session-revocation, paired-machine, and transcript records.
 
 Recording files already live in S3. Apply the object store's versioning,
 replication, retention, and backup policy separately. Do not back up Redis for

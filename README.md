@@ -11,7 +11,8 @@ The feature list is frozen:
 - Microphone, camera, screen sharing, device selection, and reconnection
 - Per-participant controls for local camera hiding and host mute/remove
 - Ephemeral in-room chat
-- Server-owned room recording with download and delete management
+- Server-owned room recording with download and delete management, and
+  speaker-labelled transcripts made on the host's own computer
 
 The system shape and design rules are in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
@@ -79,6 +80,28 @@ destination in that request. Egress renders klisi's own `/egress-template`,
 writes OGG audio or MP4 video to S3-compatible storage, and reports state
 through signed LiveKit webhooks. Object names include the UTC start time and
 meeting name, with identifying recording metadata stored alongside the file.
+
+## Transcripts
+
+Hosts can pair their own computer with klisi through the
+[moil](https://git.convex.works/ConvexWorks/moil) app. From then on, each of
+their recordings is transcribed on that computer, never on the server: the
+machine downloads the recording, runs the transcription bundle klisi publishes
+(Nemotron 3 Diarization and Parakeet), and uploads a plain-text transcript and
+WebVTT captions beside the recording. Jobs only go to the room owner's own
+machines, and the owner approves the bundle's exact code in the app first.
+
+To try it in development, open `/machines` and choose **Add a machine**, or
+pair from a terminal with the moil CLI:
+
+```sh
+moil pair http://localhost:5173/moil   # confirm the code on the page it opens
+moil review klisi                      # the transcription bundle and its hash
+moil approve klisi <hash>              # read it in full, then approve it
+moil agent                             # take jobs until Ctrl-C
+```
+
+[Architecture §8.1](docs/ARCHITECTURE.md#81-transcripts) has the design.
 
 ## Production notes
 
