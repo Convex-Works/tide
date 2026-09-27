@@ -117,7 +117,7 @@ func TestTranscribesRecordingOnOwnersMachine(t *testing.T) {
 			t.Fatalf("download %s disposition = %q", test.format, header.Get("Content-Disposition"))
 		}
 		// And the URL lasts five minutes.
-		e.s3.Advance(5*time.Minute + time.Second)
+		e.clock.Advance(5*time.Minute + time.Second)
 		if status := statusOf(t, http.MethodGet, location, nil); status != http.StatusForbidden {
 			t.Fatalf("download URL after five minutes: %d", status)
 		}
@@ -221,7 +221,8 @@ func TestURLsAreMintedWhenAMachineTakesTheJob(t *testing.T) {
 	rec := e.record(room, time.Now())
 	e.submitted(rec)
 
-	e.s3.Advance(30 * 24 * time.Hour)
+	// Ten days: longer than S3 lets any URL last.
+	e.clock.Advance(10 * 24 * time.Hour)
 	machine.Connect()
 	a := machine.NextAttempt()
 	audio, _ := e.s3.Object(*rec.S3Key)
@@ -229,9 +230,9 @@ func TestURLsAreMintedWhenAMachineTakesTheJob(t *testing.T) {
 		t.Fatalf("input = %q", got)
 	}
 
-	e.s3.Advance(a.Timeout + 15*time.Minute - time.Second)
+	e.clock.Advance(a.Timeout + 15*time.Minute - time.Second)
 	a.Output("transcript.txt", []byte("still in time"))
-	e.s3.Advance(2 * time.Second)
+	e.clock.Advance(2 * time.Second)
 	if status := statusOf(t, http.MethodGet, a.Inputs["recording.ogg"].URL, nil); status != http.StatusForbidden {
 		t.Fatalf("input URL after the attempt's time: %d", status)
 	}
@@ -321,11 +322,8 @@ func TestDeletingARecordingStopsItsTranscript(t *testing.T) {
 		e.submitted(rec)
 		run, _ := e.moil.Run("recording-" + rec.ID)
 
-		// What the room's deletion does: its files, then its rows.
-		for _, key := range rec.ObjectKeys() {
-			_ = e.s3.Remove(context.Background(), key)
-		}
-		if err := e.db.DeleteRoom(context.Background(), room.ID); err != nil {
+		// What the room's deletion does, without telling the service.
+		if _, err := e.db.DeleteRoom(context.Background(), room.ID, e.clock.Now().Unix()); err != nil {
 			t.Fatal(err)
 		}
 		machine.Connect()

@@ -12,11 +12,12 @@ import (
 	"klisi/internal/api"
 	"klisi/internal/auth"
 	"klisi/internal/httpx"
+	"klisi/internal/recording"
 	"klisi/internal/store"
 )
 
-// objectStore is the part of the recording object store room deletion needs:
-// stored files must be removed before their database rows disappear.
+// objectStore is the part of the recording object store room deletion
+// needs: it removes the files of the room's recordings.
 type objectStore interface {
 	Remove(ctx context.Context, key string) error
 }
@@ -245,26 +246,20 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not check the recording state. Try again.")
 		return
 	}
-	// Remove stored files before the rows: once the room is gone the files
-	// would be unreachable through the app forever.
-	recordings, err := h.store.RecordingsByRoomSlug(r.Context(), room.Slug)
-	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "Could not load the room's recordings. Try again.")
+	// The room and its recordings go, and every file of those recordings is
+	// queued for removal, at once (ARCHITECTURE.md §8.1): from then on the
+	// files are removed even if storage is down now.
+	now := time.Now().Unix()
+	keys, err := h.store.DeleteRoom(r.Context(), room.ID, now)
+	if errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteError(w, http.StatusNotFound, "Room not found.")
 		return
 	}
-	for _, recording := range recordings {
-		for _, key := range recording.ObjectKeys() {
-			if err := h.objects.Remove(r.Context(), key); err != nil {
-				httpx.WriteError(w, http.StatusBadGateway, "Could not delete the room's recording files. Try again.")
-				return
-			}
-		}
-	}
-	// Recording rows go with the room via ON DELETE CASCADE (foreign_keys=ON).
-	if err := h.store.DeleteRoom(r.Context(), room.ID); err != nil {
+	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not delete the room. Try again.")
 		return
 	}
+	recording.RemoveDeleted(r.Context(), h.objects, h.store, keys, now)
 	w.WriteHeader(http.StatusNoContent)
 }
 

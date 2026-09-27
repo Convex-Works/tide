@@ -329,12 +329,47 @@ func (s *Store) UpdateRoom(ctx context.Context, room Room) error {
 	return tx.Commit()
 }
 
-func (s *Store) DeleteRoom(ctx context.Context, id string) error {
-	result, err := s.db.ExecContext(ctx, "DELETE FROM rooms WHERE id = ?", id)
+// DeleteRoom deletes a room, and with it its recordings and their
+// transcripts, and queues every file of those recordings for removal from
+// storage by now, all in one transaction. It returns the keys it queued.
+func (s *Store) DeleteRoom(ctx context.Context, id string, now int64) ([]string, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return requireChanged(result)
+	defer func() { _ = tx.Rollback() }()
+	rows, err := tx.QueryContext(ctx, `SELECT `+recordingColumns+` FROM recordings WHERE room_id = ?`, id)
+	if err != nil {
+		return nil, err
+	}
+	keys := make([]string, 0)
+	for rows.Next() {
+		recording, err := scanRecording(rows)
+		if err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		keys = append(keys, recording.ObjectKeys()...)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := queueRemovals(ctx, tx, keys, now); err != nil {
+		return nil, err
+	}
+	// Recording and transcript rows go with the room via ON DELETE CASCADE
+	// (foreign_keys=ON).
+	result, err := tx.ExecContext(ctx, "DELETE FROM rooms WHERE id = ?", id)
+	if err != nil {
+		return nil, err
+	}
+	if err := requireChanged(result); err != nil {
+		return nil, err
+	}
+	return keys, tx.Commit()
 }
 
 func (s *Store) InsertRecording(ctx context.Context, recording Recording) error {
@@ -467,13 +502,32 @@ func (s *Store) ActiveRecordingByRoomID(ctx context.Context, roomID string) (Rec
 		ORDER BY started_at DESC LIMIT 1`, roomID))
 }
 
-func (s *Store) DeleteRecording(ctx context.Context, id string) error {
-	result, err := s.db.ExecContext(ctx, "DELETE FROM recordings WHERE id = ?", id)
+// DeleteRecording deletes a recording and its transcript, and queues its
+// files for removal from storage by now, in one transaction. It returns the
+// keys it queued.
+func (s *Store) DeleteRecording(ctx context.Context, id string, now int64) ([]string, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return requireChanged(result)
+	defer func() { _ = tx.Rollback() }()
+	recording, err := scanRecording(tx.QueryRowContext(ctx,
+		`SELECT `+recordingColumns+` FROM recordings WHERE id = ?`, id))
+	if err != nil {
+		return nil, err
+	}
+	keys := recording.ObjectKeys()
+	if err := queueRemovals(ctx, tx, keys, now); err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM recordings WHERE id = ?", id); err != nil {
+		return nil, err
+	}
+	return keys, tx.Commit()
 }
+
+const recordingColumns = `id, room_id, room_slug, egress_id, status, started_by, started_at,
+	audio_only, ended_at, duration_s, s3_key, size_bytes`
 
 type recordingScanner interface {
 	Scan(...any) error

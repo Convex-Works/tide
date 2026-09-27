@@ -28,10 +28,10 @@ func plan(t *testing.T, db *Store, query string, args ...any) string {
 	return strings.Join(steps, "\n")
 }
 
-// The transcript queries klisi runs on every recordings list and every
-// reconciler pass find their rows by index, however many recordings and
+// The queries klisi runs on every recordings list and every reconciler
+// pass find their rows by index, however many recordings and
 // transcripts there are: no full scan, no sort.
-func TestTranscriptQueriesUseIndexes(t *testing.T) {
+func TestFrequentQueriesUseIndexes(t *testing.T) {
 	db := transcriptsTestStore(t)
 	for _, test := range []struct {
 		name, query string
@@ -45,6 +45,9 @@ func TestTranscriptQueriesUseIndexes(t *testing.T) {
 		{"the pending transcripts, oldest request first", pendingTranscriptsQuery, nil, []string{
 			"SCAN t USING COVERING INDEX transcripts_pending_requested_idx",
 			"SEARCH r USING INDEX sqlite_autoindex_recordings_1 (id=?)",
+		}},
+		{"the objects due for removal", dueRemovalsQuery, []any{100, 10}, []string{
+			"SEARCH object_removals USING COVERING INDEX object_removals_due_idx (due_at<?)",
 		}},
 	} {
 		if got := plan(t, db, test.query, test.args...); got != strings.Join(test.want, "\n") {

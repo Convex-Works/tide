@@ -3,9 +3,11 @@ package recording
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -64,11 +66,16 @@ func (f *fakeRoomService) UpdateRoomMetadata(_ context.Context, request *protoco
 	return &protocol.Room{Name: request.Room, Metadata: request.Metadata}, nil
 }
 
+// fakeObjectStore removes objects, or fails to while down is set.
 type fakeObjectStore struct {
 	removed []string
+	down    bool
 }
 
 func (f *fakeObjectStore) Remove(_ context.Context, key string) error {
+	if f.down {
+		return errors.New("storage is down")
+	}
 	f.removed = append(f.removed, key)
 	return nil
 }
@@ -346,6 +353,68 @@ func TestDeleteRemovesRecordingAndSidecars(t *testing.T) {
 	if changed != 1 {
 		t.Fatalf("the reconciler heard of %d changes", changed)
 	}
+	if queued := dueRemovals(t, handler); len(queued) != 0 {
+		t.Fatalf("still queued for removal: %q", queued)
+	}
+}
+
+// Deleting a recording succeeds while storage is down: its files stay
+// queued, and the reconciler removes them once storage is back.
+func TestDeleteSucceedsWhileStorageIsDown(t *testing.T) {
+	handler, _, _, room := recordingTestHandler(t)
+	objects := handler.objects.(*fakeObjectStore)
+	key := "recordings/calm-otter-412/rec-1/2023-11-14 22-13 - Weekly.ogg"
+	if err := handler.store.InsertRecording(context.Background(), store.Recording{
+		ID: "rec-1", RoomID: room.ID, RoomSlug: room.Slug, EgressID: "egress-1", Status: "completed",
+		StartedBy: "owner", StartedAt: 1_700_000_000, AudioOnly: true, S3Key: &key,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	files := []string{
+		key,
+		"recordings/calm-otter-412/rec-1/2023-11-14 22-13 - Weekly.txt",
+		"recordings/calm-otter-412/rec-1/2023-11-14 22-13 - Weekly.vtt",
+	}
+
+	objects.down = true
+	request := httptest.NewRequest(http.MethodDelete, "/api/recordings/rec-1", nil)
+	request.SetPathValue("id", "rec-1")
+	request = request.WithContext(auth.WithSession(request.Context(), auth.Session{Sub: "owner"}))
+	response := httptest.NewRecorder()
+	handler.Delete(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("delete while storage is down: %d %s", response.Code, response.Body)
+	}
+	if _, err := handler.store.RecordingByID(context.Background(), "rec-1"); err == nil {
+		t.Fatal("the recording is still there")
+	}
+	if queued := dueRemovals(t, handler); !reflect.DeepEqual(queued, files) {
+		t.Fatalf("queued %q, want %q", queued, files)
+	}
+
+	// A pass while storage is still down keeps them queued.
+	handler.reconcile(context.Background())
+	if queued := dueRemovals(t, handler); len(queued) != len(files) || len(objects.removed) != 0 {
+		t.Fatalf("after a pass with storage down: queued %q, removed %q", queued, objects.removed)
+	}
+	objects.down = false
+	handler.reconcile(context.Background())
+	slices.Sort(objects.removed)
+	if !reflect.DeepEqual(objects.removed, files) {
+		t.Fatalf("removed %q, want %q", objects.removed, files)
+	}
+	if queued := dueRemovals(t, handler); len(queued) != 0 {
+		t.Fatalf("still queued: %q", queued)
+	}
+}
+
+func dueRemovals(t *testing.T, handler *Handler) []string {
+	t.Helper()
+	keys, err := handler.store.DueRemovals(context.Background(), 1<<40, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return keys
 }
 
 func TestRecordingFilename(t *testing.T) {

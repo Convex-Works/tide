@@ -3,6 +3,7 @@ package transcripts_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +20,7 @@ import (
 	"klisi/internal/api"
 	"klisi/internal/auth"
 	"klisi/internal/recording"
+	"klisi/internal/rooms"
 	"klisi/internal/store"
 	"klisi/internal/transcripts"
 )
@@ -28,14 +30,16 @@ const waitTimeout = 10 * time.Second
 
 // An env is klisi's transcript pipeline, composed of its real pieces: a
 // moil server that fake machines reach over HTTP and WebSocket, SQLite on
-// disk, the recording handler whose list shows transcripts, the transcripts
-// service, and object storage over HTTP.
+// disk, the recording and rooms handlers, the transcripts service, both
+// reconcilers, and object storage over HTTP, all on one clock.
 //
 // Machines reach moil through a front door that stays put when klisi
 // restarts, as klisi's own address does.
 type env struct {
 	t      *testing.T
+	path   string // the database's file
 	db     *store.Store
+	clock  *clock
 	s3     *fakeS3
 	bundle *moil.Bundle
 	front  *httptest.Server
@@ -45,13 +49,15 @@ type env struct {
 
 	service     *transcripts.Service
 	recordings  *recording.Handler
+	rooms       *rooms.Handler
 	stopService func()
 	recorded    int
 }
 
 func newEnv(t *testing.T) *env {
 	t.Helper()
-	db, err := store.Open(filepath.Join(t.TempDir(), "klisi.db"))
+	path := filepath.Join(t.TempDir(), "klisi.db")
+	db, err := store.Open(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +66,8 @@ func newEnv(t *testing.T) *env {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := &env{t: t, db: db, s3: newFakeS3(t), bundle: bundle}
+	clock := newClock()
+	e := &env{t: t, path: path, db: db, clock: clock, s3: newFakeS3(t, clock), bundle: bundle}
 	e.front = httptest.NewServer(http.StripPrefix(api.MoilBasePath, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		e.mu.Lock()
 		server := e.moil
@@ -73,34 +80,44 @@ func newEnv(t *testing.T) *env {
 	return e
 }
 
-// start starts klisi's side: a moil server with the transcribe bundle, and
-// the transcripts service reconciling beside it. Only nudges and the pass at
-// start drive the reconciler, as its tick is an hour away.
+// start starts klisi's side: a moil server with the transcribe bundle, the
+// transcripts service reconciling beside it, and the recording reconciler.
+// Only nudges and the pass at start drive the transcripts reconciler, as its
+// tick is an hour away; the recording reconciler runs every few
+// milliseconds, on the env's clock.
 func (e *env) start() {
 	e.t.Helper()
 	server, err := moil.NewServer(moil.Config{
 		Name: "klisi", VerificationURL: e.front.URL + "/machines", Store: e.db,
+		MaxDataBytes: 4 << 20, KeepFinished: 5 * time.Minute,
 	})
 	if err != nil {
 		e.t.Fatal(err)
 	}
 	server.AddBundle(e.bundle)
 	service := transcripts.New(transcripts.Config{Moil: server, Bundle: e.bundle, Store: e.db, Objects: e.s3})
-	recordings := recording.NewHandler(e.db, nil, noRoomService{}, e.s3, "", nil)
+	recordings := recording.NewHandler(e.db, noEgress{}, noRoomService{}, e.s3, "", nil)
+	recordings.SetClock(e.clock.Now)
 	recordings.SetTranscripts(service)
 	recordings.SetRecordingsChangedHook(service.Nudge)
+	roomsHandler := rooms.NewHandler(e.db, e.s3, nil, nil)
 	e.mu.Lock()
-	e.moil, e.service, e.recordings = server, service, recordings
+	e.moil, e.service, e.recordings, e.rooms = server, service, recordings, roomsHandler
 	e.mu.Unlock()
 	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
+	var done sync.WaitGroup
+	done.Add(2)
 	go func() {
-		defer close(done)
+		defer done.Done()
 		service.Run(ctx, time.Hour)
+	}()
+	go func() {
+		defer done.Done()
+		recordings.RunReconciler(ctx, 5*time.Millisecond)
 	}()
 	e.stopService = func() {
 		cancel()
-		<-done
+		done.Wait()
 	}
 }
 
@@ -108,6 +125,22 @@ func (e *env) start() {
 func (e *env) stop() {
 	e.stopService()
 	_ = e.moil.Close()
+}
+
+// noEgress is LiveKit's egress service out of reach: the recording
+// reconciler leaves recordings as they are, and gets on with removing files.
+type noEgress struct{}
+
+func (noEgress) StartRoomCompositeEgress(context.Context, *protocol.RoomCompositeEgressRequest) (*protocol.EgressInfo, error) {
+	return nil, errors.New("no LiveKit in these tests")
+}
+
+func (noEgress) StopEgress(context.Context, *protocol.StopEgressRequest) (*protocol.EgressInfo, error) {
+	return nil, errors.New("no LiveKit in these tests")
+}
+
+func (noEgress) ListEgress(context.Context, *protocol.ListEgressRequest) (*protocol.ListEgressResponse, error) {
+	return nil, errors.New("no LiveKit in these tests")
 }
 
 // noRoomService is LiveKit's room service for a room that has emptied.
@@ -289,6 +322,14 @@ func (e *env) deleteRecording(recording store.Recording, as *auth.Session) *http
 	r.SetPathValue("id", recording.ID)
 	response := httptest.NewRecorder()
 	e.recordings.Delete(response, r)
+	return response
+}
+
+func (e *env) deleteRoom(room store.Room, as *auth.Session) *httptest.ResponseRecorder {
+	r := request(http.MethodDelete, "/api/rooms/"+room.Slug, as)
+	r.SetPathValue("slug", room.Slug)
+	response := httptest.NewRecorder()
+	e.rooms.Delete(response, r)
 	return response
 }
 

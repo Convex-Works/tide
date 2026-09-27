@@ -35,8 +35,9 @@ type recordingStore interface {
 	RecordingsByRoomSlug(context.Context, string) ([]store.Recording, error)
 	RecordingByID(context.Context, string) (store.Recording, error)
 	RecordingByEgressID(context.Context, string) (store.Recording, error)
-	DeleteRecording(context.Context, string) error
+	DeleteRecording(ctx context.Context, id string, now int64) ([]string, error)
 	ListActiveRecordings(context.Context) ([]store.Recording, error)
+	RemovalQueue
 }
 
 type EgressClient interface {
@@ -96,6 +97,12 @@ func (h *Handler) recordingsChanged() {
 	if h.onRecordingsChanged != nil {
 		h.onRecordingsChanged()
 	}
+}
+
+// SetClock replaces the clock the handler stamps recordings and due
+// removals with, for tests that move time on.
+func (h *Handler) SetClock(now func() time.Time) {
+	h.now = now
 }
 
 // SetParticipantJoinedHook registers a callback invoked for every verified
@@ -288,18 +295,21 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusConflict, "Stop the recording before deleting it.")
 		return
 	}
-	// The recording's transcript sidecars go with it (ARCHITECTURE.md §8.1).
-	for _, key := range recording.ObjectKeys() {
-		if err := h.objects.Remove(r.Context(), key); err != nil {
-			httpx.WriteError(w, http.StatusBadGateway, "Could not delete the recording file. Try again.")
-			return
-		}
+	// The row goes, and its files and transcript sidecars are queued for
+	// removal, at once (ARCHITECTURE.md §8.1): from then on the files are
+	// removed even if storage is down now.
+	now := h.now().Unix()
+	keys, err := h.store.DeleteRecording(r.Context(), recording.ID, now)
+	if errors.Is(err, sql.ErrNoRows) {
+		httpx.WriteError(w, http.StatusNotFound, "Recording not found.")
+		return
 	}
-	if err := h.store.DeleteRecording(r.Context(), recording.ID); err != nil {
+	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not delete the recording. Try again.")
 		return
 	}
 	h.recordingsChanged()
+	RemoveDeleted(r.Context(), h.objects, h.store, keys, now)
 	w.WriteHeader(http.StatusNoContent)
 }
 

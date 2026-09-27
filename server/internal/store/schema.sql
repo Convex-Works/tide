@@ -88,3 +88,17 @@ CREATE TABLE IF NOT EXISTS transcripts (
 DROP INDEX IF EXISTS transcripts_pending_idx;
 CREATE INDEX IF NOT EXISTS transcripts_pending_requested_idx
     ON transcripts (requested_at, recording_id) WHERE status = 'pending';
+
+-- Objects to remove from storage (ARCHITECTURE.md §8.1), each once due_at
+-- (Unix seconds) has passed. Deleting a recording or its room queues its
+-- files, due at once, in the transaction that deletes the rows; handing a
+-- machine an attempt queues the attempt's staging keys, due when their URLs
+-- expire. The recording reconciler removes due objects every minute and
+-- keeps those storage didn't remove.
+CREATE TABLE IF NOT EXISTS object_removals (
+    key TEXT PRIMARY KEY,
+    due_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS object_removals_due_idx
+    ON object_removals (due_at, key);

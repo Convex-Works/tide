@@ -175,7 +175,7 @@ func TestTranscriptLifecycle(t *testing.T) {
 		t.Fatalf("retry of a completed transcript: %t, %v", ok, err)
 	}
 
-	if err := db.DeleteRecording(ctx, "done"); err != nil {
+	if _, err := db.DeleteRecording(ctx, "done", 200); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := db.Transcript(ctx, "done"); !errors.Is(err, sql.ErrNoRows) {
