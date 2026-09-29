@@ -263,6 +263,25 @@ is deleted, a transcript is requested):
    restart, which loses moil's in-memory jobs, just submits them again.
 3. It cancels every job whose row is gone or no longer `pending`.
 
+A job's title is the room's name, and its params are the recording's times,
+from its row (§8): `started_at`, when klisi started it; `ended_at`, when
+egress ended it; and `duration_s`, its file's length in whole seconds, which
+can be a little shorter than the time between. Times are written as moil
+writes them, RFC 3339 in UTC to the second. A time the recording doesn't have
+is left out: egress may not say when a recording ended.
+
+```json
+{"recording": {"started_at": "2026-09-27T22:10:00Z", "ended_at": "2026-09-27T22:52:14Z", "duration_s": 2529}}
+```
+
+The bundle doesn't use them: it logs a warning that it ignores the
+`recording` param, and klisi doesn't act on a script's log. They are for the
+owner's hooks, which a machine runs after a job succeeds, with the job's title
+and params (moil's `spec/machine.md` §2): a hook filing meeting notes can tell
+when the meeting was, not only when its transcript was made. The params say
+nothing more about the room than the title does. Hooks may read them; changing
+their shape breaks the hooks that do.
+
 A job is eligible only for the room owner's machines
 (`moil.OwnedBy(rooms.owner_sub)`, the room found by ID); administrators can
 request a transcript for any room they manage, but it still runs on that room

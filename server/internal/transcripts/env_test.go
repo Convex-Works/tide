@@ -195,9 +195,20 @@ func (e *env) record(room store.Room, ended time.Time) store.Recording {
 // ended, carrying slug as its room's slug.
 func (e *env) recordFor(room store.Room, slug string, duration time.Duration, ended time.Time) store.Recording {
 	e.t.Helper()
+	return e.recordEgress(room, slug, ended.Add(-duration), ended, duration)
+}
+
+// recordEgress makes an audio recording of room, carrying slug as its room's
+// slug, that klisi started at started. Egress ends it with a file lasting
+// duration, saying it ended at ended, or not saying when if ended is zero.
+func (e *env) recordEgress(room store.Room, slug string, started, ended time.Time, duration time.Duration) store.Recording {
+	e.t.Helper()
 	e.recorded++
 	id := fmt.Sprintf("rec%d", e.recorded)
-	started := ended.Add(-duration)
+	var endedAt int64
+	if !ended.IsZero() {
+		endedAt = ended.UnixNano()
+	}
 	key := path.Join("recordings", slug, id, started.UTC().Format("2006-01-02 15-04")+" - "+room.Name+".ogg")
 	ctx := context.Background()
 	if err := e.db.InsertRecording(ctx, store.Recording{
@@ -211,9 +222,9 @@ func (e *env) recordFor(room store.Room, slug string, duration time.Duration, en
 		Event: "egress_ended",
 		EgressInfo: &protocol.EgressInfo{
 			EgressId: "egress-" + id, RoomName: slug, Status: protocol.EgressStatus_EGRESS_COMPLETE,
-			EndedAt: ended.UnixNano(),
+			EndedAt: endedAt,
 			FileResults: []*protocol.FileInfo{{
-				Filename: key, Duration: int64(duration), Size: 21, EndedAt: ended.UnixNano(),
+				Filename: key, Duration: int64(duration), Size: 21, EndedAt: endedAt,
 			}},
 		},
 	})
