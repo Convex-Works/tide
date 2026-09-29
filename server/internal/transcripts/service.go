@@ -306,6 +306,7 @@ func (s *Service) submit(ctx, ends context.Context, transcript store.PendingTran
 		ID:       "recording-" + recording.ID,
 		Bundle:   s.cfg.Bundle,
 		Title:    truncate(transcript.RoomName, maxTitle),
+		Params:   paramsFor(recording),
 		Eligible: moil.OwnedBy(transcript.RoomOwner),
 		Timeout:  timeout,
 		Prepare: func(ctx context.Context, a moil.Assignment) (map[string]moil.Download, map[string]moil.Upload, error) {
@@ -326,6 +327,37 @@ func (s *Service) submit(ctx, ends context.Context, transcript store.PendingTran
 	go s.follow(ctx, ends, j)
 	return nil
 }
+
+// jobParams are a transcript job's params: the recording's times
+// (ARCHITECTURE.md §8.1). The bundle ignores them, logging a warning. They
+// are for the hooks machine owners run after a job succeeds (moil's
+// spec/machine.md §2), which get the job's title and params, and would
+// otherwise know only when the transcript was made, which can be hours after
+// the meeting. Hooks may rely on their shape. They say nothing more about the
+// room than the title does.
+type jobParams struct {
+	Recording recordingTimes `json:"recording"`
+}
+
+// recordingTimes are when a recording started and ended, in RFC 3339 in UTC
+// to the second, as moil writes times, and its file's length in whole
+// seconds. What the recording doesn't have is left out.
+type recordingTimes struct {
+	StartedAt string `json:"started_at"`
+	EndedAt   string `json:"ended_at,omitempty"`
+	DurationS *int64 `json:"duration_s,omitempty"`
+}
+
+func paramsFor(recording store.Recording) jobParams {
+	times := recordingTimes{StartedAt: utcTime(recording.StartedAt), DurationS: recording.DurationS}
+	if recording.EndedAt != nil {
+		times.EndedAt = utcTime(*recording.EndedAt)
+	}
+	return jobParams{Recording: times}
+}
+
+// utcTime writes a Unix time in seconds as RFC 3339 in UTC.
+func utcTime(unix int64) string { return time.Unix(unix, 0).UTC().Format(time.RFC3339) }
 
 // attemptTimeout is how long a machine may spend on an attempt: an hour
 // plus twice the recording's duration, and at least three hours, since a
