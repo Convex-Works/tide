@@ -8,9 +8,12 @@
 /* Map the design tokens (single source, defined in :root below) onto Tailwind's
    utility namespaces. Colors reference the :root vars so there is one source of
    truth; radii/fonts are set here directly (their names collide with Tailwind
-   namespaces, so a var() alias would be self-referential). Spacing is left as
-   Tailwind's default 4px base, which already matches our scale (p-1=4…p-6=24). */
+   namespaces, so a var() alias would be self-referential). Spacing is pinned
+   to a 4px base (p-1=4…p-6=24, h-7=28): Tailwind's default is 0.25rem, which
+   the 13px root would shrink to 3.25px. */
 @theme {
+  --spacing: 4px;
+
   --color-paper: var(--paper);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);

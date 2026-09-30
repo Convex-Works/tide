@@ -345,7 +345,7 @@
 
       <Button type="submit" variant="accent" class="mt-3 w-full" disabled={previewBusy}>
         <VideoCamera size={16} weight="regular" aria-hidden="true" />
-        {previewBusy ? 'Preparing…' : 'Join room'}
+        {previewBusy ? 'Preparing…' : 'Join meeting'}
       </Button>
     </div>
   </form>

@@ -6,7 +6,6 @@
   import {
     ArrowClockwise,
     ArrowLeft,
-    ArrowRight,
     Check,
     Copy,
     DownloadSimple,
@@ -38,9 +37,9 @@
     type RoomInfo,
     type TranscriptInfo
   } from '$lib/api/types.gen';
-  import { compactAgo, dateTimeLabel, durationLabel, relativeDate, sizeLabel } from '$lib/format';
-  import StateTile from '$lib/ui/StateTile.svelte';
+  import { dateTimeLabel, durationLabel, relativeDate, sizeLabel } from '$lib/format';
   import Button from '$lib/ui/Button.svelte';
+  import RoomStatus from '$lib/ui/RoomStatus.svelte';
 
   type LoadState = 'loading' | 'signed-out' | 'not-found' | 'ready' | 'error';
 
@@ -57,7 +56,16 @@
   const rowControl =
     'inline-flex h-6 shrink-0 items-center gap-1 rounded-control border px-2 text-[11px] no-underline transition-colors disabled:opacity-60';
   const rowButton = `${rowControl} border-border bg-paper text-ink hover:bg-surface-2`;
-  const pill = 'w-max shrink-0 rounded-full border px-1.5 text-[10px] uppercase leading-[18px]';
+  const pill = 'w-max shrink-0 rounded-full border px-1.5 text-[11px] leading-[18px]';
+
+  // A completed recording is the normal case and carries no status; the
+  // others say what the recording is doing, or that it failed.
+  const recordingStatusWords: Record<string, string> = {
+    starting: 'Starting',
+    recording: 'Recording',
+    finalizing: 'Finalizing',
+    failed: 'Failed'
+  };
 
   let loadState = $state<LoadState>('loading');
   let room = $state<RoomInfo>();
@@ -70,6 +78,8 @@
   let copied = $state(false);
   let slugDraft = $state('');
   let slugSaved = $state(false);
+  // Set once the typed link breaks the rules, so they show only then.
+  let slugInvalid = $state(false);
   let deleteConfirm = $state(false);
   let deleteRecordingID = $state('');
   let transcriptBusyID = $state('');
@@ -210,6 +220,7 @@
       const updated = await updateRoom(current.slug, { slug: next });
       room = { ...current, slug: updated.slug };
       slugDraft = updated.slug;
+      slugInvalid = false;
       recordings = recordings.map((recording) => ({ ...recording, room_slug: updated.slug }));
       await goto(`/rooms/${updated.slug}`, { replaceState: true });
       slugSaved = true;
@@ -346,20 +357,8 @@
     return `${Math.round(Math.min(1, Math.max(0, progress)) * 100)}%`;
   }
 
-  function stateText(current: RoomInfo): string {
-    if (current.active && current.num_participants > 0) {
-      const label = current.num_participants === 1 ? 'person' : 'people';
-      return `${current.num_participants} ${label} in the room now`;
-    }
-    if (current.last_active_at != null) {
-      return `Last active ${compactAgo(current.last_active_at)} · created ${compactAgo(current.created_at)}`;
-    }
-    return `Created ${compactAgo(current.created_at)} · not used yet`;
-  }
-
   function statusTone(status: string): string {
     if (pendingStatuses.includes(status)) return 'text-warn border-warn/40 bg-warn/10';
-    if (status === 'completed') return 'text-ok border-ok/30 bg-ok/10';
     if (status === 'failed') return 'text-rec border-rec/30 bg-rec/10';
     return 'text-ink-2 border-border bg-surface';
   }
@@ -373,7 +372,7 @@
   /** The words the row's live region reads out: the status, never the progress. */
   function transcriptWords(transcript: TranscriptInfo | undefined, when: string): string {
     const words: Record<string, string> = {
-      [TranscriptWaiting]: 'Transcript waiting',
+      [TranscriptWaiting]: 'Transcript queued',
       [TranscriptRunning]: 'Transcribing',
       [TranscriptCompleted]: 'Transcript ready',
       [TranscriptFailed]: 'Transcript failed'
@@ -436,22 +435,29 @@
     >
       <DownloadSimple size={16} weight="regular" aria-hidden="true" /> Transcript
     </a>
+    <!-- The same transcript as timed captions: for a video player or a
+         podcast host, so a format beside the transcript, not a second one. -->
     <a
-      class={rowButton}
+      class="mono shrink-0 text-[11px] text-ink-2 hover:text-accent"
       href={transcriptDownloadURL(id, TranscriptFormatVTT)}
       target="_blank"
       rel="noreferrer"
       aria-label="Download captions of the recording from {when} (.vtt)"
     >
-      <DownloadSimple size={16} weight="regular" aria-hidden="true" /> Captions
+      .vtt
     </a>
   {:else}
     <span class="{pill} {transcriptTone(transcript.status)}">
-      {transcript.status === TranscriptRunning ? 'transcribing' : transcript.status}
+      {#if transcript.status === TranscriptRunning}
+        Transcribing{#if transcript.progress != null}{' '}<span class="mono"
+            >{percent(transcript.progress)}</span
+          >{/if}
+      {:else if transcript.status === TranscriptFailed}
+        Transcript failed
+      {:else}
+        Transcript queued
+      {/if}
     </span>
-    {#if transcript.status === TranscriptRunning && transcript.progress != null}
-      <span class="mono shrink-0 text-[11px] text-ink">{percent(transcript.progress)}</span>
-    {/if}
     {#if transcript.status === TranscriptFailed}
       <button
         type="button"
@@ -496,44 +502,27 @@
       </button>
     </div>
   {:else if room}
-    <!-- Room header -->
-    <div class="flex items-start gap-4">
-      <div class="w-40 shrink-0">
-        <StateTile {room} />
-      </div>
-      <div class="min-w-0 flex-1">
-        <h1 class="truncate text-[18px] font-[550] leading-6 text-ink">{room.name}</h1>
-        <div class="mt-1.5 flex flex-wrap items-center gap-2 text-[12px] text-ink-2">
-          <span>{stateText(room)}</span>
-        </div>
-        <div class="mt-3 flex flex-wrap items-center gap-2">
-          <Button href={`/m/${room.slug}`} variant="accent">
-            Join meeting <ArrowRight size={14} weight="bold" aria-hidden="true" />
-          </Button>
-          <Button type="button" variant="default" onclick={() => void copyLink()}>
-            {#if copied}
-              <Check size={16} weight="regular" aria-hidden="true" /> Copied
-            {:else}
-              <Copy size={16} weight="regular" aria-hidden="true" /> Copy link
-            {/if}
-          </Button>
-        </div>
+    <div class="min-w-0">
+      <h1 class="m-0 truncate text-[18px] font-[550] leading-6 text-ink">{room.name}</h1>
+      <div class="mt-1"><RoomStatus {room} /></div>
+      <div class="mt-3 flex flex-wrap items-center gap-2">
+        <Button href={`/m/${room.slug}`} variant="accent">Join meeting</Button>
+        <Button type="button" variant="default" onclick={() => void copyLink()}>
+          {#if copied}
+            <Check size={16} weight="regular" aria-hidden="true" /> Copied
+          {:else}
+            <Copy size={16} weight="regular" aria-hidden="true" /> Copy link
+          {/if}
+        </Button>
       </div>
     </div>
 
     {#if error}<p class="mt-4 text-[12px] text-rec" role="alert">{error}</p>{/if}
 
-    <!-- Lobby setting -->
-    <!-- Recordings / past meetings -->
     <section class="mt-8">
-      <div class="flex items-center justify-between">
-        <h2 id="recordings-heading" tabindex="-1" class="text-[13px] font-[550] text-ink">
-          Recordings
-        </h2>
-        {#if recordings.length > 0}
-          <span class="text-[12px] text-ink-2">{recordings.length} total</span>
-        {/if}
-      </div>
+      <h2 id="recordings-heading" tabindex="-1" class="text-[13px] font-[550] text-ink">
+        Recordings
+      </h2>
 
       {#if recordingsLoading && recordings.length === 0}
         <p
@@ -572,11 +561,13 @@
               data-recording-id={recording.id}
             >
               <span class="flex w-max items-center gap-1">
-                <span class="{pill} {statusTone(recording.status)}">
-                  {recording.status}
-                </span>
-                <span class="{pill} mono border-border text-ink-2">
-                  {recording.audio_only ? 'audio' : 'video'}
+                {#if recording.status !== 'completed'}
+                  <span class="{pill} {statusTone(recording.status)}">
+                    {recordingStatusWords[recording.status] ?? recording.status}
+                  </span>
+                {/if}
+                <span class="{pill} border-border text-ink-2">
+                  {recording.audio_only ? 'Audio' : 'Video'}
                 </span>
               </span>
               <time
@@ -657,12 +648,10 @@
       {/if}
     </section>
 
-    <!-- Danger zone -->
-
     <section class="mt-8">
       <h2 class="text-[13px] font-[550] text-ink">Settings</h2>
-      <div class="bg-surface rounded-control">
-        <div class="mt-2 flex items-center justify-between gap-4 px-3 py-2.5">
+      <div class="mt-2 overflow-hidden rounded-card border border-border bg-surface">
+        <div class="flex items-center justify-between gap-4 px-3 py-2.5">
           <div class="min-w-0">
             <div class="text-[13px] text-ink">Lobby</div>
             <div class="text-[12px] text-ink-2">
@@ -688,13 +677,12 @@
         >
           <label class="min-w-0 flex-1" for="room-slug">
             <span class="block text-[13px] text-ink">Custom room link</span>
-            <span class="mt-0.5 block text-[12px] text-ink-2">
-              Lowercase letters, numbers, and hyphens. Changing it invalidates the old link.
-            </span>
+            <span class="mt-0.5 block text-[12px] text-ink-2">Changing it breaks the old link.</span
+            >
             <input
               id="room-slug"
               name="room-slug"
-              class="mono mt-2 h-7 w-full max-w-sm rounded-control border border-border bg-paper px-2 text-[12px] text-ink outline-none focus:border-accent"
+              class="mono mt-2 h-7 w-full max-w-sm rounded-control border border-border bg-paper px-2 text-[12px] text-ink outline-none focus:border-accent aria-[invalid=true]:border-rec"
               value={slugDraft}
               minlength="3"
               maxlength="64"
@@ -704,12 +692,30 @@
               spellcheck="false"
               disabled={busy || room.active || room.recording}
               aria-describedby="room-slug-status"
-              oninput={(event) => (slugDraft = event.currentTarget.value.toLowerCase())}
+              aria-invalid={slugInvalid}
+              oninput={(event) => {
+                slugDraft = event.currentTarget.value.toLowerCase();
+                // Once flagged, the rules stay until the link follows them.
+                if (slugInvalid) slugInvalid = !event.currentTarget.validity.valid;
+              }}
+              onblur={(event) => (slugInvalid = !event.currentTarget.validity.valid)}
+              oninvalid={(event) => {
+                // Say it here, in the row, rather than in the browser's bubble.
+                event.preventDefault();
+                slugInvalid = true;
+              }}
               required
             />
-            <span id="room-slug-status" class="mt-1 block text-[11px] text-ink-2">
+            <span
+              id="room-slug-status"
+              class="mt-1 block text-[11px] {slugInvalid && !room.active && !room.recording
+                ? 'text-rec'
+                : 'text-ink-2'}"
+            >
               {#if room.active || room.recording}
                 The link can be changed after the meeting and recording stop.
+              {:else if slugInvalid}
+                Use 3–64 lowercase letters, numbers, and single hyphens.
               {:else}
                 Meeting URL: /m/{slugDraft || room.slug}
               {/if}
@@ -724,14 +730,14 @@
             class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-control border border-border bg-paper px-2.5 text-[12px] text-ink transition-colors hover:bg-surface-2 disabled:opacity-60"
           >
             {#if slugSaved}
-              <Check size={14} weight="regular" aria-hidden="true" /> Saved
+              <Check size={16} weight="regular" aria-hidden="true" /> Saved
             {:else}
               Save link
             {/if}
           </button>
         </form>
 
-        <section class="flex items-center justify-between gap-4 p-3">
+        <div class="flex items-center justify-between gap-4 border-t border-border p-3">
           <div class="min-w-0">
             <div class="text-[13px] text-ink">Delete room</div>
             <div class="text-[12px] text-ink-2">
@@ -752,7 +758,7 @@
               <Trash size={16} weight="regular" aria-hidden="true" /> Delete
             {/if}
           </button>
-        </section>
+        </div>
       </div>
     </section>
   {/if}

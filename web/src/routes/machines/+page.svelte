@@ -32,7 +32,7 @@
     type MachinesResponse,
     type PairingInfo
   } from '$lib/api/types.gen';
-  import { compactAgo, shortHash, systemLabel } from '$lib/format';
+  import { compactAgo, osLabel, shortHash, systemLabel } from '$lib/format';
 
   // One route, two jobs (ARCHITECTURE.md §8.1): with ?code= the moil app sent
   // the host here to confirm a pairing; without one it lists their machines.
@@ -270,7 +270,7 @@
       data.machines = data.machines.filter((item) => item.id !== machine.id);
       unpairID = '';
       announcement = `Unpaired ${machine.name}.`;
-      await focusOn('machines-heading');
+      await focusOn('view-focus');
     } catch (cause) {
       if (destroyed) return;
       if (cause instanceof AuthRequiredError) {
@@ -356,9 +356,9 @@
   <title>Machines · klisi</title>
 </svelte:head>
 
-{#snippet codeForm()}
+{#snippet codeForm(label: string)}
   <form class="text-[12px] text-ink-2" onsubmit={enterCode}>
-    <label for="pairing-code-input">Have a pairing code?</label>
+    <label for="pairing-code-input">{label}</label>
     <div class="mt-1.5 flex items-center gap-1">
       <input
         id="pairing-code-input"
@@ -424,9 +424,12 @@
         <h1 id="view-focus" tabindex="-1" class="m-0 text-[15px] font-[550] leading-6 text-ink">
           Pair this machine?
         </h1>
-        <p class="m-0 mt-1 text-[13px] text-ink">
-          Pair only if you just started pairing in the moil app on your own computer and it shows
-          this code. Otherwise, choose Deny.
+        <!-- One check, before anything else: the code alone proves nothing. -->
+        <p class="m-0 mt-1 text-[13px] text-ink" data-testid="moil-address-check">
+          Pair only if you just started pairing in the moil app on your own computer, and it shows
+          this code and says it is pairing with
+          <span class="mono [overflow-wrap:anywhere]">{pending.moil_url}</span>. Otherwise, choose
+          Deny.
         </p>
         <div
           class="mono mt-3 rounded-control border border-border bg-paper py-1.5 text-center text-[18px] leading-7 tracking-[0.16em] text-ink"
@@ -434,13 +437,9 @@
         >
           {pending.code}
         </div>
-        <p class="m-0 mt-3 text-[12px] text-ink" data-testid="moil-address-check">
-          The moil app must say it is pairing with
-          <span class="mono [overflow-wrap:anywhere]">{pending.moil_url}</span>. If it shows any
-          other address, choose Deny.
-        </p>
+        <p id="machine-reported" class="m-0 mt-3 text-[11px] text-ink-2">Reported by the machine</p>
         <dl
-          class="m-0 mt-3 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1 text-[12px]"
+          class="m-0 mt-1 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1 text-[12px]"
           aria-describedby="machine-reported"
         >
           <dt class="text-ink-2">Name</dt>
@@ -454,9 +453,6 @@
             <bdi>{pending.app_version}</bdi>
           </dd>
         </dl>
-        <p id="machine-reported" class="m-0 mt-1.5 text-[11px] text-ink-2">
-          The machine reports its name and system itself.
-        </p>
       </div>
       <div class="border-t border-border p-4">
         <p class="m-0 text-[12px] text-ink">
@@ -494,7 +490,7 @@
         It expired, was already used, or was mistyped. Enter it again, or start pairing again in the
         moil app.
       </p>
-      <div class="mt-3">{@render codeForm()}</div>
+      <div class="mt-3">{@render codeForm('Pairing code')}</div>
       <button type="button" class="{textButton} mt-3" onclick={showList}>Your machines</button>
     </section>
   {:else if view === 'denied'}
@@ -509,13 +505,20 @@
       <button type="button" class="{textButton} mt-3" onclick={showList}>Your machines</button>
     </section>
   {:else if view === 'list' && data}
-    <h1 id="view-focus" tabindex="-1" class="m-0 text-[18px] font-[550] leading-6 text-ink">
-      Machines
-    </h1>
-    <p class="m-0 mt-1.5 max-w-[560px] text-[12px] text-ink-2">
-      Machines you pair transcribe your recordings on your own hardware. Your recordings only ever
-      go to your own machines.
-    </p>
+    <div class="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+      <div class="min-w-0">
+        <h1 id="view-focus" tabindex="-1" class="m-0 text-[18px] font-[550] leading-6 text-ink">
+          Machines
+        </h1>
+        <p class="m-0 mt-1.5 max-w-[560px] text-[12px] text-ink-2">
+          Machines you pair transcribe your recordings on your own hardware. Your recordings only
+          ever go to your own machines.
+        </p>
+      </div>
+      <a class={accentButton} href={pairHref} title="Opens the moil app on this computer">
+        <Plus size={16} weight="regular" aria-hidden="true" /> Add a machine
+      </a>
+    </div>
 
     {#if pairedMachine}
       <div
@@ -541,31 +544,11 @@
 
     {#if error}<p class="m-0 mt-4 text-[12px] text-rec" role="alert">{error}</p>{/if}
 
-    <section class="mt-8" aria-labelledby="machines-heading">
-      <div class="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-        <div class="min-w-0">
-          <h2 id="machines-heading" tabindex="-1" class="m-0 text-[13px] font-[550] text-ink">
-            Your machines
-          </h2>
-          {#if data.machines.length > 0}
-            <!-- Without a machine yet, the steps below say this. -->
-            <p class="m-0 mt-0.5 text-[12px] text-ink-2">
-              Each machine needs the moil app.
-              <a class="text-accent" href={data.app_url} target="_blank" rel="noreferrer"
-                >Get moil</a
-              >
-            </p>
-          {/if}
-        </div>
-        <a class={accentButton} href={pairHref} title="Opens the moil app on this computer">
-          <Plus size={16} weight="regular" aria-hidden="true" /> Add a machine
-        </a>
-      </div>
-
+    <section class="mt-6" aria-labelledby="view-focus">
       {#if data.machines.length === 0}
         <!-- Onboarding: most hosts have never heard of moil. -->
         <div
-          class="mt-3 rounded-card border border-border bg-surface px-3 py-3 text-[12px] text-ink"
+          class="rounded-card border border-border bg-surface px-3 py-3 text-[12px] text-ink"
           data-testid="onboarding"
         >
           <p class="m-0 text-[13px] font-[550]">Transcribe on a computer of your own</p>
@@ -595,15 +578,9 @@
               </span>
             </li>
           </ol>
-          <p class="m-0 mt-2 text-ink-2">
-            It then transcribes each new recording of rooms you own. Recordings go only to your own
-            machines, and you can unpair one here at any time.
-          </p>
         </div>
       {:else}
-        <ul
-          class="m-0 mt-3 list-none overflow-hidden rounded-card border border-border bg-surface p-0"
-        >
+        <ul class="m-0 list-none overflow-hidden rounded-card border border-border bg-surface p-0">
           {#each data.machines as machine (machine.id)}
             <li
               class="flex items-start gap-3 border-b border-border px-3 py-2.5 last:border-b-0"
@@ -620,7 +597,7 @@
                 <div class="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-[11px] text-ink-2">
                   <span data-testid="machine-state">{stateLabel(machine)}</span>
                   <span aria-hidden="true">·</span>
-                  <span><bdi>{systemLabel(machine.os, machine.arch)}</bdi></span>
+                  <span><bdi>{osLabel(machine.os)}</bdi></span>
                   <span aria-hidden="true">·</span>
                   <span>moil <bdi class="mono">{machine.app_version}</bdi></span>
                 </div>
@@ -669,35 +646,56 @@
           {/each}
         </ul>
       {/if}
+    </section>
 
-      <div class="mt-4 grid gap-4 sm:grid-cols-2">
-        <div class="text-[12px] text-ink-2">
-          <label for="moil-address">Or paste this address into the moil app</label>
-          <div class="mt-1.5 flex items-center gap-1">
-            <input
-              id="moil-address"
-              class={field}
-              value={data.moil_url}
-              readonly
-              onfocus={(event) => event.currentTarget.select()}
-            />
-            <button
-              type="button"
-              class="grid h-7 w-7 shrink-0 place-items-center rounded-control border border-border bg-paper p-0 text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink"
-              aria-label={copied ? 'Address copied' : 'Copy address'}
-              title={copied ? 'Copied' : 'Copy address'}
-              onclick={() => void copyAddress()}
-            >
-              {#if copied}
-                <Check size={16} weight="regular" aria-hidden="true" />
-              {:else}
-                <Copy size={16} weight="regular" aria-hidden="true" />
-              {/if}
-            </button>
-          </div>
-        </div>
-        {@render codeForm()}
+    <!-- A computer that isn't this one: the deep link above can't reach it,
+         so its moil app starts the pairing and shows the code. -->
+    <section class="mt-8" aria-labelledby="pair-another-heading">
+      <div class="flex flex-wrap items-baseline justify-between gap-x-4">
+        <h2 id="pair-another-heading" class="m-0 text-[13px] font-[550] text-ink">
+          Pair another computer
+        </h2>
+        {#if data.machines.length > 0}
+          <!-- Without a machine yet, the steps above link it. -->
+          <a class="text-[12px] text-accent" href={data.app_url} target="_blank" rel="noreferrer"
+            >Get moil</a
+          >
+        {/if}
       </div>
+      <ol class="m-0 mt-2 grid list-none gap-4 p-0 sm:grid-cols-2">
+        <li class="flex min-w-0 gap-2 text-[12px]">
+          <span class="mono w-4 shrink-0 text-ink-2" aria-hidden="true">1</span>
+          <div class="min-w-0 flex-1 text-ink-2">
+            <label for="moil-address">Paste this address into its moil app</label>
+            <div class="mt-1.5 flex items-center gap-1">
+              <input
+                id="moil-address"
+                class={field}
+                value={data.moil_url}
+                readonly
+                onfocus={(event) => event.currentTarget.select()}
+              />
+              <button
+                type="button"
+                class="grid h-7 w-7 shrink-0 place-items-center rounded-control border border-border bg-paper p-0 text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink"
+                aria-label={copied ? 'Address copied' : 'Copy address'}
+                title={copied ? 'Copied' : 'Copy address'}
+                onclick={() => void copyAddress()}
+              >
+                {#if copied}
+                  <Check size={16} weight="regular" aria-hidden="true" />
+                {:else}
+                  <Copy size={16} weight="regular" aria-hidden="true" />
+                {/if}
+              </button>
+            </div>
+          </div>
+        </li>
+        <li class="flex min-w-0 gap-2 text-[12px]">
+          <span class="mono w-4 shrink-0 text-ink-2" aria-hidden="true">2</span>
+          <div class="min-w-0 flex-1">{@render codeForm('Enter the code it shows')}</div>
+        </li>
+      </ol>
     </section>
   {/if}
 </main>

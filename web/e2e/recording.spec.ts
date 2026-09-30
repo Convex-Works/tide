@@ -26,7 +26,7 @@ test('host records a two-participant room and manages the completed MP4', async 
     await dexLogin(host);
     const slug = await createRoomAndGetSlug(host, `Recording e2e ${Date.now()}`);
     await host.goto(`/m/${slug}`);
-    await host.getByRole('button', { name: 'Join room' }).click();
+    await host.getByRole('button', { name: 'Join meeting' }).click();
     await expect(host.getByRole('button', { name: 'Start recording' })).toBeVisible({
       timeout: 20_000
     });

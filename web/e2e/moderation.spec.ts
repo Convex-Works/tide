@@ -48,7 +48,7 @@ test('participants hide remote video locally while host moderation stays gated',
     await dexLogin(host);
     const slug = await createRoomAndGetSlug(host, `Moderation e2e ${Date.now()}`);
     await host.goto(`/m/${slug}`);
-    await host.getByRole('button', { name: 'Join room' }).click();
+    await host.getByRole('button', { name: 'Join meeting' }).click();
     await expect(host.getByRole('button', { name: 'Share screen' })).toBeVisible({
       timeout: 20_000
     });
@@ -160,7 +160,7 @@ test('participants hide remote video locally while host moderation stays gated',
     if (await openPeople.isVisible()) await openPeople.click();
     const people = host.getByRole('complementary', { name: 'People' });
     await guest.getByRole('button', { name: 'Request to rejoin' }).click();
-    await guest.getByRole('button', { name: 'Join room' }).click();
+    await guest.getByRole('button', { name: 'Join meeting' }).click();
     await expect(guest.getByText('Waiting for the host to let you in.')).toBeVisible({
       timeout: 20_000
     });

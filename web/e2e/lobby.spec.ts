@@ -35,7 +35,7 @@ test('lobby and participant changes play their cues while the host moderates gue
     const roomName = `Lobby e2e ${Date.now()}`;
     const slug = await createRoomAndGetSlug(host, roomName);
     await host.goto(`/m/${slug}`);
-    await host.getByRole('button', { name: 'Join room' }).click();
+    await host.getByRole('button', { name: 'Join meeting' }).click();
     await expect(host.getByRole('button', { name: 'Share screen' })).toBeVisible({
       timeout: 20_000
     });
@@ -46,7 +46,7 @@ test('lobby and participant changes play their cues while the host moderates gue
     const visitor = await visitorContext.newPage();
     await visitor.goto(`/m/${slug}`);
     await visitor.fill('input[name="name"]', 'Visitor');
-    await visitor.getByRole('button', { name: 'Join room' }).click();
+    await visitor.getByRole('button', { name: 'Join meeting' }).click();
     await expect(visitor.getByText('Waiting for the host to let you in.')).toBeVisible({
       timeout: 20_000
     });
@@ -81,7 +81,7 @@ test('lobby and participant changes play their cues while the host moderates gue
     const denied = await deniedContext.newPage();
     await denied.goto(`/m/${slug}`);
     await denied.fill('input[name="name"]', 'Second visitor');
-    await denied.getByRole('button', { name: 'Join room' }).click();
+    await denied.getByRole('button', { name: 'Join meeting' }).click();
     await expect(denied.getByText('Waiting for the host to let you in.')).toBeVisible({
       timeout: 20_000
     });

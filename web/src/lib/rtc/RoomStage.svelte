@@ -6,6 +6,7 @@
   import ParticipantPanel from '$lib/ui/ParticipantPanel.svelte';
   import ParticipantTile from './ParticipantTile.svelte';
   import RemoteAudioRenderer from './RemoteAudioRenderer.svelte';
+  import { ConnectionState } from 'livekit-client';
   import { attachMediaTrack } from './mediaElement';
   import type { RoomState } from './room.svelte';
 
@@ -30,6 +31,14 @@
     onadmit?: (id: string) => void | Promise<void>;
     ondeny?: (id: string) => void | Promise<void>;
   } = $props();
+
+  // LiveKit's states in plain words; a signal blip is a reconnect too.
+  const connectionWords: Partial<Record<ConnectionState, string>> = {
+    [ConnectionState.Connecting]: 'Connecting…',
+    [ConnectionState.Reconnecting]: 'Reconnecting…',
+    [ConnectionState.SignalReconnecting]: 'Reconnecting…',
+    [ConnectionState.Disconnected]: 'Disconnected'
+  };
 
   let focusParticipant = $derived(rtc.participants.find((participant) => participant.screenShare));
   let view = $state<'grid' | 'speaker'>('grid');
@@ -151,8 +160,8 @@
         </button>
       {/if}
     </div>
-    {#if rtc.connectionState !== 'connected'}
-      <span class="connection">{rtc.connectionState}</span>
+    {#if rtc.connectionState !== ConnectionState.Connected}
+      <span class="connection" role="status">{connectionWords[rtc.connectionState]}</span>
     {/if}
   </header>
 
@@ -293,7 +302,6 @@
   .connection {
     color: var(--text-2);
     font-size: 12px;
-    text-transform: lowercase;
   }
 
   .media-layout {

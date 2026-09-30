@@ -95,7 +95,7 @@ test('remote feeds survive a recording stop', async () => {
     await dexLogin(host);
     const slug = await createRoomAndGetSlug(host, `Stop repro ${Date.now()}`);
     await host.goto(`/m/${slug}`);
-    await host.getByRole('button', { name: 'Join room' }).click();
+    await host.getByRole('button', { name: 'Join meeting' }).click();
     await expect(host.getByRole('button', { name: 'Start recording' })).toBeVisible({
       timeout: 20_000
     });
