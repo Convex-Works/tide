@@ -25,7 +25,7 @@ test('chat is bidirectional, counts unread messages, and has no rejoin history',
     await dexLogin(host);
     const slug = await createRoomAndGetSlug(host, `Chat e2e ${Date.now()}`);
     await host.goto(`/m/${slug}`);
-    await host.getByRole('button', { name: 'Join room' }).click();
+    await host.getByRole('button', { name: 'Join meeting' }).click();
     await expect(host.getByRole('button', { name: 'Share screen' })).toBeVisible({
       timeout: 20_000
     });

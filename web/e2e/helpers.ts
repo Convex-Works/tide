@@ -65,7 +65,7 @@ export async function joinAsGuestThroughLobby(
 ): Promise<void> {
   await guest.goto(`/m/${slug}`);
   await guest.fill('input[name="name"]', name);
-  await guest.getByRole('button', { name: 'Join room' }).click();
+  await guest.getByRole('button', { name: 'Join meeting' }).click();
   await expect(guest.getByText('Waiting for the host to let you in.')).toBeVisible({
     timeout: 20_000
   });

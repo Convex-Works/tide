@@ -1,10 +1,11 @@
 <script lang="ts">
   import { Button } from 'bits-ui';
 
-  // Standardized pill button. Renders an <a> when `href` is set, otherwise a
-  // <button> — bits-ui Button handles the anchor/button + disabled semantics.
-  //   variant="default"  paper pill, subtle border (Copy, secondary actions)
-  //   variant="accent"   solid accent pill, white text (Join — primary action)
+  // The shell's standard button (ARCHITECTURE.md §10): a 28px control with a
+  // 4px radius. Renders an <a> when `href` is set, otherwise a <button> —
+  // bits-ui Button handles the anchor/button + disabled semantics.
+  //   variant="default"  paper, subtle border (Copy link, secondary actions)
+  //   variant="accent"   solid accent, white text (Join meeting — primary action)
   // Pass `class` to extend (e.g. `w-full` for a block button).
   type Variant = 'default' | 'accent';
 
@@ -15,14 +16,13 @@
     ...rest
   }: Button.RootProps & { variant?: Variant } = $props();
 
-  // Geometry is pinned so nothing depends on the 13px root font-size that would
-  // otherwise re-scale rem-based utilities. `border` also neutralizes the native
-  // <button> UA outset border (Preflight is intentionally off — see app.css).
+  // `border` also neutralizes the native <button> UA outset border (Preflight
+  // is intentionally off — see app.css).
   const base =
-    'inline-flex h-10 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded-full border px-5.5 text-base font-[550] no-underline transition-colors disabled:opacity-60 disabled:pointer-events-none';
+    'inline-flex h-7 shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-control border px-2.5 text-[12px] font-[550] no-underline transition-colors disabled:opacity-60 disabled:pointer-events-none';
 
   const variants: Record<Variant, string> = {
-    default: 'border-border bg-paper text-ink-2 hover:bg-stone-200 hover:text-ink',
+    default: 'border-border bg-paper text-ink hover:bg-surface-2',
     accent: 'border-accent bg-accent text-white hover:border-accent-hover hover:bg-accent-hover'
   };
 </script>

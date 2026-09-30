@@ -122,7 +122,7 @@ export async function joinMediaTestRoom(
     if (await microphoneToggle.isVisible().catch(() => false)) await microphoneToggle.click();
   }
 
-  await page.getByRole('button', { name: 'Join room' }).click();
+  await page.getByRole('button', { name: 'Join meeting' }).click();
   await expect(page.getByRole('button', { name: 'Share screen' })).toBeVisible({
     timeout: 30_000
   });

@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import { ArrowRight, Check, Copy, Desktop } from 'phosphor-svelte';
+  import { Check, Copy, Desktop } from 'phosphor-svelte';
   import { AuthRequiredError, createRoom, listRooms, logout, me } from '$lib/api/client';
   import { AuthLoginPath, type Me, type RoomInfo } from '$lib/api/types.gen';
-  import { compactAgo } from '$lib/format';
-  import StateTile from '$lib/ui/StateTile.svelte';
+  import Button from '$lib/ui/Button.svelte';
+  import RoomStatus from '$lib/ui/RoomStatus.svelte';
 
   type DashboardState = 'loading' | 'signed-out' | 'ready' | 'error';
 
@@ -85,14 +85,6 @@
     }
   }
 
-  function stateMeta(room: RoomInfo): string {
-    if (room.active && room.num_participants > 0) {
-      return `${room.num_participants} ${room.num_participants === 1 ? 'person' : 'people'} in the room now`;
-    }
-    if (room.last_active_at != null) return `Last active ${compactAgo(room.last_active_at)}`;
-    return 'Not used yet';
-  }
-
   // Silent background refresh — updates the live state in place without ever
   // flipping the view back into a loading/error state, and keeps the last good
   // list on a transient failure.
@@ -155,7 +147,7 @@
       </div>
     </header>
 
-    <main class="container mx-auto mt-10">
+    <main class="dashboard">
       <section aria-labelledby="rooms-heading">
         <div class="section-heading">
           <h1 id="rooms-heading">Rooms</h1>
@@ -178,58 +170,45 @@
         {#if rooms.length === 0}
           <div class="empty-state">Create your first room to get a reusable meeting link.</div>
         {:else}
-          <ul class="m-0 list-none gap-2 p-0 grid lg:grid-cols-3 grid-cols-1">
+          <ul class="m-0 grid list-none grid-cols-1 gap-2 p-0 sm:grid-cols-2 lg:grid-cols-3">
             {#each rooms as room (room.id)}
-              <li class="">
+              <li class="min-w-0">
                 <article
                   data-testid="room-card"
                   data-slug={room.slug}
-                  class="group relative flex items-center gap-8 rounded-card p-2.5 bg-stone-300/20"
+                  class="group relative flex h-full flex-col gap-3 rounded-card border border-border bg-surface p-3"
                 >
                   <!-- Stretched link: the whole card opens the detail page, while
-                       the Copy/Join controls sit above it (z-10) so they act on
-                       their own. -->
+                       the Copy link/Join meeting controls sit above it (z-10) so
+                       they act on their own. -->
                   <a
                     href={`/rooms/${room.slug}`}
                     class="absolute inset-0 z-0 rounded-card"
                     aria-label={`Open ${room.name}`}
                   ></a>
 
-                  <div class="w-38 shrink-0">
-                    <StateTile {room} />
+                  <div class="min-w-0">
+                    <strong
+                      class="block truncate text-[13px] font-[550] text-ink transition-colors group-hover:text-accent"
+                    >
+                      {room.name}
+                    </strong>
+                    <div class="mt-1"><RoomStatus {room} /></div>
                   </div>
 
-                  <div class="min-w-0 flex-1">
-                    <div class="flex items-center gap-2">
-                      <strong
-                        class="truncate text-xl transition-colors group-hover:text-accent font-normal"
-                      >
-                        {room.name}
-                      </strong>
-                    </div>
-
-                    <div
-                      class="relative z-10 flex shrink-0 items-center gap-1 opacity-100 transition-opacity focus-within:opacity-100 group-hover:opacity-100 mt-10"
+                  <div class="relative z-10 mt-auto flex flex-wrap items-center gap-1.5">
+                    <Button
+                      type="button"
+                      onclick={() => void copyLink(room.slug)}
+                      aria-label={`Copy link for ${room.name}`}
                     >
-                      <button
-                        type="button"
-                        class="inline-flex h-10 items-center gap-1 rounded-full bg-paper border border-border px-5.5 text-base font-medium text-ink-2 no-underline transition-colors hover:bg-stone-200 hover:text-ink"
-                        onclick={() => void copyLink(room.slug)}
-                        aria-label={`Copy link for ${room.name}`}
-                      >
-                        {#if copiedSlug === room.slug}
-                          <Check size={16} weight="regular" aria-hidden="true" /> Copied
-                        {:else}
-                          <Copy size={16} weight="regular" aria-hidden="true" /> Copy
-                        {/if}
-                      </button>
-                      <a
-                        href={`/m/${room.slug}`}
-                        class="inline-flex h-10 items-center gap-1 rounded-full bg-paper border border-border px-5.5 text-base font-medium text-ink-2 no-underline transition-colors hover:bg-stone-200 hover:text-ink"
-                      >
-                        Join <ArrowRight size={14} weight="bold" aria-hidden="true" />
-                      </a>
-                    </div>
+                      {#if copiedSlug === room.slug}
+                        <Check size={16} weight="regular" aria-hidden="true" /> Copied
+                      {:else}
+                        <Copy size={16} weight="regular" aria-hidden="true" /> Copy link
+                      {/if}
+                    </Button>
+                    <Button href={`/m/${room.slug}`}>Join meeting</Button>
                   </div>
                 </article>
               </li>

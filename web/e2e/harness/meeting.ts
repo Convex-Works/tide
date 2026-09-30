@@ -122,7 +122,7 @@ export class MeetingActor {
       await expect(button).toHaveAttribute('aria-pressed', 'false', { timeout: 10_000 });
     }
 
-    await this.page.getByRole('button', { name: 'Join room' }).click();
+    await this.page.getByRole('button', { name: 'Join meeting' }).click();
   }
 
   async waitUntilConnected(timeout = 45_000): Promise<void> {

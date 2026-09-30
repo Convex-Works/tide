@@ -117,21 +117,16 @@ test.describe('pairing a machine', () => {
 
     await page.goto(`/machines?code=${code}`);
     await expect(page.getByRole('heading', { name: 'Pair this machine?' })).toBeVisible();
-    // The check that matters leads; the code alone proves nothing.
-    await expect(
-      page.getByText(
-        'Pair only if you just started pairing in the moil app on your own computer and it shows this code. Otherwise, choose Deny.'
-      )
-    ).toBeVisible();
-    await expect(page.getByTestId('pairing-code')).toHaveText(code);
-    const address = page.getByTestId('moil-address-check');
-    await expect(address).toContainText(
-      'The moil app must say it is pairing with https://klisi.example.com/moil.'
+    // The check that matters leads, in one sentence: the code alone proves
+    // nothing, and the address must be klisi's.
+    await expect(page.getByTestId('moil-address-check')).toHaveText(
+      'Pair only if you just started pairing in the moil app on your own computer, and it shows this code and says it is pairing with https://klisi.example.com/moil. Otherwise, choose Deny.'
     );
-    await expect(address).toContainText('If it shows any other address, choose Deny.');
+    await expect(page.getByText('choose Deny')).toHaveCount(1);
+    await expect(page.getByTestId('pairing-code')).toHaveText(code);
     await expect(page.locator('bdi', { hasText: 'Ada’s MacBook Pro' })).toBeVisible();
     await expect(page.getByText('macOS · aarch64')).toBeVisible();
-    await expect(page.getByText('The machine reports its name and system itself.')).toBeVisible();
+    await expect(page.getByText('Reported by the machine')).toBeVisible();
     await expect(
       page.getByText(
         'Once paired, it downloads and transcribes every new recording of rooms you own, until you unpair it here.'
@@ -205,7 +200,7 @@ test.describe('pairing a machine', () => {
       'href',
       `moil://pair?url=${encodeURIComponent(moil_url)}`
     );
-    await expect(page.getByLabel('Or paste this address into the moil app')).toHaveValue(moil_url);
+    await expect(page.getByLabel('Paste this address into its moil app')).toHaveValue(moil_url);
     // 3: which bundle to approve, by the hash prefix the app shows.
     const approve = onboarding.getByRole('listitem').nth(2);
     await expect(approve).toContainText(`${bundle.name} bundle, version ${bundle.version}`);
@@ -232,7 +227,7 @@ test.describe('pairing a machine', () => {
 
     // The machine shows its real code; typed in any case, without the hyphen.
     api.state.pairings[code] = pairingInfo;
-    await page.getByLabel('Have a pairing code?').fill('wdjbmjht');
+    await page.getByLabel('Pairing code').fill('wdjbmjht');
     await page.getByRole('button', { name: 'Continue' }).click();
     await expect(page).toHaveURL(/\/machines\?code=wdjbmjht$/);
     await expect(page.getByRole('heading', { name: 'Pair this machine?' })).toBeFocused();
@@ -358,7 +353,9 @@ test.describe('your machines', () => {
     await expect(state('m-busy')).toHaveText('Busy');
     await expect(state('m-paused')).toHaveText('Paused in moil');
     await expect(state('m-offline')).toHaveText('Offline · last seen 2h ago');
-    await expect(page.locator('[data-machine-id="m-busy"]')).toContainText('Linux · x86_64');
+    // The list names the system; its architecture is for the pairing card.
+    await expect(page.locator('[data-machine-id="m-busy"]')).toContainText('Linux');
+    await expect(page.locator('[data-machine-id="m-busy"]')).not.toContainText('x86_64');
 
     // Only the machine that hasn't approved this bundle asks for it, naming
     // it the way the moil app does: version and a 12-character hash prefix.
@@ -373,13 +370,13 @@ test.describe('your machines', () => {
       'href',
       'moil://pair?url=https%3A%2F%2Fklisi.example.com%2Fmoil'
     );
-    await expect(page.getByText('Each machine needs the moil app.')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Pair another computer' })).toBeVisible();
     // The app is linked where the server says moil's latest release is.
     await expect(page.getByRole('link', { name: 'Get moil' })).toHaveAttribute(
       'href',
       api.state.machines.app_url
     );
-    await expect(page.getByLabel('Or paste this address into the moil app')).toHaveValue(
+    await expect(page.getByLabel('Paste this address into its moil app')).toHaveValue(
       'https://klisi.example.com/moil'
     );
   });
@@ -389,8 +386,8 @@ test.describe('your machines', () => {
     api.state.pairings[code] = pairingInfo;
 
     await page.goto('/machines');
-    await page.getByLabel('Have a pairing code?').fill(' wdjb-mjht ');
-    await page.getByLabel('Have a pairing code?').press('Enter');
+    await page.getByLabel('Enter the code it shows').fill(' wdjb-mjht ');
+    await page.getByLabel('Enter the code it shows').press('Enter');
 
     await expect(page).toHaveURL(/\/machines\?code=wdjb-mjht$/);
     await expect(page.getByRole('heading', { name: 'Pair this machine?' })).toBeFocused();
@@ -429,7 +426,7 @@ test.describe('your machines', () => {
     await expect(page.locator('[data-machine-id="m-keep"]')).toBeVisible();
     // The button that had focus is gone: focus goes to the list, and the
     // change is read out.
-    await expect(page.getByRole('heading', { name: 'Your machines' })).toBeFocused();
+    await expect(page.getByRole('heading', { name: 'Machines', exact: true })).toBeFocused();
     await expect(page.getByRole('status').filter({ hasText: 'Unpaired' })).toHaveText(
       'Unpaired Leaver.'
     );
@@ -618,17 +615,19 @@ test.describe('transcripts in the recordings list', () => {
 
     await expect(cell(page, 'none')).toBeEmpty();
     await expect(note(page, 'none')).toHaveCount(0);
+    // A completed recording is the usual case: it shows no status of its own.
+    await expect(row(page, 'none')).not.toContainText(/completed/i);
     await expect(
       cell(page, 'available').getByRole('button', { name: /^Transcribe the recording from / })
     ).toBeVisible();
 
-    await expect(cell(page, 'waiting')).toContainText('waiting');
+    // Each status names the transcript, so it can't be read as the recording's.
+    await expect(cell(page, 'waiting')).toContainText('Transcript queued');
     await expect(note(page, 'waiting')).toHaveText(
       'No paired machine has approved the transcriber yet. Approve it in the moil app.'
     );
 
-    await expect(cell(page, 'running')).toContainText('transcribing');
-    await expect(cell(page, 'running')).toContainText('42%');
+    await expect(cell(page, 'running')).toContainText('Transcribing 42%');
     await expect(note(page, 'running')).toHaveText('Finding speakers');
 
     await expect(cell(page, 'completed')).toContainText('12 speakers');
@@ -639,7 +638,7 @@ test.describe('transcripts in the recordings list', () => {
       cell(page, 'completed').getByRole('link', { name: /^Download captions of the recording/ })
     ).toHaveAttribute('href', `${at(RecordingTranscriptPath, 'completed')}/download?format=vtt`);
 
-    await expect(cell(page, 'failed')).toContainText('failed');
+    await expect(cell(page, 'failed')).toContainText('Transcript failed');
     await expect(note(page, 'failed')).toHaveText(setupError);
     await expect(cell(page, 'failed').getByRole('button', { name: /^Retry/ })).toBeVisible();
 
@@ -691,7 +690,7 @@ test.describe('transcripts in the recordings list', () => {
     await expect(note(page, 'rec-1')).toHaveText(offlineMessage);
     // The button is gone; focus stays on its cell, and the change is read out.
     await expect(cell(page, 'rec-1')).toBeFocused();
-    await expect(live(page, 'rec-1')).toHaveText(/^Transcript waiting: recording from /);
+    await expect(live(page, 'rec-1')).toHaveText(/^Transcript queued: recording from /);
     const posts = api.calls.filter((call) => call.path === at(RecordingTranscriptPath, 'rec-1'));
     expect(posts).toHaveLength(1);
     expect(posts[0]).toMatchObject({ method: 'POST', csrf: '1' });

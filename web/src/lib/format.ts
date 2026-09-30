@@ -54,9 +54,14 @@ export function sizeLabel(bytes?: number | null): string {
 
 const systemNames: Record<string, string> = { macos: 'macOS', linux: 'Linux', windows: 'Windows' };
 
+/** A machine's OS by its usual name, e.g. "macOS". */
+export function osLabel(os: string): string {
+  return systemNames[os] ?? os;
+}
+
 /** A machine's OS and architecture as moil reports them, e.g. "macOS · aarch64". */
 export function systemLabel(os: string, arch: string): string {
-  return [systemNames[os] ?? os, arch].filter(Boolean).join(' · ');
+  return [osLabel(os), arch].filter(Boolean).join(' · ');
 }
 
 /** The first 12 hex characters of a bundle hash — what the moil app shows. */

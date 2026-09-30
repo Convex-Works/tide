@@ -41,7 +41,6 @@
 <aside class="chat-panel" aria-label="Chat">
   <header>
     <h2>Chat</h2>
-    <span class="mono">{rtc.chat.length}</span>
   </header>
 
   <div class="messages" bind:this={messageList} aria-live="polite">
@@ -50,7 +49,7 @@
     {:else}
       {#each rtc.chat as message, index (`${message.ts}-${index}`)}
         <article class:mine={message.mine} title={new Date(message.ts).toLocaleString()}>
-          <div class="name mono">{message.mine ? 'You' : message.from}</div>
+          <div class="name">{message.mine ? 'You' : message.from}</div>
           <p>{message.text}</p>
         </article>
       {/each}
@@ -112,12 +111,10 @@
     font-weight: 550;
   }
 
-  header span,
   .empty {
     color: var(--text-2);
   }
 
-  header span,
   .name {
     font-size: 11px;
   }
