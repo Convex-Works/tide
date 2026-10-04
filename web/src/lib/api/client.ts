@@ -113,9 +113,8 @@ export function me(): Promise<Me> {
   return requestJSON<Me>(MePath);
 }
 
-export function createRoom(name: string): Promise<RoomInfo> {
-  const body: CreateRoomRequest = { name };
-  return requestJSON<RoomInfo>(RoomsPath, jsonRequest('POST', body));
+export function createRoom(request: CreateRoomRequest): Promise<RoomInfo> {
+  return requestJSON<RoomInfo>(RoomsPath, jsonRequest('POST', request));
 }
 
 export function listRooms(): Promise<RoomInfo[]> {
