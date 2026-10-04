@@ -57,6 +57,10 @@ type Config struct {
 	// PairRateLimit bounds machines starting a moil pairing, the one moil
 	// endpoint that takes no credentials.
 	PairRateLimit int
+	// Transcripts turns on transcripts and machine pairing through moil
+	// (KLISI_TRANSCRIPTS, ARCHITECTURE.md §8.1). Off by default: moil is
+	// alpha, so an operator opts in.
+	Transcripts bool
 }
 
 // Public per-IP defaults, over a one-minute window.
@@ -108,6 +112,7 @@ func Load() (Config, error) {
 		WaitRateLimit:     envPositiveInt("KLISI_WAIT_RATE_LIMIT", DefaultWaitRateLimit),
 		LoginRateLimit:    envPositiveInt("KLISI_LOGIN_RATE_LIMIT", DefaultLoginRateLimit),
 		PairRateLimit:     envPositiveInt("KLISI_PAIR_RATE_LIMIT", DefaultPairRateLimit),
+		Transcripts:       envBool("KLISI_TRANSCRIPTS", false),
 	}
 	trusted, err := parseTrustedProxies(env("KLISI_TRUSTED_PROXIES", ""))
 	if err != nil {

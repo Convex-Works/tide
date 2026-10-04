@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 
+	"git.convex.works/ConvexWorks/moil/sdk/go/moil"
+
 	klisi "klisi"
 	"klisi/internal/config"
 	"klisi/internal/httpapi"
@@ -55,9 +57,17 @@ func run(ctx context.Context, cfg config.Config) error {
 			log.Printf("close database: %v", err)
 		}
 	}()
-	transcribe, err := transcripts.Bundle()
-	if err != nil {
-		return fmt.Errorf("load the transcribe bundle: %w", err)
+	// Transcripts are off unless the operator turns them on
+	// (ARCHITECTURE.md §8.1); only then does klisi need the bundle.
+	var transcribe *moil.Bundle
+	if cfg.Transcripts {
+		log.Print("klisi: transcripts are on: machines can pair through moil at /moil")
+		transcribe, err = transcripts.Bundle()
+		if err != nil {
+			return fmt.Errorf("load the transcribe bundle: %w", err)
+		}
+	} else {
+		log.Print("klisi: transcripts are off (set KLISI_TRANSCRIPTS=true to turn them on)")
 	}
 	apiHandler, background, err := httpapi.New(cfg, klisi.WebFS(), db, transcribe)
 	if err != nil {

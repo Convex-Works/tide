@@ -138,6 +138,7 @@ secret values and refuses weak or shipped development secrets.
 | `KLISI_WAIT_RATE_LIMIT`     | `20`                               | Lobby wait streams per client IP per minute.                                                                                                                                      |
 | `KLISI_LOGIN_RATE_LIMIT`    | `10`                               | Sign-in redirects per client IP per minute.                                                                                                                                       |
 | `KLISI_PAIR_RATE_LIMIT`     | `10`                               | Machines starting a moil pairing (`POST /moil/v1/pair`, which takes no credentials) per client IP per minute.                                                                     |
+| `KLISI_TRANSCRIPTS`         | `false`                            | Turns on transcripts and machine pairing through moil (see [Serve transcripts](#serve-transcripts)). moil is alpha, so leave it off unless you mean to run it. Read with `strconv.ParseBool`; anything else means off. |
 
 Rate limits count an IPv6 client by its /64, the network one subscriber gets,
 and an IPv4 client by its address; both come from `X-Forwarded-For` only
@@ -241,9 +242,15 @@ MP4 object directly to the bucket.
 
 ## Serve transcripts
 
+Transcripts are off unless `KLISI_TRANSCRIPTS=true`. Off, klisi serves no
+`/moil/` routes and no machine, pairing or transcript API, and the app hides
+`/machines` and every transcript control; machines and transcripts already
+recorded stay in the database for when it is turned back on, and deleting a
+recording still removes its transcript files.
+
 Transcripts need nothing deployed: they run on computers hosts pair through the
 moil app (Architecture §8.1). klisi serves the machines' side of moil on its
-own origin, under `/moil/`. Three things must hold:
+own origin, under `/moil/`. With transcripts on, these must hold:
 
 - The klisi ingress passes WebSocket upgrades on `/moil/v1/connect`, as it
   already does for any HTTP/1.1 upgrade. Each machine keeps one connection open

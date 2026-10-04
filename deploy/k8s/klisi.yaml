@@ -106,6 +106,8 @@ spec:
               value: "" # OVERLAY: Set ingress proxy IPs or CIDRs, comma-separated, if forwarded client IPs are needed.
             - name: KLISI_DEV_MODE
               value: "false"
+            - name: KLISI_TRANSCRIPTS
+              value: "false" # OVERLAY: Set "true" to run transcripts through moil (alpha); see docs/DEPLOYMENT.md.
           resources:
             requests:
               cpu: 100m

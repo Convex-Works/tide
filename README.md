@@ -103,8 +103,10 @@ the app first. A machine's first transcript downloads 2.9 GB of models, and
 transcribing uses up to 10 GB of memory. On an M3 Max an hour of meeting takes
 about a minute and a half on the GPU, or four minutes on the CPU.
 
-To try it in development, open `/machines` and choose **Add a machine**, or
-pair from a terminal with the moil CLI:
+Transcripts are off unless the server runs with `KLISI_TRANSCRIPTS=true`
+([docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#serve-transcripts)): moil is alpha.
+`make dev` turns them on. To try them in development, open `/machines` and
+choose **Add a machine**, or pair from a terminal with the moil CLI:
 
 ```sh
 moil pair http://localhost:5173/moil   # confirm the code on the page it opens
