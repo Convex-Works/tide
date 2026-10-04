@@ -105,7 +105,7 @@ export function recording(
 export function defaultState(): ApiState {
   return {
     signedIn: true,
-    me: { sub: 'host', email: 'host@klisi.dev', name: 'Ada Host' },
+    me: { sub: 'host', email: 'host@klisi.dev', name: 'Ada Host', transcripts: true },
     rooms: [
       {
         id: 'r-standup',
