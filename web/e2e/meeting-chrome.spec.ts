@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Locator, type Page } from '@playwright/test';
 import { defaultState, mockApi, type ApiState } from './mock-api';
 import { fakeSfu, fakeSfuLaunchArgs } from './fake-sfu';
 
@@ -14,6 +14,8 @@ test.use({
 });
 
 const roomName = 'Weekly product sync';
+
+type Box = { x: number; y: number; width: number; height: number };
 
 function state(overrides: { signedIn?: boolean; name?: string; lobby?: boolean } = {}): ApiState {
   const base = defaultState();
@@ -174,8 +176,44 @@ test('the stage names the room, and its details give the meeting link to copy', 
   await expect(cluster.getByTestId('recording-chip')).toBeVisible();
 });
 
-test('on a phone the cluster ellipsizes a long name and clears the panels', async ({ page }) => {
-  await page.setViewportSize({ width: 320, height: 640 });
+const phone = { width: 320, height: 640 };
+
+/** Fails unless the element is drawn wholly inside the viewport, `slack` px in from the sides. */
+async function expectInside(locator: Locator, slack = 0): Promise<void> {
+  await expect(locator).toBeVisible();
+  const box = await locator.boundingBox();
+  expect(box, `${locator} has a box`).not.toBeNull();
+  const { x, y, width, height } = box!;
+  const where = `${locator} at x ${x}..${x + width}, y ${y}..${y + height}`;
+  expect(x >= slack && x + width <= phone.width - slack, where).toBe(true);
+  expect(y >= 0 && y + height <= phone.height, where).toBe(true);
+}
+
+function overlaps(a: Box, b: Box): boolean {
+  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+}
+
+/**
+ * Puts the stage in the states that crowd its header: the browser refusing
+ * audio until a gesture, and the connection dropping.
+ */
+async function blockPlaybackAndReconnect(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    type TestRoom = {
+      canPlaybackAudio: boolean;
+      startAudio: () => Promise<void>;
+      emit: (event: string, ...args: unknown[]) => boolean;
+    };
+    const room = (window as Window & { __klisiRoom?: TestRoom }).__klisiRoom!;
+    Object.defineProperty(room, 'canPlaybackAudio', { configurable: true, get: () => false });
+    room.startAudio = () => Promise.reject(new Error('Playback needs a gesture.'));
+    room.emit('audioPlaybackChanged', false);
+    room.emit('connectionStateChanged', 'reconnecting');
+  });
+}
+
+test('on a phone the header keeps every chip on screen and clears the panels', async ({ page }) => {
+  await page.setViewportSize(phone);
   await mockApi(
     page,
     state({ name: 'Quarterly planning for the platform team and everyone who joins late' })
@@ -187,20 +225,78 @@ test('on a phone the cluster ellipsizes a long name and clears the panels', asyn
 
   const name = page.getByTestId('stage-cluster').getByRole('heading');
   expect(await name.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
-  for (const part of [
+  // The whole host bar fits, with room to spare.
+  const bar = page.getByRole('navigation', { name: 'Meeting controls' });
+  await expectInside(bar, 8);
+
+  // All at once: REC, the autoplay unlock and the connection state.
+  await blockPlaybackAndReconnect(page);
+  const unlock = page.getByTestId('playback-blocked');
+  const connection = page.locator('.stage-header').getByRole('status');
+  await expect(unlock).toHaveText('Tap to hear audio');
+  await expect(connection).toHaveText('Reconnecting…');
+  const parts = [
     page.getByTestId('stage-clock'),
     page.getByRole('button', { name: 'Meeting details' }),
-    page.getByTestId('recording-chip')
-  ]) {
-    const box = await part.boundingBox();
-    expect(box && box.x >= 0 && box.x + box.width <= 320).toBe(true);
+    page.getByTestId('recording-chip'),
+    unlock,
+    connection
+  ];
+  for (const part of parts) await expectInside(part);
+  // The unlock is an instruction; it takes a second row rather than an ellipsis.
+  expect(await unlock.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  const boxes = await Promise.all(parts.map(async (part) => (await part.boundingBox())!));
+  for (const [i, a] of boxes.entries()) {
+    for (const b of boxes.slice(i + 1)) expect(overlaps(a, b)).toBe(false);
   }
+  // The header grew rather than spilling, and nothing in it reaches the media.
+  const header = (await page.locator('.stage-header').boundingBox())!;
+  const media = (await page.getByRole('region', { name: 'Meeting participants' }).boundingBox())!;
+  expect(header.y + header.height).toBeLessThanOrEqual(media.y);
 
-  // The whole host bar fits, and an open panel starts below the cluster.
-  const bar = await page.getByRole('navigation', { name: 'Meeting controls' }).boundingBox();
-  expect(bar && bar.x >= 0 && bar.x + bar.width <= 320).toBe(true);
+  // An open panel starts below the whole header, second row included.
   await page.getByRole('button', { name: 'Open people' }).click();
-  const panel = await page.getByRole('complementary', { name: 'People' }).boundingBox();
-  const cluster = await page.getByTestId('stage-cluster').boundingBox();
-  expect(panel && cluster && panel.y >= cluster.y + cluster.height).toBe(true);
+  const panel = (await page.getByRole('complementary', { name: 'People' }).boundingBox())!;
+  for (const box of boxes) expect(panel.y).toBeGreaterThanOrEqual(box.y + box.height);
+});
+
+test('on a phone the confirm steps and device menus open on screen', async ({ page }) => {
+  await page.setViewportSize(phone);
+  await mockApi(page, state());
+  await fakeSfu(page);
+  await enter(page);
+  const bar = page.getByRole('navigation', { name: 'Meeting controls' });
+
+  // Record? opens its choice above the bar, with a confirm of its own.
+  await page.getByRole('button', { name: 'Start recording' }).click();
+  await expectInside(page.getByRole('button', { name: 'Record?' }), 8);
+  const recordNow = page.getByRole('button', { name: 'Record', exact: true });
+  const withVideo = page.getByLabel('Also record video');
+  await expectInside(recordNow);
+  await expectInside(withVideo);
+  await expectInside(bar, 8);
+  await page.keyboard.press('Escape');
+  await expect(withVideo).toBeHidden();
+
+  await page.getByRole('button', { name: 'Start recording' }).click();
+  await withVideo.check();
+  const [start] = await Promise.all([
+    page.waitForRequest((request) => request.url().endsWith('/api/rooms/standup/recording/start')),
+    recordNow.click()
+  ]);
+  expect(start.postDataJSON()).toEqual({ video: true });
+  await expect(withVideo).toBeHidden();
+
+  await page.getByRole('button', { name: 'Leave or end meeting' }).click();
+  await expectInside(page.getByRole('button', { name: 'Leave room' }));
+  await expectInside(page.getByRole('button', { name: 'End meeting for all' }));
+  await expectInside(bar, 8);
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'End meeting for all' })).toBeHidden();
+
+  for (const kind of ['microphone', 'camera']) {
+    await page.getByRole('button', { name: `Choose ${kind}` }).click();
+    await expectInside(page.getByRole('menu', { name: `Choose ${kind}` }));
+    await page.keyboard.press('Escape');
+  }
 });

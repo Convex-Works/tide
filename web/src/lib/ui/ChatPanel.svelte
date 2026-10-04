@@ -75,7 +75,8 @@
   .chat-panel {
     position: fixed;
     z-index: 15;
-    top: 50px;
+    /* Below the stage header, which RoomStage measures. */
+    top: var(--stage-panel-top, 50px);
     right: 12px;
     bottom: 78px;
     display: grid;
