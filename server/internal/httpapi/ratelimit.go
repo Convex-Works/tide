@@ -111,6 +111,22 @@ func withRateLimit(limiter *rateLimiter, ips *clientIPResolver, next http.Handle
 	})
 }
 
+// withGuestRateLimit limits requests without a session per client address,
+// and lets signed-in hosts through: a host's own dashboard and meeting pages
+// are not what the limit guards against. It is for routes that answer
+// anyone, such as the room lookup, whose 404s would otherwise let a client
+// test slugs as fast as it can ask (ARCHITECTURE.md §15).
+func withGuestRateLimit(limiter *rateLimiter, ips *clientIPResolver, next http.Handler) http.Handler {
+	guests := withRateLimit(limiter, ips, next)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := auth.SessionFromContext(r.Context()); ok {
+			next.ServeHTTP(w, r)
+			return
+		}
+		guests.ServeHTTP(w, r)
+	})
+}
+
 // withMoilRateLimit limits a moil endpoint. Machines read errors in moil's
 // own format (see writeMoilError) and show the message to their owner. The
 // code is the one the SDK refuses a pairing with when it has too many.
