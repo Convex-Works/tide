@@ -63,7 +63,7 @@
     creating = true;
     error = '';
     try {
-      const room = await createRoom(name);
+      const room = await createRoom({ name });
       rooms = [room, ...rooms];
       roomName = '';
     } catch (cause) {

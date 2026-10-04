@@ -15,25 +15,55 @@ const (
 
 var customSlugPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
-// GenerateSlug returns a standards-shaped random UUID v4. Default room links
-// are intentionally opaque; owners can replace them with a memorable custom
-// slug from room settings.
+// slugLetters is the alphabet of default slugs.
+const slugLetters = "abcdefghijklmnopqrstuvwxyz"
+
+// slugByteLimit is the largest multiple of 26 a byte can hold. A byte below
+// it, taken mod 26, gives each letter equally often; a byte at or above it
+// would favor the first letters, so it is drawn again.
+const slugByteLimit = 256 / len(slugLetters) * len(slugLetters) // 234
+
+// slugGroups are the lengths of a default slug's hyphenated groups: ten
+// letters, abc-defg-hij, log2(26^10) ≈ 47 bits.
+var slugGroups = [...]int{3, 4, 3}
+
+// slugLength is how many letters a default slug has.
+const slugLength = 10
+
+// GenerateSlug returns a default room slug: ten letters a–z drawn uniformly
+// from crypto/rand, grouped 3-4-3 (abc-defg-hij), short enough to read
+// aloud and, behind the join rate limit, too many to guess at
+// (ARCHITECTURE.md §5). Owners can replace it with a slug of their own.
 func GenerateSlug() (string, error) {
 	return generateSlug(rand.Reader)
 }
 
-func generateSlug(reader io.Reader) (string, error) {
-	var value [16]byte
-	if _, err := io.ReadFull(reader, value[:]); err != nil {
-		return "", err
+// generateSlug draws a default slug from random, by rejection sampling:
+// each letter is a byte below slugByteLimit, mod 26. It reads only as many
+// bytes as it still needs letters, so it never reads more than it uses.
+func generateSlug(random io.Reader) (string, error) {
+	var buffer [slugLength]byte
+	letters := make([]byte, 0, slugLength)
+	for len(letters) < slugLength {
+		draw := buffer[:slugLength-len(letters)]
+		if _, err := io.ReadFull(random, draw); err != nil {
+			return "", fmt.Errorf("draw a room slug: %w", err)
+		}
+		for _, b := range draw {
+			if int(b) < slugByteLimit {
+				letters = append(letters, slugLetters[int(b)%len(slugLetters)])
+			}
+		}
 	}
-	// RFC 9562 UUID version and variant bits.
-	value[6] = (value[6] & 0x0f) | 0x40
-	value[8] = (value[8] & 0x3f) | 0x80
-	return fmt.Sprintf(
-		"%08x-%04x-%04x-%04x-%012x",
-		value[0:4], value[4:6], value[6:8], value[8:10], value[10:16],
-	), nil
+	var slug strings.Builder
+	for group, length := range slugGroups {
+		if group > 0 {
+			slug.WriteByte('-')
+		}
+		slug.Write(letters[:length])
+		letters = letters[length:]
+	}
+	return slug.String(), nil
 }
 
 func normalizeSlug(value string) string {
