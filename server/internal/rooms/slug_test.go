@@ -124,8 +124,10 @@ func TestGenerateSlugDistribution(t *testing.T) {
 			counts[position][letter-'a']++
 		}
 	}
-	// Chi-squared with 25 degrees of freedom: the 99.99th percentile is
-	// about 64.2, so a fair generator fails one position in 10,000 runs.
+	// Chi-squared with 25 degrees of freedom: 64.2 is about the 99.997th
+	// percentile (a fair position exceeds it with probability 2.7e-5), so
+	// with ten positions checked a fair generator fails about 3 runs in
+	// 10,000.
 	expected := float64(draws) / 26
 	for position, letters := range counts {
 		var chi2 float64
