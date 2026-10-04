@@ -81,7 +81,7 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 	ips := newClientIPResolver(cfg.TrustedProxies)
 	joinRate := orDefault(cfg.JoinRateLimit, config.DefaultJoinRateLimit)
 	joinLimiter := newRateLimiter(joinRate, time.Minute)
-	// Guests looking up a room get their own bucket of the join limit's
+	// Room lookups get their own bucket of the join limit's
 	// size: a guest's meeting page looks the room up once and joins once,
 	// so the two never compete, and a deployment that raises the join limit
 	// (the media gate does) raises this one with it. It keeps a client from
@@ -145,7 +145,7 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 
 	mux.Handle("POST "+api.RoomsPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.rooms.Create))))
 	mux.Handle("GET "+api.RoomsPath, handler.requireAuth(http.HandlerFunc(handler.rooms.List)))
-	mux.Handle("GET "+api.RoomPath, withGuestRateLimit(lookupLimiter, ips, http.HandlerFunc(handler.rooms.Public)))
+	mux.Handle("GET "+api.RoomPath, withLookupRateLimit(lookupLimiter, ips, http.HandlerFunc(handler.rooms.Public)))
 	mux.Handle("PATCH "+api.RoomPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.rooms.Update))))
 	mux.Handle("DELETE "+api.RoomPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.rooms.Delete))))
 	mux.Handle("POST "+api.KickPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.moderation.Kick))))

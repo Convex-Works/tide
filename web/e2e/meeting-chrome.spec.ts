@@ -278,6 +278,20 @@ test('on a phone the confirm steps and device menus open on screen', async ({ pa
   await page.keyboard.press('Escape');
   await expect(withVideo).toBeHidden();
 
+  // They all open in the same place, so opening one closes the others.
+  await page.getByRole('button', { name: 'Start recording' }).click();
+  await expect(withVideo).toBeVisible();
+  await page.getByRole('button', { name: 'Choose microphone' }).click();
+  await expect(page.getByRole('menu', { name: 'Choose microphone' })).toBeVisible();
+  await expect(withVideo).toBeHidden();
+  await page.getByRole('button', { name: 'Leave or end meeting' }).click();
+  await expect(page.getByRole('button', { name: 'End meeting for all' })).toBeVisible();
+  await expect(page.getByRole('menu', { name: 'Choose microphone' })).toBeHidden();
+  await page.getByRole('button', { name: 'Start recording' }).click();
+  await expect(withVideo).toBeVisible();
+  await expect(page.getByRole('button', { name: 'End meeting for all' })).toBeHidden();
+  await page.keyboard.press('Escape');
+
   await page.getByRole('button', { name: 'Start recording' }).click();
   await withVideo.check();
   const [start] = await Promise.all([

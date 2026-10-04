@@ -143,7 +143,7 @@ display name travels in the token's `name` field.
   room is idle. Rooms created before readable slugs keep their UUID slugs.
 - **Default slugs are readable and random**: ten letters `a–z` drawn uniformly
   from `crypto/rand`, grouped 3-4-3 (`abc-defg-hij`), ~47 bits. That is
-  enough to be unguessable behind the per-client limits on guests' room
+  enough to be unguessable behind the per-client limits on room
   lookups and joins (§15) and short enough to read aloud.
 - **Creating a room** (`POST /api/rooms`) takes an optional name and an
   optional slug. A missing or blank name becomes the room's slug. A missing
@@ -638,8 +638,7 @@ on.
 
 The four rate limits are per-client ceilings over a one-minute window, an IPv6
 client counting by its /64. `KLISI_JOIN_RATE_LIMIT` also sizes the separate
-bucket for guests' room lookups (§15), which a meeting page uses once per
-load. They are configuration because the right value
+bucket for room lookups (§15), which a meeting page uses once per load. They are configuration because the right value
 depends on the deployment: a public install wants the defaults, while the media
 gate — where every browser shares one container IP — would throttle itself
 without raising them. A value that is missing, zero, negative or unparseable
@@ -752,9 +751,11 @@ up between runs for iteration.
   recording endpoint; tokens minted only after policy passes.
 - LiveKit webhook requests are verified against the API key/secret signature.
 - Session cookies: HttpOnly, Secure, SameSite=Lax, HMAC-signed, short expiry.
-- Per-IP token buckets limit guest joins (10/min), guests' room lookups
-  (`GET /api/rooms/:slug` without a session, 10/min in a bucket of their own
-  sized by the join limit; signed-in hosts aren't limited), lobby wait
+- Per-IP token buckets limit joins (10/min, guests and hosts alike), room
+  lookups (`GET /api/rooms/:slug`, found or not, 10/min in a bucket of their
+  own sized by the join limit: per client address for guests, per `sub` for
+  signed-in hosts, so a NAT shared with guests doesn't refuse a host and an
+  account from a broad issuer can't test slugs unlimited either), lobby wait
   streams (20/min),
   login redirects (10/min) and machines starting a pairing (10/min,
   `POST /moil/v1/pair`, the one moil endpoint without credentials that creates
@@ -762,7 +763,7 @@ up between runs for iteration.
   preflight; anything else is refused before it counts); stale buckets are
   cleaned in memory. IPv6 clients are counted by their /64.
 - A default room slug carries ~47 bits from `crypto/rand` (§5). With
-  guests' lookups and joins limited per client, found or not, guessing a
+  lookups and joins limited per client and per host, guessing a
   live room's link is not a practical
   attack, and the lobby (on by default) still stands between a guesser and
   the meeting. Owners who want more can set a longer slug.
@@ -857,6 +858,6 @@ a clean machine.
 | Transcripts | moil jobs on the room owner's own machine | No model or GPU on the server, no fifth process, no new reader of the audio |
 | Transcript trigger | Automatic once the owner has paired a machine; otherwise on request | Pairing is the opt-in; no per-recording button for hosts who use it |
 | Transcripts switch | `KLISI_TRANSCRIPTS`, default off | moil is alpha; klisi ships publicly without asking operators to run it |
-| Default slugs | Readable random (`abc-defg-hij`), ~47 bits | Short enough to read aloud; unguessable behind the guest lookup and join limits; UUIDs made ugly links |
+| Default slugs | Readable random (`abc-defg-hij`), ~47 bits | Short enough to read aloud; unguessable behind the lookup and join limits; UUIDs made ugly links |
 | Calendar invites | `.ics` built in the browser, nothing stored | Covers "send people a time" without a scheduling model; server-side scheduling stays a later decision |
 | moil SDK | Vendored in `server/third_party/moil` | The forge sits behind Cloudflare Access, so Go can't fetch it in CI or Docker; same precedent as `web/vendor` |

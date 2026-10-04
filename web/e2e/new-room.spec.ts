@@ -385,3 +385,23 @@ test('Create & join with times downloads the invite and opens the meeting', asyn
   expect(lines).toContain('DTEND:20261005T080000Z');
   await page.waitForURL('**/m/kickoff');
 });
+
+test('a create the server never answers ends on its own, and the dialog can close', async ({
+  page
+}) => {
+  await page.clock.install();
+  const api = await mockApi(page);
+  await page.route(
+    (url) => url.pathname === RoomsPath,
+    (route) =>
+      route.request().method() === 'POST' ? new Promise<void>(() => {}) : route.fallback()
+  );
+  const { dialog, create } = await openDialog(page, api);
+  await create.click();
+  await expect(create).toBeDisabled();
+  await page.clock.fastForward(15_000);
+  await expect(dialog.getByText('The server took too long to answer.')).toBeVisible();
+  await expect(create).toBeEnabled();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+});

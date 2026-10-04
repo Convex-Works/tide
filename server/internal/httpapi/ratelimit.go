@@ -111,19 +111,24 @@ func withRateLimit(limiter *rateLimiter, ips *clientIPResolver, next http.Handle
 	})
 }
 
-// withGuestRateLimit limits requests without a session per client address,
-// and lets signed-in hosts through: a host's own dashboard and meeting pages
-// are not what the limit guards against. It is for routes that answer
-// anyone, such as the room lookup, whose 404s would otherwise let a client
-// test slugs as fast as it can ask (ARCHITECTURE.md §15).
-func withGuestRateLimit(limiter *rateLimiter, ips *clientIPResolver, next http.Handler) http.Handler {
-	guests := withRateLimit(limiter, ips, next)
+// withLookupRateLimit limits a route that answers anyone, such as the room
+// lookup, whose 404s would otherwise let a client test slugs as fast as it
+// can ask (ARCHITECTURE.md §15). A guest is counted by client address; a
+// signed-in host by their sub, in a bucket of their own, so colleagues behind
+// one NAT don't share it and an account from a broad issuer can't test slugs
+// without a limit either.
+func withLookupRateLimit(limiter *rateLimiter, ips *clientIPResolver, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := auth.SessionFromContext(r.Context()); ok {
-			next.ServeHTTP(w, r)
+		key := ips.key(r)
+		if session, ok := auth.SessionFromContext(r.Context()); ok {
+			key = "host:" + session.Sub
+		}
+		if !limiter.allow(key) {
+			w.Header().Set("Cache-Control", "no-store")
+			httpx.WriteError(w, http.StatusTooManyRequests, "Too many requests. Try again later.")
 			return
 		}
-		guests.ServeHTTP(w, r)
+		next.ServeHTTP(w, r)
 	})
 }
 

@@ -62,7 +62,19 @@
       return;
     }
     await rtc.refreshDevices().catch(() => undefined);
+    // On a phone every menu and confirm step opens in the same place above
+    // the bar, so opening one closes the others.
+    recordingConfirm = false;
+    leaveConfirm = false;
     deviceMenu = kind;
+  }
+
+  function toggleLeave(): void {
+    leaveConfirm = !leaveConfirm;
+    if (leaveConfirm) {
+      deviceMenu = '';
+      recordingConfirm = false;
+    }
   }
 
   function pickDevice(kind: DeviceMenuKind, deviceId: string): void {
@@ -88,6 +100,9 @@
     if (!rtc.isRecording && !recordingConfirm) {
       recordingConfirm = true;
       recordVideo = false;
+      recordingError = '';
+      deviceMenu = '';
+      leaveConfirm = false;
       return;
     }
     recordingBusy = true;
@@ -339,7 +354,7 @@
   <span class="separator" aria-hidden="true"></span>
 
   {#if recordingError || endError}
-    <span class="recording-error" class:raised={leaveConfirm} role="alert"
+    <span class="recording-error" class:raised={leaveConfirm || recordingConfirm} role="alert"
       >{recordingError || endError}</span
     >
   {/if}
@@ -359,7 +374,7 @@
         aria-label="Leave or end meeting"
         aria-expanded={leaveConfirm}
         title="Leave"
-        onclick={() => (leaveConfirm = !leaveConfirm)}
+        onclick={toggleLeave}
       >
         <PhoneDisconnect size={16} weight="regular" aria-hidden="true" />
       </button>

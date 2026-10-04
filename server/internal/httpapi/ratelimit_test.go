@@ -19,7 +19,7 @@ import (
 // Guests may look rooms up as often as they may join; each lookup counts,
 // found or not, so that 404s can't be used to test slugs faster than that.
 // Signed-in hosts aren't limited.
-func TestRoomLookupLimitsGuestsPerAddress(t *testing.T) {
+func TestRoomLookupLimitsGuestsPerAddressAndHostsPerSub(t *testing.T) {
 	stopLimiterClock(t)
 	db, err := store.Open("file:lookup-limit?mode=memory&cache=shared")
 	if err != nil {
@@ -76,10 +76,19 @@ func TestRoomLookupLimitsGuestsPerAddress(t *testing.T) {
 	if response := lookup("192.0.2.2", "abc-defg-hij", nil); response.Code != http.StatusOK {
 		t.Fatalf("another address: status = %d %s", response.Code, response.Body.String())
 	}
-	for i := range 2 * limit {
+	// A signed-in host has a bucket of their own, keyed by sub: the guests'
+	// limited address doesn't refuse them, but they have a limit too.
+	for i := range limit {
 		if response := lookup("192.0.2.1", "abc-defg-hij", owner); response.Code != http.StatusOK {
 			t.Fatalf("owner lookup %d from a limited address: status = %d %s", i+1, response.Code, response.Body.String())
 		}
+	}
+	if response := lookup("192.0.2.9", "zzz-zzzz-zzz", owner); response.Code != http.StatusTooManyRequests {
+		t.Fatalf("owner lookup over the limit, from another address: status = %d %s", response.Code, response.Body.String())
+	}
+	other := makeSessionCookie(t, cfg, auth.Session{Sub: "other", Email: "other@example.com", Name: "Other"})
+	if response := lookup("192.0.2.1", "abc-defg-hij", other); response.Code != http.StatusOK {
+		t.Fatalf("another host on the same address: status = %d %s", response.Code, response.Body.String())
 	}
 	// Joins have their own bucket: looking rooms up didn't use it.
 	join := httptest.NewRequest(http.MethodPost, "/api/rooms/abc-defg-hij/join", strings.NewReader(`{"name":"Guest"}`))
