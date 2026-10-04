@@ -16,6 +16,17 @@
   } = $props();
 
   const id = $props.id();
+  const errorId = `${id}-error`;
+
+  // Which fields the error is about: the missing ones, or both times when
+  // all are there and the end comes too early.
+  const dateMissing = $derived(!/^\d{4}-\d{2}-\d{2}$/.test(times.date));
+  const startMissing = $derived(!/^\d{2}:\d{2}$/.test(times.start));
+  const endMissing = $derived(!/^\d{2}:\d{2}$/.test(times.end));
+  const anyMissing = $derived(dateMissing || startMissing || endMissing);
+  const dateInvalid = $derived(Boolean(error) && dateMissing);
+  const startInvalid = $derived(Boolean(error) && (!anyMissing || startMissing));
+  const endInvalid = $derived(Boolean(error) && (!anyMissing || endMissing));
   const field =
     'h-7 w-full min-w-0 rounded-control border border-border bg-surface px-2 text-[12px] text-ink outline-none focus:border-accent aria-[invalid=true]:border-rec';
 </script>
@@ -29,6 +40,8 @@
       type="date"
       bind:value={times.date}
       required
+      aria-invalid={dateInvalid}
+      aria-describedby={dateInvalid ? errorId : undefined}
       data-autofocus={autofocus || undefined}
     />
   </label>
@@ -40,8 +53,8 @@
       type="time"
       bind:value={times.start}
       required
-      aria-invalid={Boolean(error)}
-      aria-describedby={error ? `${id}-error` : undefined}
+      aria-invalid={startInvalid}
+      aria-describedby={startInvalid ? errorId : undefined}
     />
   </label>
   <label class="grid gap-1" for={`${id}-end`}>
@@ -52,11 +65,11 @@
       type="time"
       bind:value={times.end}
       required
-      aria-invalid={Boolean(error)}
-      aria-describedby={error ? `${id}-error` : undefined}
+      aria-invalid={endInvalid}
+      aria-describedby={endInvalid ? errorId : undefined}
     />
   </label>
 </div>
 {#if error}
-  <p id={`${id}-error`} class="m-0 mt-1 text-[11px] text-rec">{error}</p>
+  <p id={errorId} class="m-0 mt-1 text-[11px] text-rec">{error}</p>
 {/if}
