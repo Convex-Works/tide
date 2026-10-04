@@ -250,10 +250,20 @@ reconciler, registers none of the machine, pairing, transcript or `/moil/`
 routes (they answer 404 like any unknown path), never fills
 `RecordingInfo.transcript`, and reports `transcripts: false` on `/api/me` so
 the SPA hides `/machines` and every transcript control. Nothing is deleted:
-the `machines` and `transcripts` rows stay as they are, so turning it back on
-resumes where it stopped. Deleting a recording or room while it is off still
-removes that recording's transcript files (`object_removals`, below), so no
-object outlives its recording. Everything below describes klisi with it on.
+the `machines` and `transcripts` rows stay as they are, and paired machines
+stay paired. Turning it back on does not pick up exactly where it stopped,
+because time kept passing and recordings kept ending:
+
+- A `pending` row's 14 days (below) count from its request, not from the
+  time transcripts were on, so a row older than that fails on the first pass
+  as having waited too long. A host can request it again.
+- The first pass creates `pending` rows for the recordings that completed
+  while it was off, when their room's owner had a machine paired by the time
+  each ended (step 1 below), so those owners' machines get that backlog.
+
+Deleting a recording or room while it is off still removes that recording's
+transcript files (`object_removals`, below), so no object outlives its
+recording. Everything below describes klisi with it on.
 
 **Machines.** A signed-in host pairs a computer running the moil app with
 moil's device flow (RFC 8628): the app shows a code and opens

@@ -248,6 +248,13 @@ Transcripts are off unless `KLISI_TRANSCRIPTS=true`. Off, klisi serves no
 recorded stay in the database for when it is turned back on, and deleting a
 recording still removes its transcript files.
 
+Turning transcripts back on after a while off is not a resume. A transcript
+waiting for a machine fails after 14 days counted from when it was requested,
+time off included, so the ones older than that fail at once; a host can
+request them again. And the recordings that completed while transcripts were
+off get transcripts queued on the first pass, when their room's owner had a
+machine paired by then, so those hosts' machines start on that backlog.
+
 Transcripts need nothing deployed: they run on computers hosts pair through the
 moil app (Architecture §8.1). klisi serves the machines' side of moil on its
 own origin, under `/moil/`. With transcripts on, these must hold:

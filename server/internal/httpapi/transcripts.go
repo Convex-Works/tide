@@ -33,7 +33,10 @@ import (
 // Recording.ObjectKeys names them), and the recording reconciler, which
 // always runs, removes every queued key when it is due, including the
 // transcripts-staging/ keys Prepare queued while transcripts were on. The
-// machines and transcripts rows stay, so turning it back on resumes.
+// machines and transcripts rows stay. Turning it back on is not a pause
+// ending (ARCHITECTURE.md §8.1): pending rows' 14 days count from their
+// request, so the old ones fail on the first pass, and that pass adds rows
+// for the recordings that completed while it was off.
 type transcriptsFeature struct {
 	moil     *moil.Server
 	service  *transcripts.Service
