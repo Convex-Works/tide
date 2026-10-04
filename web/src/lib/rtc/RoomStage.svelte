@@ -3,7 +3,9 @@
   import type { LobbyRequestInfo } from '$lib/api/types.gen';
   import ChatPanel from '$lib/ui/ChatPanel.svelte';
   import ControlBar from '$lib/ui/ControlBar.svelte';
+  import MeetingDetails from '$lib/ui/MeetingDetails.svelte';
   import ParticipantPanel from '$lib/ui/ParticipantPanel.svelte';
+  import WallClock from '$lib/ui/WallClock.svelte';
   import ParticipantTile from './ParticipantTile.svelte';
   import RemoteAudioRenderer from './RemoteAudioRenderer.svelte';
   import { ConnectionState } from 'livekit-client';
@@ -13,6 +15,7 @@
   let {
     rtc,
     roomSlug,
+    roomName,
     onleave,
     canManage = false,
     pending = [],
@@ -23,6 +26,8 @@
   }: {
     rtc: RoomState;
     roomSlug: string;
+    /** The room's human name; the slug only ever appears inside the meeting URL. */
+    roomName: string;
     onleave: () => void;
     canManage?: boolean;
     pending?: LobbyRequestInfo[];
@@ -40,6 +45,7 @@
     [ConnectionState.Disconnected]: 'Disconnected'
   };
 
+  const meetingURL = $derived(`${location.origin}/m/${encodeURIComponent(roomSlug)}`);
   let focusParticipant = $derived(rtc.participants.find((participant) => participant.screenShare));
   let view = $state<'grid' | 'speaker'>('grid');
   let lastSpeakerIdentity = $state<string>();
@@ -144,7 +150,11 @@
 
 <main class="stage">
   <header class="stage-header">
-    <div class="room-status">
+    <div class="room-status" data-testid="stage-cluster">
+      <WallClock />
+      <span class="divider" aria-hidden="true"></span>
+      <h1 class="room-name" title={roomName}>{roomName}</h1>
+      <MeetingDetails name={roomName} url={meetingURL} />
       {#if rtc.isRecording}<span class="rec-chip mono" data-testid="recording-chip">REC</span>{/if}
       <!-- Autoplay policy blocks playback until a gesture. Without this the
            participant gets silence and no explanation, and recovery depends on
@@ -265,16 +275,40 @@
     height: 28px;
     align-items: center;
     justify-content: space-between;
+    gap: 8px;
     margin-bottom: 8px;
   }
 
+  /* Clock | name (i) REC: the name is the only part that gives way. */
   .room-status {
     display: flex;
+    min-width: 0;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
+  }
+
+  .divider {
+    flex: none;
+    width: 1px;
+    height: 16px;
+    background: var(--border-d);
+  }
+
+  .room-name {
+    min-width: 0;
+    max-width: 40ch;
+    margin: 0 -4px 0 0;
+    overflow: hidden;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 450;
+    line-height: 20px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
 
   .rec-chip {
+    flex: none;
     padding: 1px 5px;
     color: white;
     font-size: 10px;
@@ -285,7 +319,9 @@
   }
 
   .playback-unlock {
+    flex: none;
     padding: 2px 8px;
+    white-space: nowrap;
     color: white;
     font-size: 12px;
     line-height: 20px;
@@ -300,8 +336,10 @@
   }
 
   .connection {
+    flex: none;
     color: var(--text-2);
     font-size: 12px;
+    white-space: nowrap;
   }
 
   .media-layout {

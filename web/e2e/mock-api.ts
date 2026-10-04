@@ -12,6 +12,9 @@ import {
   PairingPath,
   RecordingTranscriptDownloadPath,
   RecordingTranscriptPath,
+  RoomJoinPath,
+  RoomLobbyPath,
+  RoomPath,
   RoomRecordingsPath,
   RoomsPath,
   TranscriptCompleted,
@@ -21,7 +24,9 @@ import {
   type MachineInfo,
   type MachinesResponse,
   type Me,
+  type JoinResponse,
   type PairingInfo,
+  type PublicRoomInfo,
   type RecordingInfo,
   type RoomInfo,
   type TranscriptInfo
@@ -60,6 +65,18 @@ export interface MockApi {
 // tygo writes a Go pointer without omitempty as an optional field, but the
 // server sends null for it; this is that null, typed to fit.
 export const wireNull = null as unknown as undefined;
+
+/**
+ * Where the mock's join answers send livekit-client. Nothing listens there:
+ * a spec that goes past pre-join answers it with `fakeSfu` (fake-sfu.ts).
+ */
+export const fakeSfuURL = 'ws://sfu.klisi.test';
+
+/** A join token for the fake SFU: unsigned, it only carries who joined. */
+function fakeToken(identity: string, name: string): string {
+  const part = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url');
+  return `${part({ alg: 'none' })}.${part({ sub: identity, name })}.`;
+}
 
 export const now = Math.floor(Date.parse('2026-09-27T12:00:00Z') / 1000);
 
@@ -223,10 +240,49 @@ export async function mockApi(page: Page, state: ApiState = defaultState()): Pro
       route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
     const empty = (status: number) => route.fulfill({ status, body: '' });
 
-    if (!state.signedIn) return json(401, { error: 'Authentication required.' });
     const mutating = method !== 'GET';
     if (mutating && request.headers()['x-klisi-csrf'] !== '1') {
       return json(403, { error: 'Missing CSRF header.' });
+    }
+
+    // A meeting's public face answers signed-out guests too (lobby/handler.go).
+    // Every mock room belongs to the signed-in user.
+    const publicSlug = match(RoomPath, path);
+    if (method === 'GET' && publicSlug) {
+      const room = state.rooms.find((item) => item.slug === publicSlug[0]);
+      if (!room) return json(404, { error: 'Room not found.' });
+      const info: PublicRoomInfo = {
+        slug: room.slug,
+        name: room.name,
+        lobby_enabled: room.lobby_enabled,
+        can_manage: state.signedIn
+      };
+      return json(200, info);
+    }
+    const joinSlug = match(RoomJoinPath, path);
+    if (method === 'POST' && joinSlug) {
+      const room = state.rooms.find((item) => item.slug === joinSlug[0]);
+      if (!room) return json(404, { error: 'Room not found.' });
+      const name = String((request.postDataJSON() as { name?: unknown }).name ?? '').trim();
+      const admitted = (identity: string, who: string): JoinResponse => ({
+        status: 'admitted',
+        token: fakeToken(identity, who),
+        ws_url: fakeSfuURL
+      });
+      if (state.signedIn) return json(200, admitted(`host:${state.me.sub}:0001`, state.me.name));
+      if (!room.lobby_enabled) return json(200, admitted('guest:0001', name));
+      return json(200, { status: 'waiting', request_id: 'lr-0001' } satisfies JoinResponse);
+    }
+
+    if (!state.signedIn) return json(401, { error: 'Authentication required.' });
+
+    // The host's lobby stream, with nobody waiting.
+    if (method === 'GET' && match(RoomLobbyPath, path)) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: 'retry: 60000\nevent: pending\ndata: {"requests":[]}\n\n'
+      });
     }
 
     if (method === 'GET' && path === MePath) return json(200, state.me);

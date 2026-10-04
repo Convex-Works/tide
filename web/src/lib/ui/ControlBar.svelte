@@ -203,38 +203,6 @@
     {/if}
   </div>
 
-  {#if canManage}
-    <!-- The stopPropagation shield keeps the window click-away handler from
-         collapsing the confirm state; interaction lives on the controls. -->
-    <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
-    <div class="record-group" onclick={(event) => event.stopPropagation()}>
-      <button
-        type="button"
-        class="record-control"
-        class:recording={rtc.isRecording}
-        class:confirm={recordingConfirm}
-        disabled={recordingBusy}
-        aria-label={rtc.isRecording
-          ? 'Stop recording'
-          : recordingConfirm
-            ? 'Record?'
-            : 'Start recording'}
-        aria-pressed={rtc.isRecording}
-        title={rtc.isRecording ? 'Stop recording' : 'Start recording'}
-        onclick={() => void toggleRecording()}
-      >
-        <Record size={16} weight="regular" aria-hidden="true" />
-        {#if recordingConfirm}<span>Record?</span>{/if}
-      </button>
-      {#if recordingConfirm}
-        <label class="record-video">
-          <input type="checkbox" bind:checked={recordVideo} />
-          Also record video
-        </label>
-      {/if}
-    </div>
-  {/if}
-
   <div class="control-group">
     <button
       type="button"
@@ -280,6 +248,40 @@
   >
     <Screencast size={16} weight="regular" aria-hidden="true" />
   </button>
+
+  {#if canManage}
+    <!-- The stopPropagation shield keeps the window click-away handler from
+         collapsing the confirm state; interaction lives on the controls. -->
+    <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+    <div class="record-group" onclick={(event) => event.stopPropagation()}>
+      <button
+        type="button"
+        class="record-control"
+        class:recording={rtc.isRecording}
+        class:confirm={recordingConfirm}
+        disabled={recordingBusy}
+        aria-label={rtc.isRecording
+          ? 'Stop recording'
+          : recordingConfirm
+            ? 'Record?'
+            : 'Start recording'}
+        aria-pressed={rtc.isRecording}
+        title={rtc.isRecording ? 'Stop recording' : 'Start recording'}
+        onclick={() => void toggleRecording()}
+      >
+        <Record size={16} weight="regular" aria-hidden="true" />
+        {#if recordingConfirm}<span>Record?</span>{/if}
+      </button>
+      {#if recordingConfirm}
+        <label class="record-video">
+          <input type="checkbox" bind:checked={recordVideo} />
+          Also record video
+        </label>
+      {/if}
+    </div>
+  {/if}
+
+  <span class="separator" aria-hidden="true"></span>
 
   <button
     type="button"
@@ -597,5 +599,13 @@
     height: 16px;
     margin: 0 2px;
     background: var(--border-d);
+  }
+
+  /* A host's full bar is 364px wide; keep it inside a 320px phone. */
+  @media (max-width: 400px) {
+    .control-bar {
+      gap: 4px;
+      padding: 8px;
+    }
   }
 </style>
