@@ -35,6 +35,9 @@ func create(t *testing.T, handler *Handler, body string) (int, api.RoomInfo, str
 func TestCreateRoom(t *testing.T) {
 	handler, _, db, existing := deleteTestHandler(t)
 	long := strings.Repeat("n", 101)
+	// Names are counted in characters: 60 two-byte characters are 120 bytes.
+	greek60 := strings.Repeat("λ", 60)
+	greek101 := strings.Repeat("λ", 101)
 
 	for _, test := range []struct {
 		name, body string
@@ -55,6 +58,8 @@ func TestCreateRoom(t *testing.T) {
 		{name: "taken slug", body: `{"name":"Again","slug":"` + existing.Slug + `"}`, wantStatus: 409, wantErrorContains: "That room link is already in use."},
 		{name: "taken slug, any case", body: `{"slug":"` + strings.ToUpper(existing.Slug) + `"}`, wantStatus: 409, wantErrorContains: "That room link is already in use."},
 		{name: "long name", body: `{"name":"` + long + `"}`, wantStatus: 400, wantErrorContains: "at most 100 characters"},
+		{name: "multi-byte name of 60 characters", body: `{"name":"` + greek60 + `"}`, wantStatus: 201, wantSlug: "default", wantName: greek60},
+		{name: "multi-byte name of 101 characters", body: `{"name":"` + greek101 + `"}`, wantStatus: 400, wantErrorContains: "at most 100 characters"},
 		{name: "long name with a slug", body: `{"name":"` + long + `","slug":"long-name"}`, wantStatus: 400, wantErrorContains: "at most 100 characters"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
