@@ -46,8 +46,10 @@ export async function createRoomAndGetSlug(
   page: Page,
   roomName = `Phase 3 e2e ${Date.now()}`
 ): Promise<string> {
-  await page.fill('input[name="room-name"]', roomName);
-  await page.getByRole('button', { name: 'New room' }).click();
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'New room' });
+  await dialog.getByRole('textbox', { name: 'Name' }).fill(roomName);
+  await dialog.getByRole('button', { name: 'Create', exact: true }).click();
   const roomRow = page.locator('[data-testid="room-card"]').filter({ hasText: roomName });
   await expect(roomRow).toBeVisible();
   // The redesigned card has no visible slug text; the Join link carries it.

@@ -1,4 +1,5 @@
 import type { Page, Route } from '@playwright/test';
+import { slugError, suggestSlug } from '../src/lib/slug';
 import {
   MachineIdle,
   MachineOffline,
@@ -15,6 +16,7 @@ import {
   TranscriptCompleted,
   TranscriptFailed,
   TranscriptWaiting,
+  type CreateRoomRequest,
   type MachineInfo,
   type MachinesResponse,
   type Me,
@@ -156,6 +158,49 @@ function pairingCode(entered: string): string {
 const unknownCode =
   'No machine is waiting with this code. Check the code, or start pairing again in the moil app.';
 
+/**
+ * POST /api/rooms as the server answers it (ARCHITECTURE.md §5): a blank
+ * name becomes the slug, a missing slug is drawn, a given one is validated
+ * and a taken one is a 409, never replaced.
+ */
+function createRoom(
+  state: ApiState,
+  request: CreateRoomRequest
+): { status: number; body: RoomInfo | { error: string } } {
+  const name = (request.name ?? '').trim();
+  if (name.length > 100) {
+    return { status: 400, body: { error: 'Room name must be between 1 and 100 characters.' } };
+  }
+  const taken = (slug: string) => state.rooms.some((room) => room.slug === slug);
+  let slug: string;
+  if (request.slug === undefined) {
+    do slug = suggestSlug();
+    while (taken(slug));
+  } else {
+    slug = request.slug.trim().toLowerCase();
+    if (slugError(slug)) {
+      return {
+        status: 400,
+        body: { error: 'Room slug may contain lowercase letters, numbers, and single hyphens.' }
+      };
+    }
+    if (taken(slug)) return { status: 409, body: { error: 'That room link is already in use.' } };
+  }
+  const room: RoomInfo = {
+    id: `r-${slug}`,
+    slug,
+    name: name || slug,
+    lobby_enabled: true,
+    created_at: now,
+    active: false,
+    num_participants: 0,
+    recording: false,
+    last_active_at: wireNull
+  };
+  state.rooms = [room, ...state.rooms];
+  return { status: 201, body: room };
+}
+
 /** Matches a concrete path against a generated path constant like /api/x/{id}. */
 function match(template: string, path: string): string[] | undefined {
   const pattern = new RegExp(`^${template.replace(/\{[a-z]+\}/g, '([^/]+)')}$`);
@@ -185,6 +230,10 @@ export async function mockApi(page: Page, state: ApiState = defaultState()): Pro
 
     if (method === 'GET' && path === MePath) return json(200, state.me);
     if (method === 'GET' && path === RoomsPath) return json(200, state.rooms);
+    if (method === 'POST' && path === RoomsPath) {
+      const created = createRoom(state, request.postDataJSON() as CreateRoomRequest);
+      return json(created.status, created.body);
+    }
 
     const slug = match(RoomRecordingsPath, path);
     if (method === 'GET' && slug) {
