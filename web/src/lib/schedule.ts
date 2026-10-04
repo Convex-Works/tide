@@ -10,7 +10,7 @@ export interface MeetingTimes {
   end: string;
 }
 
-const halfHour = 30 * 60_000;
+const dayMinutes = 24 * 60;
 
 function pad(value: number): string {
   return String(value).padStart(2, '0');
@@ -24,14 +24,19 @@ function localTime(date: Date): string {
   return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-/** The next half hour strictly after `now`, 30 minutes long. */
+/** The next half hour strictly after `now`, ending 30 minutes later on the clock. */
 export function defaultTimes(now = new Date()): MeetingTimes {
   const start = new Date(now);
   start.setSeconds(0, 0);
   start.setMinutes(start.getMinutes() < 30 ? 30 : 60);
-  const end = new Date(start.getTime() + halfHour);
+  // Wall-clock arithmetic: on a night the clocks go back, 30 elapsed minutes
+  // after 01:30 can read 01:00, an end before the start.
+  const endMinutes = start.getHours() * 60 + start.getMinutes() + 30;
   // Ending past midnight would need a second date; stop at 23:59 instead.
-  const endTime = localDate(end) === localDate(start) ? localTime(end) : '23:59';
+  const endTime =
+    endMinutes < dayMinutes
+      ? `${pad(Math.floor(endMinutes / 60))}:${pad(endMinutes % 60)}`
+      : '23:59';
   return { date: localDate(start), start: localTime(start), end: endTime };
 }
 
