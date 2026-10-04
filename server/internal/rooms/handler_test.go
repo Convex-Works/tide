@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -218,6 +220,34 @@ func TestAdminCanUpdateRoomOwnedBySomeoneElse(t *testing.T) {
 	updated, err := db.RoomBySlug(context.Background(), room.Slug)
 	if err != nil || updated.Name != "Admin renamed" {
 		t.Fatalf("updated room = %#v, %v", updated, err)
+	}
+}
+
+// Names are counted in characters, not bytes.
+func TestUpdateCountsNameInCharacters(t *testing.T) {
+	for _, test := range []struct {
+		characters int
+		code       int
+	}{
+		{characters: 60, code: http.StatusOK},
+		{characters: 101, code: http.StatusBadRequest},
+	} {
+		t.Run(strconv.Itoa(test.characters), func(t *testing.T) {
+			name := strings.Repeat("λ", test.characters)
+			handler, _, db, room := deleteTestHandler(t)
+			response := httptest.NewRecorder()
+			handler.Update(response, updateRequest(room.Slug, "owner", `{"name":"`+name+`"}`))
+			if response.Code != test.code {
+				t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+			}
+			stored, err := db.RoomBySlug(context.Background(), room.Slug)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if renamed := stored.Name == name; renamed != (test.code == http.StatusOK) {
+				t.Fatalf("stored name = %q", stored.Name)
+			}
+		})
 	}
 }
 

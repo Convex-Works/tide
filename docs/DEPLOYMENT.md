@@ -36,6 +36,7 @@ klisi ── OIDC discovery, code flow ──► external OIDC issuer
 Egress ── loads /egress-template ────► klisi
 Hosts' machines (moil) ── WSS /moil/v1/connect ──► klisi
                        ── presigned GET/PUT ─────► S3-compatible store
+  (machines only with KLISI_TRANSCRIPTS=true)
 ```
 
 The ingress has two HTTP routes: the klisi origin and the LiveKit signaling
@@ -125,7 +126,7 @@ secret values and refuses weak or shipped development secrets.
 | `KLISI_USER_GROUPS`         | empty                              | Comma-separated, case-sensitive OIDC groups allowed to sign in. Empty permits every verified OIDC user; administrators are always allowed.                                        |
 | `KLISI_ADMIN_GROUPS`        | empty                              | Comma-separated, case-sensitive OIDC groups whose members can administer every room. Empty grants no global administration.                                                       |
 | `KLISI_S3_ENDPOINT`         | `http://localhost:9000`            | S3 endpoint as seen by klisi for deletes and object management.                                                                                                                   |
-| `KLISI_S3_PUBLIC_ENDPOINT`  | `http://localhost:9000`            | Browser-reachable S3 endpoint used to sign five-minute download URLs, and the URLs hosts' machines use to fetch recordings and upload transcripts. The hostname in the signature must be the hostname the caller uses. Use HTTPS: moil machines refuse plain HTTP unless klisi itself is on loopback. |
+| `KLISI_S3_PUBLIC_ENDPOINT`  | `http://localhost:9000`            | Browser-reachable S3 endpoint used to sign five-minute download URLs, and the URLs hosts' machines use to fetch recordings and upload transcripts. The hostname in the signature must be the hostname the caller uses. With `KLISI_TRANSCRIPTS=true`, use HTTPS: moil machines refuse plain HTTP unless klisi itself is on loopback. |
 | `KLISI_S3_EGRESS_ENDPOINT`  | `http://minio:9000`                | S3 endpoint as seen by Egress. klisi sends it with every recording request.                                                                                                       |
 | `KLISI_S3_BUCKET`           | `klisi-recordings`                 | Existing bucket for timestamped OGG audio and MP4 video objects under `recordings/<room>/<recording-id>/`.                                                                         |
 | `KLISI_S3_ACCESS_KEY`       | none in production                 | S3 access key sent to the server-side client and Egress request. Required.                                                                                                        |
@@ -134,17 +135,17 @@ secret values and refuses weak or shipped development secrets.
 | `KLISI_EGRESS_TEMPLATE_URL` | `<KLISI_BASE_URL>/egress-template` | URL Egress Chrome loads for the room composite. Use the internal klisi Service URL when Egress can reach it.                                                                      |
 | `KLISI_TRUSTED_PROXIES`     | empty                              | Comma-separated proxy IPs or CIDRs whose `X-Forwarded-For` value klisi may trust. Leave empty unless rate limits must use forwarded client IPs. Restrict it to ingress addresses. |
 | `KLISI_DEV_MODE`            | `false`                            | Enables shipped development secrets and the unauthenticated development token route. Never enable it in production.                                                               |
-| `KLISI_JOIN_RATE_LIMIT`     | `10`                               | Guest joins per client IP per minute.                                                                                                                                             |
+| `KLISI_JOIN_RATE_LIMIT`     | `10`                               | Guest joins per client IP per minute. The same value limits, in a separate bucket, how often a client without a session may look a room up (`GET /api/rooms/{slug}`, found or not); signed-in hosts aren't limited. |
 | `KLISI_WAIT_RATE_LIMIT`     | `20`                               | Lobby wait streams per client IP per minute.                                                                                                                                      |
 | `KLISI_LOGIN_RATE_LIMIT`    | `10`                               | Sign-in redirects per client IP per minute.                                                                                                                                       |
-| `KLISI_PAIR_RATE_LIMIT`     | `10`                               | Machines starting a moil pairing (`POST /moil/v1/pair`, which takes no credentials) per client IP per minute.                                                                     |
+| `KLISI_PAIR_RATE_LIMIT`     | `10`                               | With `KLISI_TRANSCRIPTS=true`, machines starting a moil pairing (`POST /moil/v1/pair`, which takes no credentials) per client IP per minute. Unused while transcripts are off.   |
 | `KLISI_TRANSCRIPTS`         | `false`                            | Turns on transcripts and machine pairing through moil (see [Serve transcripts](#serve-transcripts)). moil is alpha, so leave it off unless you mean to run it. Read with `strconv.ParseBool`; anything else means off. |
 
 Rate limits count an IPv6 client by its /64, the network one subscriber gets,
 and an IPv4 client by its address; both come from `X-Forwarded-For` only
-through `KLISI_TRUSTED_PROXIES`. Pairing codes have fixed limits: a signed-in
-host may look up, confirm and deny 20 a minute, and a client address 60,
-whoever is signed in. `POST /moil/v1/pair` takes only
+through `KLISI_TRUSTED_PROXIES`. With `KLISI_TRANSCRIPTS=true`, pairing codes
+have fixed limits: a signed-in host may look up, confirm and deny 20 a minute,
+and a client address 60, whoever is signed in. `POST /moil/v1/pair` takes only
 `Content-Type: application/json`, which the moil app sends; a proxy or WAF in
 front of klisi must pass it through.
 
@@ -247,6 +248,13 @@ Transcripts are off unless `KLISI_TRANSCRIPTS=true`. Off, klisi serves no
 `/machines` and every transcript control; machines and transcripts already
 recorded stay in the database for when it is turned back on, and deleting a
 recording still removes its transcript files.
+
+Turning transcripts back on after a while off is not a resume. A transcript
+waiting for a machine fails after 14 days counted from when it was requested,
+time off included, so the ones older than that fail at once; a host can
+request them again. And the recordings that completed while transcripts were
+off get transcripts queued on the first pass, when their room's owner had a
+machine paired by then, so those hosts' machines start on that backlog.
 
 Transcripts need nothing deployed: they run on computers hosts pair through the
 moil app (Architecture §8.1). klisi serves the machines' side of moil on its
@@ -351,15 +359,22 @@ klisi recovery.
 ## Upgrade
 
 Back up SQLite first. Build or pull the new klisi image, patch the image in the
-overlay, and apply it. The `Recreate` strategy stops the old single replica
+overlay, and apply it.
+
+Transcripts became opt-in with the `KLISI_TRANSCRIPTS` switch. An install that
+uses transcripts must set `KLISI_TRANSCRIPTS=true` when it upgrades from a
+release without that switch; otherwise transcripts and machine pairing turn
+off, and machines can't connect until it is set. Nothing is lost meanwhile
+(see [Serve transcripts](#serve-transcripts)). The `Recreate` strategy stops the old single replica
 before starting the new one. The release artifact is one binary, so there is no
 Node runtime or separate SPA rollout.
 
 On SIGTERM klisi stops taking connections, ends lobby streams at once (lobby
 requests live in memory, so waiting guests ask again), and gives requests in
-flight 10 seconds. It then disconnects paired machines, saving what they last
-reported; they reconnect to the new replica, which starts their unfinished
-transcript jobs again. It closes the database last. That takes up to about 15
+flight 10 seconds. With `KLISI_TRANSCRIPTS=true` it then disconnects paired
+machines, saving what they last reported; they reconnect to the new replica,
+which starts their unfinished transcript jobs again. It closes the database
+last. That takes up to about 15
 seconds, well within Kubernetes' default 30-second grace; give `docker stop`
 `--time 20` rather than its default 10. A second SIGTERM stops klisi at once.
 
