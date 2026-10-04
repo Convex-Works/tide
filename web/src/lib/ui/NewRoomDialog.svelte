@@ -37,10 +37,23 @@
   let error = $state('');
   let creating = $state(false);
   let wasOpen = false;
+  // Each opening is a session; a request answers only the session that sent
+  // it, so a create that outlives its dialog can't close or steer the next.
+  let session = 0;
+
+  // The server allows 100 characters (code points). maxlength counts UTF-16
+  // units, the same for any name outside the astral planes and stricter for
+  // emoji, so the field never lets through a name the server refuses.
+  const nameMaxLength = 100;
 
   const origin = typeof window === 'undefined' ? '' : window.location.origin;
   const slug = $derived(normalizeSlug(slugDraft));
   const slugMessage = $derived(slugServerError || (slugInvalid ? (slugError(slug) ?? '') : ''));
+
+  // A cleared link is not an error: it asks the server to draw one.
+  function linkError(value: string): boolean {
+    return value !== '' && Boolean(slugError(value));
+  }
   const resolved = $derived(resolveTimes(times));
   const timesError = $derived(
     withTimes && timesChecked && 'error' in resolved ? resolved.error : ''
@@ -52,6 +65,7 @@
   });
 
   function reset(): void {
+    session++;
     name = '';
     slugDraft = suggestSlug();
     slugEdited = false;
@@ -60,7 +74,7 @@
     withTimes = false;
     timesChecked = false;
     error = '';
-    creating = false;
+    // A request still in flight keeps Create disabled until it settles.
   }
 
   function shuffle(): void {
@@ -83,16 +97,23 @@
     if (creating) return;
     error = '';
     slugServerError = '';
-    slugInvalid = Boolean(slugError(slug));
+    slugInvalid = linkError(slug);
     timesChecked = true;
     if (slugInvalid) return;
     const when = withTimes ? resolveTimes(times) : undefined;
     if (when && 'error' in when) return;
 
     creating = true;
+    const mine = session;
     try {
-      const room = await createWithRetry();
+      const room = await createWithRetry(mine);
       if (!room) return;
+      // The room exists either way, so the list hears of it; the rest
+      // belonged to a dialog that is gone.
+      if (mine !== session) {
+        oncreated(room);
+        return;
+      }
       if (when) {
         downloadIcs(
           `${room.slug}.ics`,
@@ -115,13 +136,18 @@
   }
 
   // Creates the room, redrawing an untouched suggestion that is taken.
-  // Returns undefined after showing why it failed.
-  async function createWithRetry(): Promise<RoomInfo | undefined> {
+  // Returns undefined after showing why it failed. A blank link is left out,
+  // and the server draws one.
+  async function createWithRetry(mine: number): Promise<RoomInfo | undefined> {
     const trimmed = name.trim();
     for (let attempt = 1; ; attempt++) {
       try {
-        return await createRoom({ ...(trimmed ? { name: trimmed } : {}), slug });
+        return await createRoom({
+          ...(trimmed ? { name: trimmed } : {}),
+          ...(slug ? { slug } : {})
+        });
       } catch (cause) {
+        if (mine !== session) return undefined;
         const status = cause instanceof ApiError ? cause.status : 0;
         if (status === 409 && !slugEdited && attempt < suggestionAttempts) {
           slugDraft = suggestSlug();
@@ -139,7 +165,7 @@
   }
 </script>
 
-<Dialog bind:open title="New room" width={440}>
+<Dialog bind:open title="New room" width={440} dismissible={!creating}>
   <form
     class="grid gap-3"
     onsubmit={(event) => {
@@ -156,7 +182,7 @@
         class="h-7 w-full min-w-0 rounded-control border border-border bg-surface px-2 text-[13px] text-ink outline-none placeholder:text-ink-2 focus:border-accent"
         bind:value={name}
         placeholder={slug || 'Same as the link'}
-        maxlength="100"
+        maxlength={nameMaxLength}
         autocomplete="off"
         data-autofocus
       />
@@ -177,6 +203,8 @@
           name="room-slug"
           class="slug-input mono h-full min-w-[8ch] flex-1 border-0 bg-transparent p-0 text-[12px] text-ink outline-none"
           value={slugDraft}
+          placeholder="random"
+          title="Leave blank for a random link"
           maxlength={slugMaxLength}
           autocomplete="off"
           autocapitalize="none"
@@ -188,9 +216,9 @@
             slugEdited = true;
             slugServerError = '';
             // Once flagged, the rules stay until the link follows them.
-            if (slugInvalid) slugInvalid = Boolean(slugError(normalizeSlug(slugDraft)));
+            if (slugInvalid) slugInvalid = linkError(normalizeSlug(slugDraft));
           }}
-          onblur={() => (slugInvalid = Boolean(slugError(slug)))}
+          onblur={() => (slugInvalid = linkError(slug))}
         />
         <button
           type="button"

@@ -10,12 +10,19 @@
     open = $bindable(false),
     title,
     width = 400,
+    dismissible = true,
     children
   }: {
     open?: boolean;
     title: string;
     /** Max width in px; the dialog shrinks to fit a phone. */
     width?: number;
+    /**
+     * False while the dialog must stay up, e.g. during a request: Escape,
+     * the backdrop and the close button are ignored. The owner can still
+     * close it by setting `open`.
+     */
+    dismissible?: boolean;
     children: Snippet;
   } = $props();
 
@@ -39,8 +46,28 @@
   }
 
   function click(event: MouseEvent): void {
-    if (pressedBackdrop && event.target === dialog) open = false;
+    if (pressedBackdrop && event.target === dialog && dismissible) open = false;
     pressedBackdrop = false;
+  }
+
+  // Escape is a close request: refused at the key and at the native cancel.
+  // Chrome stops honouring preventDefault on cancel after repeated Escapes
+  // without other input, so the keydown is the dependable guard.
+  function keydown(event: KeyboardEvent): void {
+    if (event.key === 'Escape' && !dismissible) event.preventDefault();
+  }
+
+  function cancel(event: Event): void {
+    if (!dismissible) event.preventDefault();
+  }
+
+  function closed(): void {
+    // Closed natively anyway while it must stay up: put it back.
+    if (open && !dismissible) {
+      dialog.showModal();
+      return;
+    }
+    open = false;
   }
 </script>
 
@@ -48,7 +75,9 @@
   bind:this={dialog}
   aria-labelledby={titleId}
   style:--dialog-width={`${width}px`}
-  onclose={() => (open = false)}
+  onclose={closed}
+  oncancel={cancel}
+  onkeydown={keydown}
   onpointerdown={pointerdown}
   onclick={click}
 >
@@ -56,7 +85,13 @@
     <div class="panel">
       <header>
         <h2 id={titleId}>{title}</h2>
-        <button type="button" class="close" aria-label="Close" onclick={() => (open = false)}>
+        <button
+          type="button"
+          class="close"
+          aria-label="Close"
+          disabled={!dismissible}
+          onclick={() => (open = false)}
+        >
           <X size={16} weight="regular" aria-hidden="true" />
         </button>
       </header>
@@ -117,8 +152,13 @@
       background var(--motion-fast);
   }
 
-  .close:hover {
+  .close:hover:enabled {
     color: var(--ink);
     background: var(--surface-2);
+  }
+
+  .close:disabled {
+    cursor: default;
+    opacity: 0.4;
   }
 </style>

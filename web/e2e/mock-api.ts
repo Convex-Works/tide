@@ -178,20 +178,21 @@ const unknownCode =
 
 /**
  * POST /api/rooms as the server answers it (ARCHITECTURE.md §5): a blank
- * name becomes the slug, a missing slug is drawn, a given one is validated
- * and a taken one is a 409, never replaced.
+ * name becomes the slug, a missing or blank slug is drawn, a given one is
+ * validated and a taken one is a 409, never replaced. Names are limited in
+ * characters (code points), not UTF-16 units.
  */
 function createRoom(
   state: ApiState,
   request: CreateRoomRequest
 ): { status: number; body: RoomInfo | { error: string } } {
   const name = (request.name ?? '').trim();
-  if (name.length > 100) {
-    return { status: 400, body: { error: 'Room name must be between 1 and 100 characters.' } };
+  if ([...name].length > 100) {
+    return { status: 400, body: { error: 'Room name must be at most 100 characters.' } };
   }
   const taken = (slug: string) => state.rooms.some((room) => room.slug === slug);
   let slug: string;
-  if (request.slug === undefined) {
+  if (!request.slug?.trim()) {
     do slug = suggestSlug();
     while (taken(slug));
   } else {

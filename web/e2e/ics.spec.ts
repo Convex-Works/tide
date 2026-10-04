@@ -112,6 +112,19 @@ test.describe('meeting times', () => {
     expect(at('2026-10-05T23:10:00')).toEqual({ date: '2026-10-05', start: '23:30', end: '23:59' });
   });
 
+  test('end 30 minutes later on the clock across a DST change', () => {
+    inZone('America/New_York', () => {
+      // Fall back: 01:30 EDT plus 30 elapsed minutes reads 01:00 EST.
+      const fallBack = defaultTimes(new Date('2026-11-01T01:10:00-04:00'));
+      expect(fallBack).toEqual({ date: '2026-11-01', start: '01:30', end: '02:00' });
+      expect('error' in resolveTimes(fallBack)).toBe(false);
+      // Spring forward: 02:00 doesn't exist, so the next half hour is 03:00.
+      const springForward = defaultTimes(new Date('2026-03-08T01:40:00-05:00'));
+      expect(springForward).toEqual({ date: '2026-03-08', start: '03:00', end: '03:30' });
+      expect('error' in resolveTimes(springForward)).toBe(false);
+    });
+  });
+
   test('end after they start', () => {
     expect(resolveTimes({ date: '2026-10-05', start: '10:30', end: '10:30' })).toEqual({
       error: 'End the meeting after it starts.'

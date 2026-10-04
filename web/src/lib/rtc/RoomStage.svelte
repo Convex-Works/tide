@@ -50,6 +50,8 @@
   let view = $state<'grid' | 'speaker'>('grid');
   let lastSpeakerIdentity = $state<string>();
   let participantMenuIdentity = $state<string>();
+  // The header can take a second row on a phone; the side panels start below it.
+  let headerHeight = $state(28);
 
   // Speaker view promotes the most recent remote active speaker; sticky
   // through silence so the pane doesn't flicker between turns. The local
@@ -148,28 +150,35 @@
   }
 </script>
 
-<main class="stage">
-  <header class="stage-header">
+<main class="stage" style:--stage-panel-top={`${14 + headerHeight + 8}px`}>
+  <header
+    class="stage-header"
+    class:wrapping={rtc.playbackBlocked}
+    bind:offsetHeight={headerHeight}
+  >
     <div class="room-status" data-testid="stage-cluster">
       <WallClock />
       <span class="divider" aria-hidden="true"></span>
       <h1 class="room-name" title={roomName}>{roomName}</h1>
       <MeetingDetails name={roomName} url={meetingURL} />
       {#if rtc.isRecording}<span class="rec-chip mono" data-testid="recording-chip">REC</span>{/if}
-      <!-- Autoplay policy blocks playback until a gesture. Without this the
-           participant gets silence and no explanation, and recovery depends on
-           them happening to click something. -->
-      {#if rtc.playbackBlocked}
-        <button
-          type="button"
-          class="playback-unlock"
-          data-testid="playback-blocked"
-          onclick={() => rtc.activateMediaPlayback()}
-        >
-          {rtc.canPlaybackAudio ? 'Tap to play video' : 'Tap to hear audio'}
-        </button>
-      {/if}
     </div>
+    <!-- Autoplay policy blocks playback until a gesture. Without this the
+         participant gets silence and no explanation, and recovery depends on
+         them happening to click something. It sits right after the cluster,
+         and is its own flex item so that on a phone it can take a second row
+         rather than squeeze the room name away. -->
+    {#if rtc.playbackBlocked}
+      <button
+        type="button"
+        class="playback-unlock"
+        data-testid="playback-blocked"
+        title={rtc.canPlaybackAudio ? 'Tap to play video' : 'Tap to hear audio'}
+        onclick={() => rtc.activateMediaPlayback()}
+      >
+        {rtc.canPlaybackAudio ? 'Tap to play video' : 'Tap to hear audio'}
+      </button>
+    {/if}
     {#if rtc.connectionState !== ConnectionState.Connected}
       <span class="connection" role="status">{connectionWords[rtc.connectionState]}</span>
     {/if}
@@ -272,16 +281,22 @@
 
   .stage-header {
     display: flex;
-    height: 28px;
+    min-height: 28px;
     align-items: center;
-    justify-content: space-between;
-    gap: 8px;
+    gap: 4px 8px;
     margin-bottom: 8px;
+  }
+
+  /* With the autoplay unlock showing there may be no room left on one row;
+     the unlock and the connection state take a second row instead. */
+  .stage-header.wrapping {
+    flex-wrap: wrap;
   }
 
   /* Clock | name (i) REC: the name is the only part that gives way. */
   .room-status {
     display: flex;
+    height: 28px;
     min-width: 0;
     align-items: center;
     gap: 8px;
@@ -319,9 +334,12 @@
   }
 
   .playback-unlock {
-    flex: none;
+    flex: 0 1 auto;
+    min-width: 0;
     padding: 2px 8px;
+    overflow: hidden;
     white-space: nowrap;
+    text-overflow: ellipsis;
     color: white;
     font-size: 12px;
     line-height: 20px;
@@ -336,10 +354,15 @@
   }
 
   .connection {
-    flex: none;
+    flex: 0 1 auto;
+    min-width: 0;
+    margin-left: auto;
+    overflow: hidden;
     color: var(--text-2);
     font-size: 12px;
+    line-height: 20px;
     white-space: nowrap;
+    text-overflow: ellipsis;
   }
 
   .media-layout {

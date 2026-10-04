@@ -265,3 +265,123 @@ test('a room card adds the room to a calendar', async ({ page }) => {
   // Nothing about the invite reaches the server.
   expect(api.calls.filter((call) => call.method !== 'GET')).toEqual([]);
 });
+
+test('a cleared link asks the server to draw one', async ({ page }) => {
+  const api = await mockApi(page);
+  const bodies = createBodies(page);
+  const { dialog, name, slug, create } = await openDialog(page, api);
+
+  await slug.fill('');
+  await slug.blur();
+  // Blank is not an error: the field says a random link is drawn.
+  await expect(slug).toHaveAttribute('aria-invalid', 'false');
+  await expect(slug).toHaveAttribute('placeholder', 'random');
+  await expect(name).toHaveAttribute('placeholder', 'Same as the link');
+
+  await create.click();
+  await expect(dialog).toBeHidden();
+  expect(bodies).toEqual([{}]);
+  const created = api.state.rooms[0];
+  expect(created.slug).toMatch(readable);
+  await expect(
+    page.locator(`[data-testid="room-card"][data-slug="${created.slug}"]`)
+  ).toBeVisible();
+});
+
+test('a 60-character Greek name is accepted', async ({ page }) => {
+  const api = await mockApi(page);
+  const bodies = createBodies(page);
+  const { dialog, name, slug, create } = await openDialog(page, api);
+
+  const greek = 'Εβδομαδιαία σύσκεψη ομάδας προϊόντος και σχεδιασμού για εσάς';
+  expect([...greek].length).toBe(60);
+  await name.fill(greek);
+  await slug.fill('evdomadiaia');
+  await create.click();
+
+  await expect(dialog).toBeHidden();
+  expect(bodies).toEqual([{ name: greek, slug: 'evdomadiaia' }]);
+  await expect(page.locator('[data-testid="room-card"][data-slug="evdomadiaia"]')).toContainText(
+    greek
+  );
+});
+
+test('the dialog stays up while a create is in flight', async ({ page }) => {
+  const api = await mockApi(page);
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  let answered = 0;
+  await page.route(
+    (url) => url.pathname === RoomsPath,
+    async (route) => {
+      if (route.request().method() !== 'POST') return route.fallback();
+      await held;
+      answered++;
+      return route.fallback();
+    }
+  );
+  const { dialog, slug, create, createAndJoin } = await openDialog(page, api);
+  const suggested = await slug.inputValue();
+
+  await create.click();
+  await expect(create).toBeDisabled();
+  await expect(createAndJoin).toBeDisabled();
+
+  // Escape (twice: Chrome stops honouring a refused cancel without other
+  // input), the backdrop and the close button all leave it open.
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeVisible();
+  const close = dialog.getByRole('button', { name: 'Close' });
+  await expect(close).toBeDisabled();
+  await page.mouse.click(4, 4);
+  await expect(dialog).toBeVisible();
+
+  release();
+  await expect(dialog).toBeHidden();
+  expect(answered).toBe(1);
+  expect(api.count('POST', RoomsPath)).toBe(1);
+  await expect(page.locator(`[data-testid="room-card"][data-slug="${suggested}"]`)).toHaveCount(1);
+
+  // Once it has settled the dialog opens fresh and closes normally.
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  await expect(dialog).toBeVisible();
+  await expect(create).toBeEnabled();
+  await expect(close).toBeEnabled();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  expect(api.count('POST', RoomsPath)).toBe(1);
+});
+
+test('a missing date marks the date field', async ({ page }) => {
+  const api = await mockApi(page);
+  const { dialog, create } = await openDialog(page, api);
+  await dialog.getByRole('checkbox', { name: 'Add to calendar' }).check();
+  const date = dialog.getByLabel('Date');
+  await date.fill('');
+  await create.click();
+
+  const message = dialog.getByText('Pick a date, a start time and an end time.');
+  await expect(message).toBeVisible();
+  const messageId = await message.getAttribute('id');
+  await expect(date).toHaveAttribute('aria-invalid', 'true');
+  await expect(date).toHaveAttribute('aria-describedby', messageId!);
+  await expect(dialog.getByLabel('Starts')).toHaveAttribute('aria-invalid', 'false');
+  await expect(dialog.getByLabel('Ends')).toHaveAttribute('aria-invalid', 'false');
+  expect(api.count('POST', RoomsPath)).toBe(0);
+});
+
+test('Create & join with times downloads the invite and opens the meeting', async ({ page }) => {
+  await page.clock.setFixedTime(new Date('2026-10-05T10:12:00+03:00'));
+  const api = await mockApi(page);
+  const { dialog, slug, createAndJoin } = await openDialog(page, api);
+  await slug.fill('kickoff');
+  await dialog.getByRole('checkbox', { name: 'Add to calendar' }).check();
+
+  const [download] = await Promise.all([page.waitForEvent('download'), createAndJoin.click()]);
+  expect(download.suggestedFilename()).toBe('kickoff.ics');
+  const { lines } = await invite(download);
+  expect(lines).toContain('DTSTART:20261005T073000Z');
+  expect(lines).toContain('DTEND:20261005T080000Z');
+  await page.waitForURL('**/m/kickoff');
+});
