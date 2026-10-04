@@ -1,5 +1,5 @@
 import { gunzipSync } from 'node:zlib';
-import type { Page, WebSocketRoute } from '@playwright/test';
+import { expect, type Page, type WebSocketRoute } from '@playwright/test';
 import {
   JoinRequest,
   SignalRequest,
@@ -35,10 +35,17 @@ type PeerWindow = Window & { __klisiFakeSfuPeer?: RTCPeerConnection };
 
 const sfuHost = new URL(fakeSfuURL).host;
 
-/** The v1 signal path carries the join request, gzipped, in the URL. */
-function joinRequestFrom(url: URL): JoinRequest {
+const unsupportedPath =
+  'The fake SFU only speaks the v1 signal path (a join_request in the URL); ' +
+  'livekit-client connected some other way.';
+
+/**
+ * The v1 signal path carries the join request, gzipped, in the URL. Undefined
+ * when it doesn't.
+ */
+function joinRequestFrom(url: URL): JoinRequest | undefined {
   const encoded = url.searchParams.get('join_request');
-  if (!encoded) throw new Error('The fake SFU only speaks the v1 signal path.');
+  if (!encoded) return undefined;
   const wrapped = WrappedJoinRequest.fromBinary(Buffer.from(encoded, 'base64url'));
   const bytes =
     wrapped.compression === WrappedJoinRequest_Compression.GZIP
@@ -95,6 +102,15 @@ export async function fakeSfu(page: Page): Promise<FakeSfu> {
   function serve(ws: WebSocketRoute): void {
     const url = new URL(ws.url());
     const request = joinRequestFrom(url);
+    if (!request) {
+      // A throw here would vanish inside Playwright's routing and leave the
+      // spec waiting for a stage that never comes. Record the failure on the
+      // running test instead and close the page so it stops at once.
+      expect.soft(request, unsupportedPath).toBeDefined();
+      void ws.close({ code: 1011, reason: 'unsupported signal path' });
+      void page.close();
+      return;
+    }
     const { identity, name } = participantFrom(url);
     sockets.add(ws);
     ws.onClose(() => sockets.delete(ws));
