@@ -62,7 +62,19 @@
       return;
     }
     await rtc.refreshDevices().catch(() => undefined);
+    // On a phone every menu and confirm step opens in the same place above
+    // the bar, so opening one closes the others.
+    recordingConfirm = false;
+    leaveConfirm = false;
     deviceMenu = kind;
+  }
+
+  function toggleLeave(): void {
+    leaveConfirm = !leaveConfirm;
+    if (leaveConfirm) {
+      deviceMenu = '';
+      recordingConfirm = false;
+    }
   }
 
   function pickDevice(kind: DeviceMenuKind, deviceId: string): void {
@@ -88,6 +100,9 @@
     if (!rtc.isRecording && !recordingConfirm) {
       recordingConfirm = true;
       recordVideo = false;
+      recordingError = '';
+      deviceMenu = '';
+      leaveConfirm = false;
       return;
     }
     recordingBusy = true;
@@ -203,38 +218,6 @@
     {/if}
   </div>
 
-  {#if canManage}
-    <!-- The stopPropagation shield keeps the window click-away handler from
-         collapsing the confirm state; interaction lives on the controls. -->
-    <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
-    <div class="record-group" onclick={(event) => event.stopPropagation()}>
-      <button
-        type="button"
-        class="record-control"
-        class:recording={rtc.isRecording}
-        class:confirm={recordingConfirm}
-        disabled={recordingBusy}
-        aria-label={rtc.isRecording
-          ? 'Stop recording'
-          : recordingConfirm
-            ? 'Record?'
-            : 'Start recording'}
-        aria-pressed={rtc.isRecording}
-        title={rtc.isRecording ? 'Stop recording' : 'Start recording'}
-        onclick={() => void toggleRecording()}
-      >
-        <Record size={16} weight="regular" aria-hidden="true" />
-        {#if recordingConfirm}<span>Record?</span>{/if}
-      </button>
-      {#if recordingConfirm}
-        <label class="record-video">
-          <input type="checkbox" bind:checked={recordVideo} />
-          Also record video
-        </label>
-      {/if}
-    </div>
-  {/if}
-
   <div class="control-group">
     <button
       type="button"
@@ -281,6 +264,53 @@
     <Screencast size={16} weight="regular" aria-hidden="true" />
   </button>
 
+  {#if canManage}
+    <!-- The stopPropagation shield keeps the window click-away handler from
+         collapsing the confirm state; interaction lives on the controls. -->
+    <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+    <div class="record-group" onclick={(event) => event.stopPropagation()}>
+      <button
+        type="button"
+        class="record-control"
+        class:recording={rtc.isRecording}
+        class:confirm={recordingConfirm}
+        disabled={recordingBusy}
+        aria-label={rtc.isRecording
+          ? 'Stop recording'
+          : recordingConfirm
+            ? 'Record?'
+            : 'Start recording'}
+        aria-pressed={rtc.isRecording}
+        title={rtc.isRecording ? 'Stop recording' : 'Start recording'}
+        onclick={() => void toggleRecording()}
+      >
+        <Record size={16} weight="regular" aria-hidden="true" />
+        {#if recordingConfirm}<span>Record?</span>{/if}
+      </button>
+      {#if recordingConfirm}
+        <div class="record-confirm">
+          <!-- On a phone the bar's button has no room for "Record?", so the
+               choice opens above the bar with its own confirm. -->
+          <button
+            type="button"
+            class="record-now"
+            disabled={recordingBusy}
+            onclick={() => void toggleRecording()}
+          >
+            <Record size={16} weight="regular" aria-hidden="true" />
+            <span>Record</span>
+          </button>
+          <label class="record-video">
+            <input type="checkbox" bind:checked={recordVideo} />
+            Also record video
+          </label>
+        </div>
+      {/if}
+    </div>
+  {/if}
+
+  <span class="separator" aria-hidden="true"></span>
+
   <button
     type="button"
     aria-label={view === 'grid' ? 'Speaker view' : 'Grid view'}
@@ -324,44 +354,54 @@
   <span class="separator" aria-hidden="true"></span>
 
   {#if recordingError || endError}
-    <span class="recording-error" role="alert">{recordingError || endError}</span>
+    <span class="recording-error" class:raised={leaveConfirm || recordingConfirm} role="alert"
+      >{recordingError || endError}</span
+    >
   {/if}
 
   {#if canManage}
     <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
-    <div class="leave-group" onclick={(event) => event.stopPropagation()}>
+    <div
+      class="leave-group"
+      class:confirming={leaveConfirm}
+      onclick={(event) => event.stopPropagation()}
+    >
+      <!-- In place of the choices on a wide bar; it stays as their anchor on
+           a phone, where the choices open above the bar. -->
+      <button
+        type="button"
+        class="leave toggle"
+        aria-label="Leave or end meeting"
+        aria-expanded={leaveConfirm}
+        title="Leave"
+        onclick={toggleLeave}
+      >
+        <PhoneDisconnect size={16} weight="regular" aria-hidden="true" />
+      </button>
       {#if leaveConfirm}
-        <button
-          type="button"
-          class="leave expanded"
-          aria-label="Leave room"
-          title="Leave room"
-          onclick={() => void leave()}
-        >
-          <SignOut size={16} weight="regular" aria-hidden="true" />
-          <span>Leave</span>
-        </button>
-        <button
-          type="button"
-          class="end-all"
-          disabled={endBusy}
-          aria-label="End meeting for all"
-          title="End meeting for all"
-          onclick={() => void endForAll()}
-        >
-          <Power size={16} weight="regular" aria-hidden="true" />
-          <span>End for all</span>
-        </button>
-      {:else}
-        <button
-          type="button"
-          class="leave"
-          aria-label="Leave or end meeting"
-          title="Leave"
-          onclick={() => (leaveConfirm = true)}
-        >
-          <PhoneDisconnect size={16} weight="regular" aria-hidden="true" />
-        </button>
+        <div class="leave-choices">
+          <button
+            type="button"
+            class="leave expanded"
+            aria-label="Leave room"
+            title="Leave room"
+            onclick={() => void leave()}
+          >
+            <SignOut size={16} weight="regular" aria-hidden="true" />
+            <span>Leave</span>
+          </button>
+          <button
+            type="button"
+            class="end-all"
+            disabled={endBusy}
+            aria-label="End meeting for all"
+            title="End meeting for all"
+            onclick={() => void endForAll()}
+          >
+            <Power size={16} weight="regular" aria-hidden="true" />
+            <span>End for all</span>
+          </button>
+        </div>
       {/if}
     </div>
   {:else}
@@ -449,10 +489,16 @@
   }
 
   .record-group,
-  .leave-group {
+  .record-confirm,
+  .leave-group,
+  .leave-choices {
     display: flex;
     gap: 4px;
     align-items: center;
+  }
+
+  .leave-group.confirming > button.toggle {
+    display: none;
   }
 
   .record-video {
@@ -467,6 +513,10 @@
   .record-video input {
     margin: 0;
     accent-color: var(--accent-d);
+  }
+
+  button.record-now {
+    display: none;
   }
 
   button.leave.expanded,
@@ -597,5 +647,92 @@
     height: 16px;
     margin: 0 2px;
     background: var(--border-d);
+  }
+
+  /* A host's full bar is 364px wide. On a phone it drops the separators and
+     tightens to 298px, leaving slack inside 320px; the confirm steps and
+     device menus open above the bar, anchored to its edges, instead of
+     widening it. Their popovers have the bar as containing block. */
+  @media (max-width: 400px) {
+    .control-bar {
+      gap: 4px;
+      padding: 6px;
+    }
+
+    .separator {
+      display: none;
+    }
+
+    .control-group {
+      position: static;
+    }
+
+    .device-menu {
+      bottom: calc(100% + 6px);
+      left: 0;
+      max-width: calc(100vw - 24px);
+      transform: none;
+    }
+
+    button.record-control.confirm {
+      display: grid;
+      width: var(--control-height);
+      padding: 0;
+    }
+
+    button.record-control.confirm span {
+      display: none;
+    }
+
+    .record-confirm,
+    .leave-choices {
+      position: absolute;
+      bottom: calc(100% + 6px);
+      gap: 8px;
+      padding: 6px;
+      background: var(--panel);
+      border: 1px solid var(--border-d);
+      border-radius: var(--radius-card);
+    }
+
+    .record-confirm {
+      left: 0;
+      padding-right: 8px;
+    }
+
+    .leave-choices {
+      right: 0;
+      gap: 4px;
+    }
+
+    button.record-now {
+      display: flex;
+      width: auto;
+      gap: 4px;
+      padding: 0 7px;
+      color: white;
+      font-size: 12px;
+      white-space: nowrap;
+      background: var(--rec);
+      border-color: var(--rec);
+    }
+
+    button.record-now:hover {
+      background: color-mix(in srgb, var(--rec) 85%, black);
+    }
+
+    .record-video {
+      color: var(--text);
+    }
+
+    .leave-group.confirming > button.toggle {
+      display: grid;
+      background: color-mix(in srgb, var(--rec) 12%, transparent);
+      border-color: color-mix(in srgb, var(--rec) 32%, transparent);
+    }
+
+    .recording-error.raised {
+      bottom: calc(100% + 54px);
+    }
   }
 </style>

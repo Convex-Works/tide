@@ -1,9 +1,11 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import { Check, Copy, Desktop } from 'phosphor-svelte';
-  import { AuthRequiredError, createRoom, listRooms, logout, me } from '$lib/api/client';
+  import { CalendarPlus, Check, Copy, Desktop, Plus } from 'phosphor-svelte';
+  import { AuthRequiredError, listRooms, logout, me } from '$lib/api/client';
   import { AuthLoginPath, type Me, type RoomInfo } from '$lib/api/types.gen';
+  import AddToCalendarDialog from '$lib/ui/AddToCalendarDialog.svelte';
   import Button from '$lib/ui/Button.svelte';
+  import NewRoomDialog from '$lib/ui/NewRoomDialog.svelte';
   import RoomStatus from '$lib/ui/RoomStatus.svelte';
 
   type DashboardState = 'loading' | 'signed-out' | 'ready' | 'error';
@@ -11,9 +13,10 @@
   let dashboardState = $state<DashboardState>('loading');
   let currentUser = $state<Me>();
   let rooms = $state<RoomInfo[]>([]);
-  let roomName = $state('');
   let error = $state('');
-  let creating = $state(false);
+  let newRoomOpen = $state(false);
+  let calendarOpen = $state(false);
+  let calendarRoom = $state<RoomInfo>();
   let copiedSlug = $state('');
   let copyTimer: ReturnType<typeof setTimeout> | undefined;
   let refreshTimer: ReturnType<typeof setInterval> | undefined;
@@ -56,21 +59,13 @@
     }
   }
 
-  async function create(event: SubmitEvent): Promise<void> {
-    event.preventDefault();
-    const name = roomName.trim();
-    if (!name || creating) return;
-    creating = true;
-    error = '';
-    try {
-      const room = await createRoom(name);
-      rooms = [room, ...rooms];
-      roomName = '';
-    } catch (cause) {
-      error = cause instanceof Error ? cause.message : 'Could not create the room. Try again.';
-    } finally {
-      creating = false;
-    }
+  function created(room: RoomInfo): void {
+    rooms = [room, ...rooms.filter((item) => item.id !== room.id)];
+  }
+
+  function addToCalendar(room: RoomInfo): void {
+    calendarRoom = room;
+    calendarOpen = true;
   }
 
   async function copyLink(slug: string): Promise<void> {
@@ -139,9 +134,11 @@
     <header>
       <a class="wordmark" href="/">klisi</a>
       <div class="account">
-        <a class="icon-link" href="/machines" aria-label="Machines" title="Machines">
-          <Desktop size={16} weight="regular" aria-hidden="true" />
-        </a>
+        {#if currentUser?.transcripts}
+          <a class="icon-link" href="/machines" aria-label="Machines" title="Machines">
+            <Desktop size={16} weight="regular" aria-hidden="true" />
+          </a>
+        {/if}
         <span>{currentUser?.name}</span>
         <button type="button" onclick={() => void signOut()}>Sign out</button>
       </div>
@@ -151,20 +148,9 @@
       <section aria-labelledby="rooms-heading">
         <div class="section-heading">
           <h1 id="rooms-heading">Rooms</h1>
-          <form class="new-room" onsubmit={create}>
-            <label class="sr-only" for="room-name">Room name</label>
-            <input
-              id="room-name"
-              name="room-name"
-              bind:value={roomName}
-              placeholder="Room name"
-              maxlength="100"
-              required
-            />
-            <button class="primary" type="submit" disabled={creating}>
-              {creating ? 'Creating…' : 'New room'}
-            </button>
-          </form>
+          <Button variant="accent" onclick={() => (newRoomOpen = true)}>
+            <Plus size={16} weight="regular" aria-hidden="true" /> New
+          </Button>
         </div>
 
         {#if rooms.length === 0}
@@ -209,6 +195,15 @@
                       {/if}
                     </Button>
                     <Button href={`/m/${room.slug}`}>Join meeting</Button>
+                    <button
+                      type="button"
+                      class="ml-auto grid size-7 place-items-center rounded-control border-0 bg-transparent p-0 text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink"
+                      onclick={() => addToCalendar(room)}
+                      aria-label={`Add ${room.name} to calendar`}
+                      title="Add to calendar…"
+                    >
+                      <CalendarPlus size={16} weight="regular" aria-hidden="true" />
+                    </button>
                   </div>
                 </article>
               </li>
@@ -219,6 +214,9 @@
       </section>
     </main>
   </div>
+
+  <NewRoomDialog bind:open={newRoomOpen} oncreated={created} />
+  <AddToCalendarDialog bind:open={calendarOpen} room={calendarRoom} />
 {/if}
 
 <style>
@@ -354,42 +352,6 @@
     font-weight: 550;
   }
 
-  .new-room {
-    display: flex;
-    gap: 4px;
-  }
-
-  .new-room input {
-    width: 200px;
-    min-width: 0;
-    height: var(--control-height);
-    padding: 3px 7px;
-    color: var(--ink);
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius-control);
-  }
-
-  .new-room button.primary {
-    height: var(--control-height);
-    padding: 3px 8px;
-    color: white;
-    font-weight: 550;
-    background: var(--accent);
-    border: 1px solid var(--accent);
-    border-radius: var(--radius-control);
-  }
-
-  .new-room button.primary:hover:not(:disabled) {
-    background: var(--accent-hover);
-    border-color: var(--accent-hover);
-  }
-
-  .new-room button.primary:disabled {
-    cursor: wait;
-    opacity: 0.6;
-  }
-
   .empty-state {
     padding: 24px 12px;
     color: var(--ink-2);
@@ -403,32 +365,5 @@
     margin: 8px 0 0;
     color: var(--rec);
     font-size: 12px;
-  }
-
-  .sr-only {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
-  }
-
-  @media (max-width: 640px) {
-    .section-heading {
-      flex-direction: column;
-      align-items: stretch;
-    }
-
-    .new-room {
-      width: 100%;
-    }
-
-    .new-room input {
-      flex: 1;
-      width: 100%;
-    }
   }
 </style>

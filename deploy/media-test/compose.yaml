@@ -149,6 +149,9 @@ services:
       KLISI_JOIN_RATE_LIMIT: "10000"
       KLISI_WAIT_RATE_LIMIT: "10000"
       KLISI_LOGIN_RATE_LIMIT: "10000"
+      # The media gate covers meetings and recording, as a public install
+      # runs them: without transcripts.
+      KLISI_TRANSCRIPTS: "false"
     depends_on:
       livekit:
         condition: service_healthy

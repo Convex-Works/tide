@@ -173,15 +173,6 @@ func (o *OIDC) Logout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (o *OIDC) Me(w http.ResponseWriter, r *http.Request) {
-	session, ok := SessionFromContext(r.Context())
-	if !ok {
-		httpx.WriteError(w, http.StatusUnauthorized, "Authentication required.")
-		return
-	}
-	httpx.WriteJSON(w, http.StatusOK, api.Me{Sub: session.Sub, Email: session.Email, Name: session.Name})
-}
-
 func (o *OIDC) getProvider(ctx context.Context) (*oidc.Provider, error) {
 	o.mu.Lock()
 	defer o.mu.Unlock()

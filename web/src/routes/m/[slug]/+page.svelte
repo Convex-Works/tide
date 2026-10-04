@@ -289,10 +289,11 @@
   {/if}
 {/snippet}
 
-{#if meetingState === 'connected'}
+{#if meetingState === 'connected' && details}
   <RoomStage
     {rtc}
     roomSlug={slug}
+    roomName={details.name}
     onleave={leaveMeeting}
     {canManage}
     {pending}

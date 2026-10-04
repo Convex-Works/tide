@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"klisi/internal/api"
 	"klisi/internal/auth"
@@ -15,6 +16,10 @@ import (
 	"klisi/internal/recording"
 	"klisi/internal/store"
 )
+
+// maxNameLength is the longest room name, in characters (runes), not bytes:
+// a name in Greek or Japanese takes two or three bytes a character.
+const maxNameLength = 100
 
 // objectStore is the part of the recording object store room deletion
 // needs: it removes the files of the room's recordings.
@@ -68,12 +73,28 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "Request body must be valid JSON.")
 		return
 	}
+	// Both are optional (ARCHITECTURE.md §5): a blank name becomes the
+	// slug, and a blank slug is generated, like a missing one.
 	name := strings.TrimSpace(request.Name)
-	if name == "" || len(name) > 100 {
-		httpx.WriteError(w, http.StatusBadRequest, "Room name must be between 1 and 100 characters.")
+	if utf8.RuneCountInString(name) > maxNameLength {
+		httpx.WriteError(w, http.StatusBadRequest, "Room name must be at most 100 characters.")
 		return
 	}
-	room, err := h.service.Create(r.Context(), name, session.Sub)
+	var slug string
+	if request.Slug != nil {
+		slug = normalizeSlug(*request.Slug)
+	}
+	if slug != "" {
+		if err := validateSlug(slug); err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, err.Error()+".")
+			return
+		}
+	}
+	room, err := h.service.Create(r.Context(), name, slug, session.Sub)
+	if errors.Is(err, ErrSlugTaken) {
+		httpx.WriteError(w, http.StatusConflict, "That room link is already in use.")
+		return
+	}
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not create the room. Try again.")
 		return
@@ -174,7 +195,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 	}
 	if request.Name != nil {
 		name := strings.TrimSpace(*request.Name)
-		if name == "" || len(name) > 100 {
+		if name == "" || utf8.RuneCountInString(name) > maxNameLength {
 			httpx.WriteError(w, http.StatusBadRequest, "Room name must be between 1 and 100 characters.")
 			return
 		}

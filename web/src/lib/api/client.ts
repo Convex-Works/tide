@@ -113,10 +113,34 @@ export function me(): Promise<Me> {
   return requestJSON<Me>(MePath);
 }
 
-export function createRoom(name: string): Promise<RoomInfo> {
-  const body: CreateRoomRequest = { name };
-  return requestJSON<RoomInfo>(RoomsPath, jsonRequest('POST', body));
+/**
+ * Creates a room. Both fields are optional: a blank name becomes the slug,
+ * a missing slug is generated, and a taken one is a 409 (ARCHITECTURE.md §5).
+ */
+export async function createRoom(request: CreateRoomRequest): Promise<RoomInfo> {
+  // The New dialog can't be dismissed while it creates, so a stalled request
+  // must end on its own rather than hold the user in it.
+  const timeout = new AbortController();
+  const timer = setTimeout(() => timeout.abort(), createRoomTimeoutMs);
+  try {
+    return await requestJSON<RoomInfo>(RoomsPath, {
+      ...jsonRequest('POST', request),
+      signal: timeout.signal
+    });
+  } catch (cause) {
+    if (timeout.signal.aborted) {
+      throw new ApiError(
+        'The server took too long to answer. Check your rooms before trying again.',
+        0
+      );
+    }
+    throw cause;
+  } finally {
+    clearTimeout(timer);
+  }
 }
+
+const createRoomTimeoutMs = 15_000;
 
 export function listRooms(): Promise<RoomInfo[]> {
   return requestJSON<RoomInfo[]>(RoomsPath);

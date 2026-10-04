@@ -111,6 +111,27 @@ func withRateLimit(limiter *rateLimiter, ips *clientIPResolver, next http.Handle
 	})
 }
 
+// withLookupRateLimit limits a route that answers anyone, such as the room
+// lookup, whose 404s would otherwise let a client test slugs as fast as it
+// can ask (ARCHITECTURE.md §15). A guest is counted by client address; a
+// signed-in host by their sub, in a bucket of their own, so colleagues behind
+// one NAT don't share it and an account from a broad issuer can't test slugs
+// without a limit either.
+func withLookupRateLimit(limiter *rateLimiter, ips *clientIPResolver, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		key := ips.key(r)
+		if session, ok := auth.SessionFromContext(r.Context()); ok {
+			key = "host:" + session.Sub
+		}
+		if !limiter.allow(key) {
+			w.Header().Set("Cache-Control", "no-store")
+			httpx.WriteError(w, http.StatusTooManyRequests, "Too many requests. Try again later.")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 // withMoilRateLimit limits a moil endpoint. Machines read errors in moil's
 // own format (see writeMoilError) and show the message to their owner. The
 // code is the one the SDK refuses a pairing with when it has too many.

@@ -18,7 +18,7 @@ func clearKlisiEnv(t *testing.T) {
 		"KLISI_S3_EGRESS_ENDPOINT", "KLISI_S3_BUCKET", "KLISI_S3_ACCESS_KEY",
 		"KLISI_S3_SECRET_KEY", "KLISI_S3_REGION", "KLISI_EGRESS_TEMPLATE_URL",
 		"KLISI_DEV_MODE", "KLISI_JOIN_RATE_LIMIT", "KLISI_WAIT_RATE_LIMIT",
-		"KLISI_LOGIN_RATE_LIMIT", "KLISI_PAIR_RATE_LIMIT",
+		"KLISI_LOGIN_RATE_LIMIT", "KLISI_PAIR_RATE_LIMIT", "KLISI_TRANSCRIPTS",
 	} {
 		// t.Setenv registers restoration of the original value; the explicit
 		// Unsetenv afterwards gives LookupEnv-miss semantics during the test.
@@ -164,6 +164,33 @@ func TestLoadRateLimits(t *testing.T) {
 			}
 			if cfg.JoinRateLimit != DefaultJoinRateLimit {
 				t.Fatalf("JoinRateLimit = %d, want default", cfg.JoinRateLimit)
+			}
+		})
+	}
+}
+
+// Transcripts are off unless the operator turns them on, and a value
+// strconv.ParseBool can't read means off rather than refusing to start.
+func TestLoadTranscriptsSwitch(t *testing.T) {
+	for _, test := range []struct {
+		value string // "" leaves it unset
+		want  bool
+	}{
+		{"", false}, {"true", true}, {"1", true}, {"TRUE", true},
+		{"false", false}, {"0", false}, {"yes", false}, {"on", false},
+	} {
+		t.Run("KLISI_TRANSCRIPTS="+test.value, func(t *testing.T) {
+			clearKlisiEnv(t)
+			t.Setenv("KLISI_DEV_MODE", "true")
+			if test.value != "" {
+				t.Setenv("KLISI_TRANSCRIPTS", test.value)
+			}
+			cfg, err := Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.Transcripts != test.want {
+				t.Fatalf("Transcripts = %v, want %v", cfg.Transcripts, test.want)
 			}
 		})
 	}
