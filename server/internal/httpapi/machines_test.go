@@ -346,7 +346,7 @@ type klisiServer struct {
 	cfg    config.Config
 	url    string
 	client *http.Client
-	moil   *moil.Server
+	moil   *moil.Server // nil with transcripts off
 	// db is klisi's store, at dbPath.
 	db     *store.Store
 	dbPath string
@@ -397,10 +397,13 @@ func startKlisiOn(t *testing.T, db *store.Store, dbPath string, configure func(*
 		t.Fatal(err)
 	}
 	url := "http://" + listener.Addr().String()
+	// Transcripts are on unless configure turns them off: most of these
+	// tests are about them.
 	cfg := config.Config{
 		BaseURL: url, SessionSecret: "test-session-secret",
 		LiveKitURL: "ws://livekit.example", LiveKitAPIKey: "devkey",
 		LiveKitAPISecret: "test-livekit-secret-with-enough-bytes",
+		Transcripts:      true,
 	}
 	server := &http.Server{
 		ReadHeaderTimeout: 5 * time.Second,
@@ -417,7 +420,7 @@ func startKlisiOn(t *testing.T, db *store.Store, dbPath string, configure func(*
 	server.Handler = handler
 	ctx, shutdown := context.WithCancel(context.Background())
 	k := &klisiServer{
-		t: t, cfg: cfg, url: url, moil: background.moil, db: db, dbPath: dbPath,
+		t: t, cfg: cfg, url: url, moil: background.transcripts.moilServer(), db: db, dbPath: dbPath,
 		client:   &http.Client{Transport: &http.Transport{}, Timeout: 10 * time.Second},
 		served:   make(chan error, 1),
 		shutdown: shutdown,
@@ -430,6 +433,15 @@ func startKlisiOn(t *testing.T, db *store.Store, dbPath string, configure func(*
 		}
 	})
 	return k
+}
+
+// moilServer is the moil server machines connect to, or nil with
+// transcripts off.
+func (f *transcriptsFeature) moilServer() *moil.Server {
+	if f == nil {
+		return nil
+	}
+	return f.moil
 }
 
 // stop stops klisi, if the test hasn't, and returns what Serve returned.

@@ -36,7 +36,10 @@
 
   // One route, two jobs (ARCHITECTURE.md §8.1): with ?code= the moil app sent
   // the host here to confirm a pairing; without one it lists their machines.
-  type View = 'loading' | 'signed-out' | 'error' | 'confirm' | 'expired' | 'denied' | 'list';
+  // 'off': this server doesn't run transcripts (KLISI_TRANSCRIPTS), so it
+  // has no machines to show and nothing to pair with.
+  type View =
+    'loading' | 'signed-out' | 'error' | 'off' | 'confirm' | 'expired' | 'denied' | 'list';
 
   // Machines come online, go offline and get approved in the moil app while
   // this page is open, so the list refreshes itself quietly.
@@ -107,12 +110,17 @@
     const stale = () => destroyed || current !== shownCode;
     let next: View;
     try {
-      if (current) {
-        // Who is signing in only adds a line; the pairing is what matters.
-        const [waiting, host] = await Promise.all([pairing(current), me().catch(() => undefined)]);
+      // Without transcripts the server has no machine or pairing routes, so
+      // whether it runs them comes first.
+      const host = await me();
+      if (stale()) return;
+      if (!host.transcripts) {
+        next = 'off';
+      } else if (current) {
+        const waiting = await pairing(current);
         if (stale()) return;
         pending = waiting;
-        account = host?.email;
+        account = host.email;
         next = 'confirm';
       } else {
         const list = await listMachines();
@@ -404,6 +412,15 @@
       <a class="{accentButton} mt-4" href={signInHref} data-sveltekit-reload>
         <SignIn size={16} weight="regular" aria-hidden="true" /> Sign in
       </a>
+    </section>
+  {:else if view === 'off'}
+    <section class="mx-auto w-[min(100%,400px)] rounded-card border border-border bg-surface p-4">
+      <h1 id="view-focus" tabindex="-1" class="m-0 text-[15px] font-[550] leading-6 text-ink">
+        Transcripts aren't enabled on this server
+      </h1>
+      <p class="m-0 mt-1 text-[12px] text-ink-2">
+        Machines can't be paired here. Ask your klisi administrator if you need transcripts.
+      </p>
     </section>
   {:else if view === 'error'}
     <div class="rounded-card border border-border bg-surface px-4 py-8 text-center">

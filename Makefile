@@ -9,6 +9,7 @@ dev:
 	@set -e; \
 		if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
 		(cd server && KLISI_DEV_MODE=true KLISI_BASE_URL=http://localhost:5173 \
+			KLISI_TRANSCRIPTS=$${KLISI_TRANSCRIPTS:-true} \
 			KLISI_EGRESS_TEMPLATE_URL=http://host.docker.internal:5173/egress-template \
 			go run ./cmd/klisi) & go_pid=$$!; \
 		(cd web && npm run dev) & web_pid=$$!; \

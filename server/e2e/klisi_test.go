@@ -87,6 +87,8 @@ func startKlisiWith(t *testing.T, bundle *moil.Bundle) *klisi {
 			S3AccessKey:      objects.accessKey,
 			S3SecretKey:      objects.secretKey,
 			S3Region:         objects.region,
+			// What these tests are about (KLISI_TRANSCRIPTS).
+			Transcripts: true,
 		},
 		bundle: bundle,
 		url:    "http://" + address,

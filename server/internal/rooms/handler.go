@@ -68,12 +68,28 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "Request body must be valid JSON.")
 		return
 	}
+	// Both are optional (ARCHITECTURE.md §5): a blank name becomes the
+	// slug, and a blank slug is generated, like a missing one.
 	name := strings.TrimSpace(request.Name)
-	if name == "" || len(name) > 100 {
-		httpx.WriteError(w, http.StatusBadRequest, "Room name must be between 1 and 100 characters.")
+	if len(name) > 100 {
+		httpx.WriteError(w, http.StatusBadRequest, "Room name must be at most 100 characters.")
 		return
 	}
-	room, err := h.service.Create(r.Context(), name, session.Sub)
+	var slug string
+	if request.Slug != nil {
+		slug = normalizeSlug(*request.Slug)
+	}
+	if slug != "" {
+		if err := validateSlug(slug); err != nil {
+			httpx.WriteError(w, http.StatusBadRequest, err.Error()+".")
+			return
+		}
+	}
+	room, err := h.service.Create(r.Context(), name, slug, session.Sub)
+	if errors.Is(err, ErrSlugTaken) {
+		httpx.WriteError(w, http.StatusConflict, "That room link is already in use.")
+		return
+	}
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not create the room. Try again.")
 		return

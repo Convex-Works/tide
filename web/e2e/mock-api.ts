@@ -10,6 +10,7 @@ import {
   PairingConfirmPath,
   PairingDenyPath,
   PairingPath,
+  RecordingTranscriptDownloadPath,
   RecordingTranscriptPath,
   RoomRecordingsPath,
   RoomsPath,
@@ -237,10 +238,27 @@ export async function mockApi(page: Page, state: ApiState = defaultState()): Pro
 
     const slug = match(RoomRecordingsPath, path);
     if (method === 'GET' && slug) {
+      const listed = state.recordings.filter((item) => item.room_slug === slug[0]);
+      // With transcripts off the server never fills a recording's transcript.
       return json(
         200,
-        state.recordings.filter((item) => item.room_slug === slug[0])
+        state.me.transcripts ? listed : listed.map((item) => ({ ...item, transcript: wireNull }))
       );
+    }
+
+    // With transcripts off (KLISI_TRANSCRIPTS) the server registers none of
+    // these routes, so each is the API's catch-all 404, whatever the method.
+    const transcriptRoutes = [
+      MachinesPath,
+      MachinePath,
+      PairingPath,
+      PairingConfirmPath,
+      PairingDenyPath,
+      RecordingTranscriptPath,
+      RecordingTranscriptDownloadPath
+    ];
+    if (!state.me.transcripts && transcriptRoutes.some((template) => match(template, path))) {
+      return json(404, { error: 'API route not found.' });
     }
 
     const transcriptFor = match(RecordingTranscriptPath, path);

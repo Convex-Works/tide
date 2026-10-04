@@ -113,6 +113,10 @@ export function me(): Promise<Me> {
   return requestJSON<Me>(MePath);
 }
 
+/**
+ * Creates a room. Both fields are optional: a blank name becomes the slug,
+ * a missing slug is generated, and a taken one is a 409 (ARCHITECTURE.md §5).
+ */
 export function createRoom(request: CreateRoomRequest): Promise<RoomInfo> {
   return requestJSON<RoomInfo>(RoomsPath, jsonRequest('POST', request));
 }

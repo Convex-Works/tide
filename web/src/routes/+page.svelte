@@ -134,9 +134,11 @@
     <header>
       <a class="wordmark" href="/">klisi</a>
       <div class="account">
-        <a class="icon-link" href="/machines" aria-label="Machines" title="Machines">
-          <Desktop size={16} weight="regular" aria-hidden="true" />
-        </a>
+        {#if currentUser?.transcripts}
+          <a class="icon-link" href="/machines" aria-label="Machines" title="Machines">
+            <Desktop size={16} weight="regular" aria-hidden="true" />
+          </a>
+        {/if}
         <span>{currentUser?.name}</span>
         <button type="button" onclick={() => void signOut()}>Sign out</button>
       </div>
