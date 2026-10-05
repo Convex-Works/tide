@@ -15,7 +15,8 @@ import (
 )
 
 // busTick is how often the bus advances its keys' TTLs. miniredis was made for
-// tests and expires keys only when told time has passed.
+// tests and expires keys only when told time has passed, so each tick tells
+// it how much has: the wall-clock time since the last one.
 const busTick = time.Second
 
 // livekitUnlockScript is the one Lua script anything on the bus runs:
@@ -73,6 +74,9 @@ type Bus struct {
 	stop     chan struct{}
 	ticking  sync.WaitGroup
 
+	clock sync.Mutex
+	last  time.Time // when the TTLs were last advanced
+
 	closeOnce sync.Once
 }
 
@@ -91,15 +95,15 @@ func StartBus(addr, password string) (*Bus, error) {
 	// starts listening; a client would need the password and to beat this
 	// line to run a script before it.
 	kv.Server().SetPreHook(refuseUnknownScripts)
-	b := &Bus{kv: kv, password: password, stop: make(chan struct{})}
+	b := &Bus{kv: kv, password: password, stop: make(chan struct{}), last: time.Now()}
 	b.ticking.Add(1)
 	go b.tick()
 	return b, nil
 }
 
-// tick advances every TTL by busTick each busTick, so a key set to expire in
-// 1.5s is gone between one and two ticks later, as on a real Redis give or
-// take a second.
+// tick advances every TTL each busTick by the time that has passed, so a
+// key set to expire in 1.5s is gone between one and two ticks later, as on a
+// real Redis give or take a second.
 func (b *Bus) tick() {
 	defer b.ticking.Done()
 	ticker := time.NewTicker(busTick)
@@ -109,8 +113,21 @@ func (b *Bus) tick() {
 		case <-b.stop:
 			return
 		case <-ticker.C:
-			b.kv.FastForward(busTick)
+			b.advance(time.Now())
 		}
+	}
+}
+
+// advance moves every TTL on by the wall-clock time since the last advance.
+// A ticker drops the ticks a stalled process misses (a long GC, CPU
+// throttling, a paused VM), so counting ticks would stretch every TTL by
+// the stall; measuring the clock doesn't.
+func (b *Bus) advance(now time.Time) {
+	b.clock.Lock()
+	defer b.clock.Unlock()
+	if elapsed := now.Sub(b.last); elapsed > 0 {
+		b.kv.FastForward(elapsed)
+		b.last = now
 	}
 }
 
