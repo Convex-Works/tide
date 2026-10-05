@@ -13,6 +13,7 @@ package media
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"sync"
@@ -35,9 +36,12 @@ type Options struct {
 	APIKey    string
 	APISecret string
 
-	// NodeIP is the address advertised to browsers in ICE candidates. Empty
-	// means discover it: 127.0.0.1 when Loopback, else the public address
-	// found over STUN.
+	// NodeIP is the address advertised to browsers in ICE candidates, and it
+	// replaces the machine's interface addresses there. Empty means
+	// 127.0.0.1 when Loopback, else the public address found over STUN,
+	// advertised alongside the interface addresses: a recorder in tide's
+	// network namespace reaches media through those only when the address is
+	// discovered (ARCHITECTURE.md §2.1).
 	NodeIP   string
 	Loopback bool
 
@@ -99,6 +103,9 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := apiPortFree(opts.InternalPort); err != nil {
+		return nil, fmt.Errorf("media: the API port: %w", err)
+	}
 	node, err := routing.NewLocalNode(conf)
 	if err != nil {
 		return nil, fmt.Errorf("media: create node: %w", err)
@@ -138,9 +145,30 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 	}
 }
 
-// releaseFailed closes the media sockets InitializeServer opened, which
-// LiveKit only closes when a started server stops: a Start that fails (its
-// HTTP port taken, say) would otherwise keep the UDP and TCP ports.
+// apiPortFree checks, by listening on it for a moment, that the API port is
+// free. LiveKit's Start listens on it only after it has started its router
+// and IO service, which a failed Start leaves running (see releaseFailed),
+// so a taken port is refused here, before anything starts. Tests replace it
+// to make a start fail where LiveKit listens.
+var apiPortFree = func(port int) error {
+	listener, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	if err != nil {
+		return err
+	}
+	return listener.Close()
+}
+
+// releaseFailed cleans up after a LiveKit Start that failed: it closes the
+// media sockets InitializeServer opened, which LiveKit closes only when a
+// started server stops.
+//
+// It can't stop the rest. Before it listens, LiveKit's Start registers the
+// node and starts its router (with a bus: a keepalive published every 2 s)
+// and its IO service (psrpc handlers on the bus); it stops them only in a
+// Stop that follows a successful start, and keeps them in private fields.
+// apiPortFree leaves only a port taken between that check and LiveKit's own
+// listen, and tide exits after a failed start, so they end with the process;
+// only a process that goes on, a test, keeps them.
 func releaseFailed(lk *service.LivekitServer) {
 	lk.RoomManager().Stop()
 }
@@ -170,14 +198,16 @@ func abandon(lk *service.LivekitServer, r *run) {
 func (s *Server) URL() string { return s.url }
 
 // SignalHandler forwards browsers' signaling (SignalPath and everything under
-// it, WebSocket upgrades included) to the server. It clears the connection
-// deadlines tide's http.Server sets, since a signaling WebSocket lives as long
-// as the meeting.
+// it, WebSocket upgrades included) to the server: GET requests without a
+// body, nothing else. tide's connection deadlines hold until the server
+// accepts a WebSocket, when hijacking the connection clears them, since a
+// signaling WebSocket lives as long as the meeting.
 func (s *Server) SignalHandler() http.Handler { return s.signal }
 
-// Close stops the server at once: every room ends and its participants are
-// disconnected, as a crash would, so their clients reconnect when tide is
-// back. It returns once the media ports are released.
+// Close stops the server at once: every room ends, and every participant is
+// told the server is shutting down. Their clients disconnect rather than
+// retry, and the meeting page offers Rejoin, which asks tide for a new token
+// (ARCHITECTURE.md §2.1). It returns once the media ports are released.
 func (s *Server) Close() error {
 	s.closeOnce.Do(func() {
 		s.lk.Stop(true)
