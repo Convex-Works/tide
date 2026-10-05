@@ -6,10 +6,15 @@ import {
   MachinePaused,
   MachinePath,
   MachinesPath,
+  LobbyWaitPath,
   MePath,
   PairingConfirmPath,
   PairingDenyPath,
   PairingPath,
+  RecordingDownloadPath,
+  RecordingPath,
+  RecordingStartPath,
+  RecordingStopPath,
   RecordingTranscriptDownloadPath,
   RecordingTranscriptPath,
   RoomJoinPath,
@@ -47,7 +52,14 @@ export interface ApiCall {
 }
 
 export interface ApiState {
+  /**
+   * Whether this browser has a session. Without sign-in (`me.anonymous`)
+   * the server issues one on GET /api/me, so a signed-out browser becomes a
+   * signed-in one there, owning nothing yet (ARCHITECTURE.md §4.1).
+   */
   signedIn: boolean;
+  /** Whether the session owns `rooms`, as every spec's host does; default true. */
+  ownsRooms?: boolean;
   me: Me;
   rooms: RoomInfo[];
   recordings: RecordingInfo[];
@@ -254,7 +266,8 @@ export async function mockApi(page: Page, state: ApiState = defaultState()): Pro
     }
 
     // A meeting's public face answers signed-out guests too (lobby/handler.go).
-    // Every mock room belongs to the signed-in user.
+    // Every mock room belongs to the signed-in user, unless ownsRooms says not.
+    const manager = state.signedIn && state.ownsRooms !== false;
     const publicSlug = match(RoomPath, path);
     if (method === 'GET' && publicSlug) {
       const room = state.rooms.find((item) => item.slug === publicSlug[0]);
@@ -263,7 +276,7 @@ export async function mockApi(page: Page, state: ApiState = defaultState()): Pro
         slug: room.slug,
         name: room.name,
         lobby_enabled: room.lobby_enabled,
-        can_manage: state.signedIn
+        can_manage: manager
       };
       return json(200, info);
     }
@@ -277,11 +290,31 @@ export async function mockApi(page: Page, state: ApiState = defaultState()): Pro
         token: fakeToken(identity, who),
         ws_url: fakeSfuURL
       });
-      if (state.signedIn) return json(200, admitted(`host:${state.me.sub}:0001`, state.me.name));
+      // A manager joins under their account's name, or the one they typed
+      // when it has none, as an anonymous owner's hasn't.
+      if (manager) {
+        return json(200, admitted(`host:${state.me.sub}:0001`, state.me.name || name));
+      }
       if (!room.lobby_enabled) return json(200, admitted('guest:0001', name));
       return json(200, { status: 'waiting', request_id: 'lr-0001' } satisfies JoinResponse);
     }
 
+    // A guest's wait in the lobby, which nobody in the mock answers; it needs
+    // no session (lobby/handler.go).
+    if (method === 'GET' && match(LobbyWaitPath, path)) {
+      return route.fulfill({
+        status: 200,
+        contentType: 'text/event-stream',
+        body: 'retry: 60000\n\n'
+      });
+    }
+
+    if (!state.signedIn && state.me.anonymous && method === 'GET' && path === MePath) {
+      // An anonymous session, issued on the spot: a new browser owns no room.
+      state.signedIn = true;
+      state.ownsRooms = false;
+      return json(200, state.me);
+    }
     if (!state.signedIn) return json(401, { error: 'Authentication required.' });
 
     // The host's lobby stream, with nobody waiting.
@@ -294,10 +327,26 @@ export async function mockApi(page: Page, state: ApiState = defaultState()): Pro
     }
 
     if (method === 'GET' && path === MePath) return json(200, state.me);
-    if (method === 'GET' && path === RoomsPath) return json(200, state.rooms);
+    if (method === 'GET' && path === RoomsPath) {
+      return json(200, state.ownsRooms === false ? [] : state.rooms);
+    }
     if (method === 'POST' && path === RoomsPath) {
       const created = createRoom(state, request.postDataJSON() as CreateRoomRequest);
+      // Creating the first room makes this browser an owner (of them all, in the mock).
+      if (created.status === 201) state.ownsRooms = true;
       return json(created.status, created.body);
+    }
+
+    // Without recording (§8) the server registers none of these routes.
+    const recordingRoutes = [
+      RecordingStartPath,
+      RecordingStopPath,
+      RoomRecordingsPath,
+      RecordingPath,
+      RecordingDownloadPath
+    ];
+    if (!state.me.recording && recordingRoutes.some((template) => match(template, path))) {
+      return json(404, { error: 'API route not found.' });
     }
 
     const slug = match(RoomRecordingsPath, path);
