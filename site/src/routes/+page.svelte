@@ -4,6 +4,7 @@
   import NewRoomCard from '#lib/NewRoomCard.svelte';
   import SiteFooter from '#lib/SiteFooter.svelte';
   import SiteHeader from '#lib/SiteHeader.svelte';
+  import TideBackdrop from '#lib/TideBackdrop.svelte';
 </script>
 
 <svelte:head>
@@ -17,7 +18,8 @@
     <section
       class="relative grid min-h-0 flex-1 content-center items-center gap-12 overflow-hidden rounded-lg border border-line bg-stone px-5 py-10 sm:px-10 xl:grid-cols-[minmax(0,26rem)_minmax(0,1fr)] xl:gap-16 xl:px-14"
     >
-      <div>
+      <TideBackdrop />
+      <div class="relative">
         <h1 class="text-[30px] leading-[1.12] tracking-[-0.02em] text-balance sm:text-[44px]">
           tide. <span class="text-ink-2">Simple, self&#8209;hostable video conference service</span>
         </h1>
