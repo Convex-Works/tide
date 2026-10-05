@@ -2,20 +2,15 @@
 
 Goal: have every value the install step needs, written down.
 
-Requires: admin access to a Kubernetes cluster, a DNS zone, an OpenID Connect issuer, an S3-compatible object store, and `openssl`.
+Requires: admin access to a Kubernetes cluster, a DNS zone, and `openssl`. For sign-in, an OpenID Connect issuer; for recording, an S3-compatible object store.
 
-## 1. Hostnames
+## 1. Hostname
 
-Choose two names and point both at your ingress:
-
-| Placeholder  | Example             | Serves                             |
-| ------------ | ------------------- | ---------------------------------- |
-| `APP_HOST`   | `meet.example.com`  | the web app and API                |
-| `MEDIA_HOST` | `media.example.com` | media server signaling (WebSocket) |
-
-Both need TLS certificates your ingress serves.
+Choose one name, `APP_HOST` (for example `meet.example.com`), point it at your ingress, and give the ingress a TLS certificate for it. The web app, its API and the media server's signaling all use it.
 
 ## 2. OIDC client
+
+Skip this for an anonymous installation, where anyone can create a room.
 
 Register a confidential client using the authorization code flow:
 
@@ -32,6 +27,8 @@ Record:
 
 ## 3. Bucket
 
+Only with recording, which needs sign-in.
+
 Create a bucket and an access key that can `GetObject`, `PutObject` and `DeleteObject` on `recordings/*`. Add `transcripts-staging/*` if you will turn on [transcripts](/docs/transcripts).
 
 Record `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` (16 characters or more), and the store's URL as each caller reaches it:
@@ -40,13 +37,13 @@ Record `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` (16 characters
 | ---------------------- | -------- | ---------------------------------------------------------------- |
 | `S3_ENDPOINT`          | tide     | reachable from the tide pod                                      |
 | `S3_PUBLIC_ENDPOINT`   | browsers | public HTTPS with a matching certificate; download links name it |
-| `S3_RECORDER_ENDPOINT` | recorder | reachable from the recorder pod                                  |
+| `S3_RECORDER_ENDPOINT` | recorder | reachable from the tide pod, where the recorder runs             |
 
 With a public store such as AWS S3, all three are the same HTTPS URL. tide uses path-style addressing.
 
 ## 4. Media network path
 
-Audio and video do not pass through the ingress. Browsers connect straight to the media server's public address on these ports:
+Audio and video do not pass through the ingress. Browsers connect straight to tide's public address on these ports:
 
 | Port       | Carries                              |
 | ---------- | ------------------------------------ |
@@ -64,20 +61,20 @@ A DNS name is not a substitute for `NODE_IP`.
 ## 5. Secrets
 
 ```sh
-openssl rand -base64 48   # SESSION_SECRET
-openssl rand -hex 8       # MEDIA_API_KEY: letters, digits, - and _ only
-openssl rand -base64 48   # MEDIA_API_SECRET
+openssl rand -base64 48   # SESSION_SECRET, with sign-in
+openssl rand -hex 8       # MEDIA_API_KEY, with recording
+openssl rand -hex 32      # MEDIA_API_SECRET, with recording
+openssl rand -hex 32      # RECORDER_PASSWORD, with recording
 ```
 
-tide refuses to start if the session or media secret is shorter than 32 characters, or the OIDC or S3 secret shorter than 16.
+tide refuses to start if the session secret, media secret or recorder password is shorter than 32 characters, or the OIDC or S3 secret shorter than 16. Keep the recorder password hex: the recorder's configuration embeds it in YAML.
 
 ## Done when
 
-- [ ] `APP_HOST` and `MEDIA_HOST` resolve to the ingress, with certificates
-- [ ] `REGISTRY`, `VERSION` and a durable `STORAGE_CLASS`
-- [ ] `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`
-- [ ] `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_ENDPOINT`, `S3_PUBLIC_ENDPOINT`, `S3_RECORDER_ENDPOINT`
+- [ ] `APP_HOST` resolves to the ingress, with a certificate
+- [ ] `REGISTRY`, `VERSION`, and with sign-in a durable `STORAGE_CLASS`
 - [ ] `MEDIA_OPTION`, `NODE_IP`, and for `host` or `tcp` the node's name `NODE_NAME`
-- [ ] `SESSION_SECRET`, `MEDIA_API_KEY`, `MEDIA_API_SECRET`
+- [ ] with sign-in: `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `SESSION_SECRET`
+- [ ] with recording: `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_ENDPOINT`, `S3_PUBLIC_ENDPOINT`, `S3_RECORDER_ENDPOINT`, `MEDIA_API_KEY`, `MEDIA_API_SECRET`, `RECORDER_PASSWORD`
 
 Next: [Install](/docs/install).

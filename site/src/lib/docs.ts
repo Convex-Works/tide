@@ -18,7 +18,7 @@ export const docPages: DocPage[] = [
     slug: 'index',
     path: '/docs',
     title: 'Overview',
-    summary: 'What runs, what you bring, and the order of the steps.',
+    summary: 'The modes, what runs, what you bring, and the order of the steps.',
     group: 'runbook'
   },
   {
@@ -26,7 +26,7 @@ export const docPages: DocPage[] = [
     path: '/docs/prepare',
     title: 'Prepare',
     step: '01',
-    summary: 'Hostnames, OIDC client, bucket, media network path and secrets.',
+    summary: 'Hostname, OIDC client, bucket, media network path and secrets.',
     group: 'runbook'
   },
   {
@@ -52,6 +52,13 @@ export const docPages: DocPage[] = [
     step: '04',
     summary: 'Backups, upgrades, rollback and incident evidence.',
     group: 'runbook'
+  },
+  {
+    slug: 'one-server',
+    path: '/docs/one-server',
+    title: 'One server',
+    summary: 'The binary behind Caddy on one Linux server, or Docker Compose with the recorder.',
+    group: 'reference'
   },
   {
     slug: 'configuration',

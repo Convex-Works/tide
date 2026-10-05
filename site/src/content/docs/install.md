@@ -1,6 +1,6 @@
 # Install
 
-Goal: tide, the media server, the recorder and redis running in the `tide` namespace, reachable at `APP_HOST` and `MEDIA_HOST`.
+Goal: tide running in the `tide` namespace, with the recorder beside it if you record, reachable at `APP_HOST`.
 
 Requires: every value from [Prepare](/docs/prepare), a checkout of the tide repository, `kubectl`, `docker` with `buildx`, and a container registry the cluster can pull from (`REGISTRY`).
 
@@ -18,8 +18,9 @@ The image runs `/tide` as a non-root user, listens on `8080`, and keeps its data
 
 ```sh
 kubectl create namespace tide
-# The recorder needs SYS_ADMIN and an unconfined seccomp profile.
-# The namespace holds only tide, so allow it there and nowhere else.
+# The recorder needs SYS_ADMIN and an unconfined seccomp profile, and host
+# ports break the baseline policy too. The namespace holds only tide, so
+# allow it there and nowhere else.
 kubectl label namespace tide pod-security.kubernetes.io/enforce=privileged
 ```
 
@@ -31,22 +32,28 @@ Secret names and keys must match exactly; the manifests reference them.
 kubectl -n tide create secret generic tide-secrets \
   --from-literal=session-secret="$SESSION_SECRET" \
   --from-literal=oidc-client-secret="$OIDC_CLIENT_SECRET"
+```
 
+With recording, also:
+
+```sh
 kubectl -n tide create secret generic media-secrets \
   --from-literal=api-key="$MEDIA_API_KEY" \
   --from-literal=api-secret="$MEDIA_API_SECRET" \
-  --from-literal=keys="$MEDIA_API_KEY: $MEDIA_API_SECRET"
+  --from-literal=recorder-redis-password="$RECORDER_PASSWORD"
 
 kubectl -n tide create secret generic s3-secrets \
   --from-literal=access-key="$S3_ACCESS_KEY" \
   --from-literal=secret-key="$S3_SECRET_KEY"
 ```
 
-Also create `tide-tls`, a TLS secret covering `APP_HOST` and `MEDIA_HOST`, with cert-manager or `kubectl create secret tls`.
+For an anonymous installation, `tide-secrets` still has to exist: give `session-secret` any random value and `oidc-client-secret` the word `unused`.
+
+Also create `tide-tls`, a TLS secret for `APP_HOST`, with cert-manager or `kubectl create secret tls`.
 
 ## 4. Write the overlay
 
-The base in `deploy/k8s/` is not deployable as is: every line marked `# OVERLAY:` needs a value. Create `deploy/overlays/production/` with these files and replace every `<PLACEHOLDER>` with its value from 01.
+The base in `deploy/k8s/` is not deployable as is: every line marked `# OVERLAY:` needs a value. Create `deploy/overlays/production/` with these files and replace every `<PLACEHOLDER>` with its value from [Prepare](/docs/prepare).
 
 `kustomization.yaml`:
 
@@ -57,18 +64,19 @@ namespace: tide
 resources:
   - ../../k8s
   - ingress.yaml
+  # and media-lb.yaml here for MEDIA_OPTION lb
+components:
+  - ../../k8s/recording # only with recording
 images:
   - name: registry.example.com/tide
     newName: <REGISTRY>/tide
     newTag: <VERSION>
 patches:
   - path: tide.yaml
-  - path: media.yaml
-  - path: recorder.yaml
-  # and media-lb.yaml under resources, or media-host.yaml / media-tcp.yaml here
+  # and media-host.yaml or media-tcp.yaml here for MEDIA_OPTION host or tcp
 ```
 
-`tide.yaml`:
+`tide.yaml`. Leave out the `TIDE_S3_*` lines without recording. For an anonymous installation, set `TIDE_OIDC_ISSUER` to `""` and leave out the other OIDC lines; the volume then goes unused.
 
 ```yaml
 apiVersion: apps/v1
@@ -83,8 +91,8 @@ spec:
           env:
             - name: TIDE_BASE_URL
               value: https://<APP_HOST>
-            - name: TIDE_MEDIA_PUBLIC_URL
-              value: wss://<MEDIA_HOST>
+            - name: TIDE_MEDIA_NODE_IP
+              value: <NODE_IP>
             - name: TIDE_OIDC_ISSUER
               value: <OIDC_ISSUER>
             - name: TIDE_OIDC_CLIENT_ID
@@ -108,59 +116,6 @@ spec:
   storageClassName: <STORAGE_CLASS> # durable storage; 5Gi is plenty
 ```
 
-`recorder.yaml`:
-
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: recorder-config
-data:
-  config.yaml: |
-    ws_url: ws://media:7880
-    redis:
-      address: redis:6379
-    health_port: 8081
-    s3:
-      region: <S3_REGION>
-      endpoint: <S3_RECORDER_ENDPOINT>
-      bucket: <S3_BUCKET>
-      force_path_style: true
-```
-
-`media.yaml` signs the media server's webhooks with `MEDIA_API_KEY` (never the secret) and advertises `NODE_IP`:
-
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: media-config
-data:
-  config.yaml: |
-    port: 7880
-    rtc:
-      tcp_port: 7881
-      udp_port: 7882
-      use_external_ip: false
-    redis:
-      address: redis:6379
-    webhook:
-      api_key: <MEDIA_API_KEY>
-      urls:
-        - http://tide:8080/api/webhooks/media
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: media
-spec:
-  template:
-    spec:
-      containers:
-        - name: media
-          args: ['--config', '/etc/media/config.yaml', '--node-ip', '<NODE_IP>']
-```
-
 Then add exactly one file for your `MEDIA_OPTION`, and list it in `kustomization.yaml` where the table says:
 
 | `MEDIA_OPTION` | File              | List it under |
@@ -175,34 +130,41 @@ Then add exactly one file for your `MEDIA_OPTION`, and list it in `kustomization
 apiVersion: v1
 kind: Service
 metadata:
-  name: media-udp
+  name: tide-media
 spec:
   type: LoadBalancer
   externalTrafficPolicy: Local
   selector:
-    app.kubernetes.io/name: media
-    app.kubernetes.io/component: media
+    app.kubernetes.io/name: tide
+    app.kubernetes.io/component: app
   ports:
-    - name: ice-udp
+    - name: media-udp
       port: 7882
-      targetPort: ice-udp
+      targetPort: media-udp
       protocol: UDP
 ```
 
-`media-host.yaml`: run on the public node's network. First run `kubectl label node <NODE_NAME> tide/media=public`.
+`media-host.yaml`: tide's media ports on the public node. First run `kubectl label node <NODE_NAME> tide/media=public`.
 
 ```yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: media
+  name: tide
 spec:
   template:
     spec:
-      hostNetwork: true
-      dnsPolicy: ClusterFirstWithHostNet
       nodeSelector:
         tide/media: public
+      containers:
+        - name: tide
+          ports:
+            - containerPort: 7881
+              hostPort: 7881
+              protocol: TCP
+            - containerPort: 7882
+              hostPort: 7882
+              protocol: UDP
 ```
 
 `media-tcp.yaml`: TCP only, on the public node. Label it as for `host`.
@@ -211,21 +173,21 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: media
+  name: tide
 spec:
   template:
     spec:
       nodeSelector:
         tide/media: public
       containers:
-        - name: media
+        - name: tide
           ports:
             - containerPort: 7881
               hostPort: 7881
               protocol: TCP
 ```
 
-`ingress.yaml`, for ingress-nginx. The media host carries WebSockets, so keep the long timeouts.
+`ingress.yaml`, for ingress-nginx. Signaling is a WebSocket on the same host, so keep the long timeouts.
 
 ```yaml
 apiVersion: networking.k8s.io/v1
@@ -240,7 +202,7 @@ metadata:
 spec:
   ingressClassName: nginx
   tls:
-    - hosts: [<APP_HOST>, <MEDIA_HOST>]
+    - hosts: [<APP_HOST>]
       secretName: tide-tls
   rules:
     - host: <APP_HOST>
@@ -250,16 +212,9 @@ spec:
             pathType: Prefix
             backend:
               service: { name: tide, port: { number: 8080 } }
-    - host: <MEDIA_HOST>
-      http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service: { name: media, port: { number: 7880 } }
 ```
 
-Keep the pinned media server, recorder and redis images: they are released and tested together.
+Keep the recorder's pinned image: it is released and tested with tide's media server.
 
 ## 5. Apply
 
@@ -268,7 +223,7 @@ Keep the pinned media server, recorder and redis images: they are released and t
 kubectl kustomize deploy/overlays/production | grep -nE '<[A-Z_]+>|example\.com|replace-with'
 
 kubectl apply -k deploy/overlays/production
-for d in redis media recorder tide; do kubectl -n tide rollout status deploy/$d --timeout=5m; done
+kubectl -n tide rollout status deploy/tide --timeout=5m
 ```
 
 ## 6. Rate limits behind the ingress
@@ -277,8 +232,8 @@ tide limits joins, sign-ins and lobby waits per client. Behind an ingress every 
 
 ## Done when
 
-- [ ] all four Deployments report `successfully rolled out`
+- [ ] `kubectl -n tide rollout status deploy/tide` reports `successfully rolled out`
 - [ ] `curl -fsS https://APP_HOST/healthz` prints `ok`
-- [ ] `kubectl -n tide logs deploy/tide` shows `tide listening on` and no `refusing to start`
+- [ ] `kubectl -n tide logs deploy/tide -c tide` shows `tide listening on`, the mode you meant, and no `refusing to start`
 
 Next: [Verify](/docs/verify).
