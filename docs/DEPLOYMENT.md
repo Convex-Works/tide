@@ -95,7 +95,8 @@ server and the recorder share one, at `TIDE_RECORDER_REDIS_ADDR` (default
 too. Redis holds nothing durable: run it without persistence, bound to
 loopback or a private network only, since recording jobs carry the S3
 credentials. tide waits up to 30 seconds for it at startup, then refuses to
-start, naming the address. If Redis restarts, signaling pauses: joins wait,
+start, naming the address; it also refuses a Redis that answers without a
+password, or rejects this one. If Redis restarts, signaling pauses: joins wait,
 clients reconnect on their own, and media keeps flowing; a recording starting
 or stopping in that moment may fail. Without recording, tide uses no Redis.
 
@@ -460,7 +461,7 @@ or equal to a value shipped in this repository refuses startup.
 | `TIDE_S3_SECRET_KEY`           | none                                   | With recording: required, at least 16 characters.                                                                                                                                                                                                                 |
 | `TIDE_RECORDER_TEMPLATE_URL`   | `<TIDE_BASE_URL>/egress-template`      | The page the recorder's Chrome loads to draw a meeting. With the recorder in tide's network: `http://127.0.0.1:8080/egress-template`.                                                                                                                             |
 | `TIDE_RECORDER_REDIS_ADDR`     | `127.0.0.1:6379`                       | The Redis tide's media server and the recorder share, as `host:port` (a name or an address), with recording and the embedded media server ([Redis, with recording](#redis-with-recording)). Keep it off public networks: recording jobs carry the S3 credentials. |
-| `TIDE_RECORDER_REDIS_PASSWORD` | none                                   | With recording and the embedded media server: required, at least 32 characters. Redis's `requirepass`, and the recorder's `redis.password`.                                                                                                                       |
+| `TIDE_RECORDER_REDIS_PASSWORD` | none                                   | With recording and the embedded media server: required, at least 32 characters. Redis's `requirepass` (tide refuses a Redis without one), and the recorder's `redis.password`.                                                                                    |
 | `TIDE_TRUSTED_PROXIES`         | empty                                  | Comma-separated IPs or CIDRs of proxies whose `X-Forwarded-For` tide believes. Only your proxy or ingress. An invalid entry refuses startup.                                                                                                                      |
 | `TIDE_DEV_MODE`                | `false`                                | Supplies the publicly known development value for any secret left unset and exposes `/api/dev/token`. Turns nothing else on. Never in production.                                                                                                                 |
 | `TIDE_JOIN_RATE_LIMIT`         | `10`                                   | Joins per client per minute. Also sizes, in buckets of their own, room lookups and, when anonymous, room creation.                                                                                                                                                |

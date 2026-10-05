@@ -257,6 +257,26 @@ func TestTideRefusesARedisThatNeverAnswers(t *testing.T) {
 	}
 }
 
+// A Redis with no password won't get one by waiting either, and tide won't
+// put the recorder's jobs, which carry S3 credentials, where anyone can read
+// them: it stops at once, saying what to set.
+func TestTideRefusesARedisWithoutAPassword(t *testing.T) {
+	kv := miniredis.NewMiniRedis()
+	if err := kv.StartAddr("127.0.0.1:0"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(kv.Close)
+	tcp, udp := freePorts(t, 2)
+	k := launchMain(t, append(recordingEnv(t, kv.Addr(), tcp[0], tcp[1], udp[0]), "TIDE_TEST_REDIS_WAIT=60s")...)
+	if state := k.wait(10 * time.Second); state.Success() {
+		t.Fatal("tide exited 0 with a Redis that has no password")
+	}
+	k.drainLogs()
+	if !k.logged("answers without a password: set its requirepass to TIDE_RECORDER_REDIS_PASSWORD") {
+		t.Fatalf("tide's error doesn't say to set requirepass; it logged %q", k.history)
+	}
+}
+
 // A password Redis refuses won't get better by waiting: tide stops at once,
 // naming the setting.
 func TestTideRefusesAWrongRedisPassword(t *testing.T) {

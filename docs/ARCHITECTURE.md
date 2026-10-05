@@ -1018,7 +1018,10 @@ up between runs for iteration.
 - The recorder's Redis carries recording jobs, and a recording job carries
   the S3 credentials the recorder uploads with, as well as the media server's
   signal relay. It requires a password of at least 32 characters
-  (`requirepass`), and the reference deployments keep it off every network:
+  (`requirepass`), and tide checks: it refuses to start against a Redis that
+  answers without one (a Redis with no `requirepass` accepts any password, so
+  authenticating proves nothing). The reference deployments keep it off every
+  network:
   in Kubernetes it runs in tide's pod bound to 127.0.0.1, in Compose on the
   project's private network with no published port. It is a separate,
   ordinary Redis, so nothing a client sends it can take tide down.

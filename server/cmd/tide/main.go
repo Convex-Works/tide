@@ -218,7 +218,7 @@ func waitForRedis(ctx context.Context, addr, password string) error {
 	for {
 		err := client.Ping(waitCtx).Err()
 		if err == nil {
-			return nil
+			return requireRedisPassword(waitCtx, addr)
 		}
 		if refused := strings.ToUpper(err.Error()); strings.Contains(refused, "WRONGPASS") ||
 			strings.Contains(refused, "NOAUTH") || strings.Contains(refused, "INVALID PASSWORD") {
@@ -237,6 +237,27 @@ func waitForRedis(ctx context.Context, addr, password string) error {
 		case <-time.After(time.Second):
 		}
 	}
+}
+
+// requireRedisPassword refuses a Redis that answers without a password. A
+// Redis without requirepass accepts any password, so the PING that
+// authenticated proves nothing; the recorder's jobs carry S3 credentials,
+// and tide won't put them where anyone who reaches the address can read
+// them (ARCHITECTURE.md §15).
+func requireRedisPassword(ctx context.Context, addr string) error {
+	anonymous := redis.NewClient(&redis.Options{
+		Addr: addr, MaxRetries: -1, Protocol: 2,
+		DialTimeout: time.Second, ReadTimeout: time.Second, WriteTimeout: time.Second,
+	})
+	defer anonymous.Close()
+	err := anonymous.Ping(ctx).Err()
+	if err == nil {
+		return fmt.Errorf("Redis at %s (TIDE_RECORDER_REDIS_ADDR) answers without a password: set its requirepass to TIDE_RECORDER_REDIS_PASSWORD", addr)
+	}
+	if strings.Contains(strings.ToUpper(err.Error()), "NOAUTH") {
+		return nil
+	}
+	return fmt.Errorf("Redis at %s (TIDE_RECORDER_REDIS_ADDR): check that it requires a password: %w", addr, err)
 }
 
 // webhookURL is tide's media webhook endpoint as the embedded server reaches
