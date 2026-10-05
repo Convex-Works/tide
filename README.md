@@ -49,10 +49,8 @@ password `tide-dev`. `make dev` writes the detected LAN address to
 server and Vite.
 
 It is made for macOS with Docker Desktop. On Linux, recordings need
-`TIDE_MEDIA_NODE_IP=<LAN address>` (the detection uses macOS's `ipconfig`) and
-`TIDE_RECORDER_REDIS_ADDR=172.17.0.1:6379` (usually; Docker on Linux doesn't route
-`host.docker.internal` to the host's loopback) in `.env` at the repository
-root, which `make dev` loads last.
+`TIDE_MEDIA_NODE_IP=<LAN address>` (the detection uses macOS's `ipconfig`) in
+`.env` at the repository root, which `make dev` loads last.
 
 Useful targets:
 

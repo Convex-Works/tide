@@ -22,9 +22,9 @@ Requires: Go 1.26+, Node 22+, Docker with Compose.
 make dev
 ```
 
-`make dev` runs tide with sign-in and recording: the sign-in server, the object store and the recorder in Docker, tide and the web app on the host. Open `http://localhost:5173` and sign in as `host@tide.dev` with password `tide-dev`.
+`make dev` runs tide with sign-in and recording: the sign-in server, the object store, Redis and the recorder in Docker, tide and the web app on the host. Open `http://localhost:5173` and sign in as `host@tide.dev` with password `tide-dev`.
 
-`make dev` is made for macOS with Docker Desktop. On Linux, recordings need two lines in `.env` at the repository root: `TIDE_MEDIA_NODE_IP=<your LAN address>` (`make dev` finds it with macOS's `ipconfig`) and `TIDE_RECORDER_REDIS_ADDR=172.17.0.1:6379`, or whatever address `host.docker.internal` has in the recorder (usually that one) (Docker Desktop routes it to the host's loopback; Linux doesn't). Meetings work without them.
+`make dev` is made for macOS with Docker Desktop. On Linux, recordings need one line in `.env` at the repository root: `TIDE_MEDIA_NODE_IP=<your LAN address>` (`make dev` finds it with macOS's `ipconfig`). Meetings work without it.
 
 | Command      | Does                                                  |
 | ------------ | ----------------------------------------------------- |

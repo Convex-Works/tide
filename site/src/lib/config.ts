@@ -187,13 +187,13 @@ export const envGroups: EnvGroup[] = [
         required: 'with recording',
         minLength: 32,
         description:
-          'Password the recorder uses for tide’s coordination endpoint. Hex keeps it safe in the recorder’s YAML.'
+          'Redis’s password (requirepass), which tide and the recorder use. Hex keeps it safe in the recorder’s YAML.'
       },
       {
         name: 'TIDE_RECORDER_REDIS_ADDR',
         default: '127.0.0.1:6379',
         description:
-          'Where tide serves that endpoint. Run the recorder in tide’s network and leave it alone; recording jobs carry the bucket’s credentials.'
+          'The Redis tide and the recorder share, as host:port. Keep it on loopback or a private network: recording jobs carry the bucket’s credentials. One Redis per tide.'
       },
       {
         name: 'TIDE_RECORDER_TEMPLATE_URL',

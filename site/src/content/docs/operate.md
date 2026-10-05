@@ -44,7 +44,7 @@ Releases before this one ran the media server, redis and the recorder as their o
 
 To move onto tide's own media server, when no meeting is running:
 
-1. Rebuild the overlay from the current base as in [Install](/docs/install): drop `TIDE_MEDIA_URL` and `TIDE_MEDIA_PUBLIC_URL`, set `TIDE_MEDIA_NODE_IP` only for `MEDIA_OPTION` `lb`, add `recorder-redis-password` to `media-secrets`, and move the media option to tide.
+1. Rebuild the overlay from the current base as in [Install](/docs/install): drop `TIDE_MEDIA_URL` and `TIDE_MEDIA_PUBLIC_URL`, set `TIDE_MEDIA_NODE_IP` only for `MEDIA_OPTION` `lb`, add `recorder-redis-password` to `media-secrets`, and move the media option to tide. The recording component brings its own Redis in tide's pod, so the old one goes too.
 2. Delete the old media server first. It holds the host ports or load balancer address tide needs, and tide can't start beside it:
 
    ```sh

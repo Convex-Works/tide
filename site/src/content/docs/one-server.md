@@ -134,15 +134,31 @@ services:
     restart: unless-stopped
     stop_grace_period: 20s
 
+  redis:
+    image: redis:7.4.8-alpine3.21
+    network_mode: host
+    user: '999:1000'
+    environment:
+      REDISCLI_AUTH: ${TIDE_RECORDER_REDIS_PASSWORD}
+    command:
+      - sh
+      - -ec
+      - |
+        umask 077
+        printf 'requirepass %s\n' "$$REDISCLI_AUTH" > /tmp/redis.conf
+        exec redis-server /tmp/redis.conf --bind 127.0.0.1 --port 6379 --save '' --appendonly no
+    healthcheck:
+      test: ['CMD-SHELL', 'redis-cli -h 127.0.0.1 ping | grep -q PONG']
+      interval: 2s
+      retries: 30
+    restart: unless-stopped
+
   recorder:
     image: livekit/egress:v1.13.0
     network_mode: service:tide
-    entrypoint:
-      - /bin/sh
-      - -c
-      - >-
-        until wget -q -O /dev/null http://127.0.0.1:8080/healthz; do sleep 1; done;
-        exec /entrypoint.sh
+    depends_on:
+      redis:
+        condition: service_healthy
     environment:
       LIVEKIT_API_KEY: ${TIDE_MEDIA_API_KEY}
       LIVEKIT_API_SECRET: ${TIDE_MEDIA_API_SECRET}
@@ -163,7 +179,7 @@ volumes:
   tide-data:
 ```
 
-The recorder shares tide's network, so it reaches tide's media server and coordination endpoint on loopback, where nothing else can. tide uses the host's network because media is UDP. The recorder joins meetings like a browser, through the address tide advertises: leave `TIDE_MEDIA_NODE_IP` unset, or set it only to an address on the server's own interface, or recordings can't connect. Build the image as in [Install](/docs/install#1-build-the-image), then `docker compose up -d`.
+Redis and the recorder share tide's network, so all three meet on loopback, where nothing else can. Redis keeps nothing on disk and its password reaches it through a file, not its command line; tide waits up to 30 seconds for it at startup. tide uses the host's network because media is UDP. The recorder joins meetings like a browser, through the address tide advertises: leave `TIDE_MEDIA_NODE_IP` unset, or set it only to an address on the server's own interface, or recordings can't connect. Build the image as in [Install](/docs/install#1-build-the-image), then `docker compose up -d`.
 
 ## Done when
 

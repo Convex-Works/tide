@@ -2,9 +2,9 @@
 
 tide is one executable. It serves the web app and API, signs hosts in (or
 doesn't), and runs the media server that carries every meeting's audio and
-video. A deployment without recording is that one process. Recording adds one
-more, the recorder (headless Chrome and GStreamer), plus an S3-compatible
-bucket it writes to.
+video. A deployment without recording is that one process. Recording adds the
+recorder (headless Chrome and GStreamer) and the Redis it and tide's media
+server share, beside tide, plus an S3-compatible bucket it writes to.
 
 This guide covers three ways to run it: [the binary on a
 server](#run-the-binary-on-a-server) behind a TLS proxy, [Docker
@@ -16,12 +16,12 @@ reference base](#kubernetes). The design behind it is
 
 Configuration decides what a deployment is:
 
-| Configuration                           | What tide is                                              | Processes       | You bring                        |
-| --------------------------------------- | --------------------------------------------------------- | --------------- | -------------------------------- |
-| nothing                                 | **Anonymous**: anyone creates rooms; rooms live in memory | tide            | TLS in front                     |
-| `TIDE_OIDC_ISSUER`                      | **Signed in**: hosts sign in, rooms persist in SQLite     | tide            | TLS, an OIDC issuer, a disk      |
-| `TIDE_OIDC_ISSUER` + `TIDE_S3_ENDPOINT` | **Signed in with recording**                              | tide + recorder | TLS, an OIDC issuer, a disk, S3  |
-| … + `TIDE_TRANSCRIPTS=true`             | **… with transcripts** made on hosts' own computers       | tide + recorder | as above; hosts run the moil app |
+| Configuration                           | What tide is                                              | Processes               | You bring                        |
+| --------------------------------------- | --------------------------------------------------------- | ----------------------- | -------------------------------- |
+| nothing                                 | **Anonymous**: anyone creates rooms; rooms live in memory | tide                    | TLS in front                     |
+| `TIDE_OIDC_ISSUER`                      | **Signed in**: hosts sign in, rooms persist in SQLite     | tide                    | TLS, an OIDC issuer, a disk      |
+| `TIDE_OIDC_ISSUER` + `TIDE_S3_ENDPOINT` | **Signed in with recording**                              | tide + recorder + Redis | TLS, an OIDC issuer, a disk, S3  |
+| … + `TIDE_TRANSCRIPTS=true`             | **… with transcripts** made on hosts' own computers       | tide + recorder + Redis | as above; hosts run the moil app |
 
 tide refuses to start rather than guess: S3 without sign-in, transcripts
 without recording, user or administrator groups without sign-in, a missing or
@@ -38,13 +38,15 @@ sign-in to know who hosts.
 
 ## What tide listens on
 
-| Address          | Carries                                                        | Expose                                    |
-| ---------------- | -------------------------------------------------------------- | ----------------------------------------- |
-| `:8080/tcp`      | the app, the API, lobby streams, and `/rtc` signaling          | through a TLS proxy or ingress only       |
-| `:7882/udp`      | all meeting media, multiplexed on one port                     | publicly, directly                        |
-| `:7881/tcp`      | media for networks that block UDP                              | publicly, directly                        |
-| `127.0.0.1:7880` | the media server's own API and signaling                       | never; tide forwards `/rtc` to it         |
-| `127.0.0.1:6379` | the recorder's Redis endpoint (recording only), password-gated | never; the recorder shares tide's network |
+| Address          | Carries                                               | Expose                              |
+| ---------------- | ----------------------------------------------------- | ----------------------------------- |
+| `:8080/tcp`      | the app, the API, lobby streams, and `/rtc` signaling | through a TLS proxy or ingress only |
+| `:7882/udp`      | all meeting media, multiplexed on one port            | publicly, directly                  |
+| `:7881/tcp`      | media for networks that block UDP                     | publicly, directly                  |
+| `127.0.0.1:7880` | the media server's own API and signaling              | never; tide forwards `/rtc` to it   |
+
+With recording, tide also connects out to Redis at `TIDE_RECORDER_REDIS_ADDR`
+([Redis, with recording](#redis-with-recording)); it listens on nothing more.
 
 Browsers only give a page the camera and microphone over HTTPS, so tide
 always sits behind something that terminates TLS. Signaling rides the same
@@ -80,8 +82,22 @@ With recording, prefer discovery unless the address is local.
 
 Change the ports with `TIDE_MEDIA_UDP_PORT` and `TIDE_MEDIA_TCP_PORT`. Two
 tides on one host must differ in everything they listen on: `TIDE_ADDR`,
-`TIDE_MEDIA_UDP_PORT`, `TIDE_MEDIA_TCP_PORT`, `TIDE_MEDIA_API_PORT` (the
-loopback API, 7880) and, with recording, `TIDE_RECORDER_REDIS_ADDR`.
+`TIDE_MEDIA_UDP_PORT`, `TIDE_MEDIA_TCP_PORT` and `TIDE_MEDIA_API_PORT` (the
+loopback API, 7880). With recording each needs a Redis of its own: two media
+servers on one Redis take each other for nodes of one cluster.
+
+### Redis, with recording
+
+The recorder takes its jobs over Redis, so with recording on, tide's media
+server and the recorder share one, at `TIDE_RECORDER_REDIS_ADDR` (default
+`127.0.0.1:6379`) with the password `TIDE_RECORDER_REDIS_PASSWORD` as
+`requirepass`. Once the media server uses Redis, its signal relay goes over it
+too. Redis holds nothing durable: run it without persistence, bound to
+loopback or a private network only, since recording jobs carry the S3
+credentials. tide waits up to 30 seconds for it at startup, then refuses to
+start, naming the address. If Redis restarts, signaling pauses: joins wait,
+clients reconnect on their own, and media keeps flowing; a recording starting
+or stopping in that moment may fail. Without recording, tide uses no Redis.
 
 ## Run the binary on a server
 
@@ -164,15 +180,25 @@ a value becomes part of it.
 
 Rooms now persist in SQLite under the service's state directory; back it up
 ([Back up state](#back-up-state)). Recording needs the recorder, which runs in
-Docker: see the next section.
+Docker, and Redis: the next section runs both with Docker Compose. To keep
+tide under systemd instead, Redis can come from the distribution, configured
+like this and listening where tide looks by default:
+
+```
+bind 127.0.0.1
+port 6379
+requirepass <TIDE_RECORDER_REDIS_PASSWORD>
+save ""
+appendonly no
+```
 
 ## Run with Docker Compose
 
-This runs the signed-in deployment with recording on one Linux host: tide and
-the recorder. tide uses the host's network, because media is UDP and Docker's
-port publishing adds a proxy and a NAT that WebRTC doesn't need; the recorder
-shares tide's network, so it reaches the media server and the Redis endpoint
-on loopback, where nobody else can.
+This runs the signed-in deployment with recording on one Linux host: tide,
+Redis and the recorder. tide uses the host's network, because media is UDP and
+Docker's port publishing adds a proxy and a NAT that WebRTC doesn't need;
+Redis and the recorder share it, so all three meet on loopback, where nobody
+else can.
 
 `.env`, beside `compose.yaml` (`chmod 600`; Compose reads it both for tide's
 environment and for the recorder's configuration below):
@@ -213,17 +239,34 @@ services:
     restart: unless-stopped
     stop_grace_period: 20s
 
+  # Redis for tide's media server and the recorder, on the host's loopback.
+  # The password goes to Redis through a file, not its command line.
+  redis:
+    image: redis:7.4.8-alpine3.21
+    network_mode: host
+    user: "999:1000"
+    environment:
+      REDISCLI_AUTH: ${TIDE_RECORDER_REDIS_PASSWORD}
+    command:
+      - sh
+      - -ec
+      - |
+        umask 077
+        printf 'requirepass %s\n' "$$REDISCLI_AUTH" > /tmp/redis.conf
+        exec redis-server /tmp/redis.conf --bind 127.0.0.1 --port 6379 --save '' --appendonly no
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -h 127.0.0.1 ping | grep -q PONG"]
+      interval: 2s
+      retries: 30
+    restart: unless-stopped
+
   recorder:
     image: livekit/egress:v1.13.0
     network_mode: service:tide
-    # The recorder checks the Redis endpoint once at startup and exits
-    # without it; tide answers /healthz once its media server is up.
-    entrypoint:
-      - /bin/sh
-      - -c
-      - >-
-        until wget -q -O /dev/null http://127.0.0.1:8080/healthz; do sleep 1; done;
-        exec /entrypoint.sh
+    # The recorder checks Redis once at startup and exits without it.
+    depends_on:
+      redis:
+        condition: service_healthy
     environment:
       LIVEKIT_API_KEY: ${TIDE_MEDIA_API_KEY}
       LIVEKIT_API_SECRET: ${TIDE_MEDIA_API_SECRET}
@@ -244,9 +287,10 @@ volumes:
   tide-data:
 ```
 
-Put Caddy in front exactly as for the binary. Leave out the recorder, the
-`TIDE_S3_*`, media key and Redis password lines for a deployment without
-recording, and the OIDC and session lines too for an anonymous one. tide's
+Put Caddy in front exactly as for the binary. Leave out Redis, the recorder,
+the `TIDE_S3_*`, media key and Redis password lines for a deployment without
+recording, and the OIDC and session lines too for an anonymous one. tide finds
+Redis at its default address and waits for it at startup. tide's
 image runs as a non-root user and keeps its database at `/data/tide.db`.
 
 Leave `TIDE_MEDIA_NODE_IP` unset unless discovery can't find the right
@@ -259,7 +303,10 @@ recordings can't connect ([The media address](#the-media-address)).
 `deploy/k8s/` is a reference kustomize base: one tide Deployment (signed in,
 media server inside, no recording), its Service and a PVC for SQLite.
 `deploy/k8s/recording/` is a kustomize component that turns recording on: it
-gives tide the object store and runs the recorder as a sidecar in tide's pod.
+gives tide the object store and runs Redis and the recorder as sidecars in
+tide's pod. Redis is a native sidecar (an init container with
+`restartPolicy: Always`, Kubernetes 1.29 or later), so it is up before tide
+and the recorder start; it listens on the pod's loopback only.
 Neither creates an Ingress, an object store, an OIDC issuer, a namespace or
 Secrets, and the base deliberately exposes no media path until an overlay
 selects one. Build an overlay for every installation; every line marked
@@ -368,9 +415,9 @@ expose 7881/tcp as in (b).
 address (the commented `nodeSelector`), open 7882/udp and 7881/tcp in that
 node's firewall, and either uncomment both `hostPort` lines or set
 `hostNetwork: true` with `dnsPolicy: ClusterFirstWithHostNet`, never both.
-With host networking, tide's loopback-only ports (7880, and 6379 with
-recording) bind the node's loopback, so keep the node free of anything else
-on them.
+With host networking, the loopback-only ports (tide's 7880, and with
+recording Redis's 6379) bind the node's loopback, so keep the node free of
+anything else on them.
 
 **(c) TCP only.** When UDP exposure is impossible, expose only 7881/tcp on the
 public node. Clients fail the UDP candidate and fall back to ICE-TCP; expect
@@ -385,42 +432,42 @@ counts as unset. Each group turns something on, and is then checked as a
 whole. Outside `TIDE_DEV_MODE`, a required secret that is missing, too short,
 or equal to a value shipped in this repository refuses startup.
 
-| Variable                       | Default                                | Meaning and rule                                                                                                                                                                                                              |
-| ------------------------------ | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `TIDE_ADDR`                    | `:8080`                                | HTTP listen address. Keep it behind the TLS proxy; `127.0.0.1:8080` when the proxy is on the same host.                                                                                                                       |
-| `TIDE_BASE_URL`                | `http://localhost:8080`                | The public origin, scheme and port included. Controls redirects, the OIDC callback, secure cookies, the signaling URL browsers get, and the default recorder template URL.                                                    |
-| `TIDE_SESSION_SECRET`          | generated per start when anonymous     | HMAC key for session cookies. With sign-in: required. Anonymous: optional; unset, sessions end when tide restarts, as rooms do. Whenever set, at least 32 characters.                                                         |
-| `TIDE_DB_PATH`                 | `./data/tide.db`                       | SQLite file, with sign-in. Anonymous tide keeps rooms in memory and ignores it. The image sets `/data/tide.db`.                                                                                                               |
-| `TIDE_OIDC_ISSUER`             | empty: anonymous                       | Turns sign-in on. The exact issuer URL used for discovery and token verification.                                                                                                                                             |
-| `TIDE_OIDC_CLIENT_ID`          | `tide`                                 | Registered OIDC client ID.                                                                                                                                                                                                    |
-| `TIDE_OIDC_CLIENT_SECRET`      | none                                   | With sign-in: required, at least 16 characters.                                                                                                                                                                               |
-| `TIDE_USER_GROUPS`             | empty                                  | Comma-separated, case-sensitive OIDC groups allowed to sign in. Empty permits every verified user; administrators are always allowed. Set without `TIDE_OIDC_ISSUER`, tide refuses to start.                                  |
-| `TIDE_ADMIN_GROUPS`            | empty                                  | Comma-separated, case-sensitive OIDC groups whose members manage every room. Set without `TIDE_OIDC_ISSUER`, tide refuses to start.                                                                                           |
-| `TIDE_MEDIA_NODE_IP`           | 127.0.0.1 on loopback, else discovered | The IPv4 address advertised for media, replacing the machine's own ([The media address](#the-media-address)). Must parse as an IP.                                                                                            |
-| `TIDE_MEDIA_UDP_PORT`          | `7882`                                 | Media over UDP, every interface. 1–65535.                                                                                                                                                                                     |
-| `TIDE_MEDIA_TCP_PORT`          | `7881`                                 | Media over TCP for networks that block UDP. 1–65535.                                                                                                                                                                          |
-| `TIDE_MEDIA_API_PORT`          | `7880`                                 | The media server's own API and signaling, on 127.0.0.1 only. A recorder in tide's network namespace signals there. Change it, with every other port, to run two tides on one host. 1–65535, not the TCP media port.           |
-| `TIDE_MEDIA_API_KEY`           | generated per start without recording  | Key the media server signs tokens and webhooks with. Required with recording (the recorder uses it too) or an external media server. Letters, digits, `-` and `_`.                                                            |
-| `TIDE_MEDIA_API_SECRET`        | generated per start without recording  | The secret for that key. Required with recording or an external media server, at least 32 characters.                                                                                                                         |
-| `TIDE_MEDIA_URL`               | empty: embedded                        | An external media server as tide reaches it. Set only to keep the pre-1.0 topology ([External media server](#external-media-server)).                                                                                         |
-| `TIDE_MEDIA_PUBLIC_URL`        | the base URL's origin, `ws`/`wss`      | The signaling URL browsers get. Leave unset with the embedded media server; required with `TIDE_MEDIA_URL`.                                                                                                                   |
-| `TIDE_S3_ENDPOINT`             | empty: no recording                    | Turns recording on; needs sign-in. The S3 endpoint as tide reaches it.                                                                                                                                                        |
-| `TIDE_S3_PUBLIC_ENDPOINT`      | `TIDE_S3_ENDPOINT`                     | The endpoint browsers download from and hosts' machines use; it is in every presigned URL. With `TIDE_TRANSCRIPTS=true`, HTTPS.                                                                                               |
-| `TIDE_S3_RECORDER_ENDPOINT`    | `TIDE_S3_ENDPOINT`                     | The endpoint the recorder uploads to. tide sends it with every recording.                                                                                                                                                     |
-| `TIDE_S3_BUCKET`               | `tide-recordings`                      | An existing bucket. Recordings go under `recordings/<room>/<recording-id>/`.                                                                                                                                                  |
-| `TIDE_S3_REGION`               | `us-east-1`                            | S3 signing region.                                                                                                                                                                                                            |
-| `TIDE_S3_ACCESS_KEY`           | none                                   | With recording: required.                                                                                                                                                                                                     |
-| `TIDE_S3_SECRET_KEY`           | none                                   | With recording: required, at least 16 characters.                                                                                                                                                                             |
-| `TIDE_RECORDER_TEMPLATE_URL`   | `<TIDE_BASE_URL>/egress-template`      | The page the recorder's Chrome loads to draw a meeting. With the recorder in tide's network: `http://127.0.0.1:8080/egress-template`.                                                                                         |
-| `TIDE_RECORDER_REDIS_ADDR`     | `127.0.0.1:6379`                       | Where tide serves the recorder's Redis endpoint, with recording and the embedded media server. Widen it only for a recorder outside tide's network, and keep it off public networks: recording jobs carry the S3 credentials. |
-| `TIDE_RECORDER_REDIS_PASSWORD` | none                                   | With recording and the embedded media server: required, at least 32 characters. The recorder's `redis.password`.                                                                                                              |
-| `TIDE_TRUSTED_PROXIES`         | empty                                  | Comma-separated IPs or CIDRs of proxies whose `X-Forwarded-For` tide believes. Only your proxy or ingress. An invalid entry refuses startup.                                                                                  |
-| `TIDE_DEV_MODE`                | `false`                                | Supplies the publicly known development value for any secret left unset and exposes `/api/dev/token`. Turns nothing else on. Never in production.                                                                             |
-| `TIDE_JOIN_RATE_LIMIT`         | `10`                                   | Joins per client per minute. Also sizes, in buckets of their own, room lookups and, when anonymous, room creation.                                                                                                            |
-| `TIDE_WAIT_RATE_LIMIT`         | `20`                                   | Lobby wait streams per client per minute.                                                                                                                                                                                     |
-| `TIDE_LOGIN_RATE_LIMIT`        | `10`                                   | Sign-in redirects per client per minute; when anonymous, new anonymous sessions.                                                                                                                                              |
-| `TIDE_PAIR_RATE_LIMIT`         | `10`                                   | With transcripts, machines starting a moil pairing (`POST /moil/v1/pair`) per client per minute.                                                                                                                              |
-| `TIDE_TRANSCRIPTS`             | `false`                                | Turns on transcripts and machine pairing ([Serve transcripts](#serve-transcripts)); needs recording. Read with `strconv.ParseBool`; anything else means off.                                                                  |
+| Variable                       | Default                                | Meaning and rule                                                                                                                                                                                                                                                  |
+| ------------------------------ | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `TIDE_ADDR`                    | `:8080`                                | HTTP listen address. Keep it behind the TLS proxy; `127.0.0.1:8080` when the proxy is on the same host.                                                                                                                                                           |
+| `TIDE_BASE_URL`                | `http://localhost:8080`                | The public origin, scheme and port included. Controls redirects, the OIDC callback, secure cookies, the signaling URL browsers get, and the default recorder template URL.                                                                                        |
+| `TIDE_SESSION_SECRET`          | generated per start when anonymous     | HMAC key for session cookies. With sign-in: required. Anonymous: optional; unset, sessions end when tide restarts, as rooms do. Whenever set, at least 32 characters.                                                                                             |
+| `TIDE_DB_PATH`                 | `./data/tide.db`                       | SQLite file, with sign-in. Anonymous tide keeps rooms in memory and ignores it. The image sets `/data/tide.db`.                                                                                                                                                   |
+| `TIDE_OIDC_ISSUER`             | empty: anonymous                       | Turns sign-in on. The exact issuer URL used for discovery and token verification.                                                                                                                                                                                 |
+| `TIDE_OIDC_CLIENT_ID`          | `tide`                                 | Registered OIDC client ID.                                                                                                                                                                                                                                        |
+| `TIDE_OIDC_CLIENT_SECRET`      | none                                   | With sign-in: required, at least 16 characters.                                                                                                                                                                                                                   |
+| `TIDE_USER_GROUPS`             | empty                                  | Comma-separated, case-sensitive OIDC groups allowed to sign in. Empty permits every verified user; administrators are always allowed. Set without `TIDE_OIDC_ISSUER`, tide refuses to start.                                                                      |
+| `TIDE_ADMIN_GROUPS`            | empty                                  | Comma-separated, case-sensitive OIDC groups whose members manage every room. Set without `TIDE_OIDC_ISSUER`, tide refuses to start.                                                                                                                               |
+| `TIDE_MEDIA_NODE_IP`           | 127.0.0.1 on loopback, else discovered | The IPv4 address advertised for media, replacing the machine's own ([The media address](#the-media-address)). Must parse as an IP.                                                                                                                                |
+| `TIDE_MEDIA_UDP_PORT`          | `7882`                                 | Media over UDP, every interface. 1–65535.                                                                                                                                                                                                                         |
+| `TIDE_MEDIA_TCP_PORT`          | `7881`                                 | Media over TCP for networks that block UDP. 1–65535.                                                                                                                                                                                                              |
+| `TIDE_MEDIA_API_PORT`          | `7880`                                 | The media server's own API and signaling, on 127.0.0.1 only. A recorder in tide's network namespace signals there. Change it, with every other port, to run two tides on one host. 1–65535, not the TCP media port.                                               |
+| `TIDE_MEDIA_API_KEY`           | generated per start without recording  | Key the media server signs tokens and webhooks with. Required with recording (the recorder uses it too) or an external media server. Letters, digits, `-` and `_`.                                                                                                |
+| `TIDE_MEDIA_API_SECRET`        | generated per start without recording  | The secret for that key. Required with recording or an external media server, at least 32 characters.                                                                                                                                                             |
+| `TIDE_MEDIA_URL`               | empty: embedded                        | An external media server as tide reaches it. Set only to keep the pre-1.0 topology ([External media server](#external-media-server)).                                                                                                                             |
+| `TIDE_MEDIA_PUBLIC_URL`        | the base URL's origin, `ws`/`wss`      | The signaling URL browsers get. Leave unset with the embedded media server; required with `TIDE_MEDIA_URL`.                                                                                                                                                       |
+| `TIDE_S3_ENDPOINT`             | empty: no recording                    | Turns recording on; needs sign-in. The S3 endpoint as tide reaches it.                                                                                                                                                                                            |
+| `TIDE_S3_PUBLIC_ENDPOINT`      | `TIDE_S3_ENDPOINT`                     | The endpoint browsers download from and hosts' machines use; it is in every presigned URL. With `TIDE_TRANSCRIPTS=true`, HTTPS.                                                                                                                                   |
+| `TIDE_S3_RECORDER_ENDPOINT`    | `TIDE_S3_ENDPOINT`                     | The endpoint the recorder uploads to. tide sends it with every recording.                                                                                                                                                                                         |
+| `TIDE_S3_BUCKET`               | `tide-recordings`                      | An existing bucket. Recordings go under `recordings/<room>/<recording-id>/`.                                                                                                                                                                                      |
+| `TIDE_S3_REGION`               | `us-east-1`                            | S3 signing region.                                                                                                                                                                                                                                                |
+| `TIDE_S3_ACCESS_KEY`           | none                                   | With recording: required.                                                                                                                                                                                                                                         |
+| `TIDE_S3_SECRET_KEY`           | none                                   | With recording: required, at least 16 characters.                                                                                                                                                                                                                 |
+| `TIDE_RECORDER_TEMPLATE_URL`   | `<TIDE_BASE_URL>/egress-template`      | The page the recorder's Chrome loads to draw a meeting. With the recorder in tide's network: `http://127.0.0.1:8080/egress-template`.                                                                                                                             |
+| `TIDE_RECORDER_REDIS_ADDR`     | `127.0.0.1:6379`                       | The Redis tide's media server and the recorder share, as `host:port` (a name or an address), with recording and the embedded media server ([Redis, with recording](#redis-with-recording)). Keep it off public networks: recording jobs carry the S3 credentials. |
+| `TIDE_RECORDER_REDIS_PASSWORD` | none                                   | With recording and the embedded media server: required, at least 32 characters. Redis's `requirepass`, and the recorder's `redis.password`.                                                                                                                       |
+| `TIDE_TRUSTED_PROXIES`         | empty                                  | Comma-separated IPs or CIDRs of proxies whose `X-Forwarded-For` tide believes. Only your proxy or ingress. An invalid entry refuses startup.                                                                                                                      |
+| `TIDE_DEV_MODE`                | `false`                                | Supplies the publicly known development value for any secret left unset and exposes `/api/dev/token`. Turns nothing else on. Never in production.                                                                                                                 |
+| `TIDE_JOIN_RATE_LIMIT`         | `10`                                   | Joins per client per minute. Also sizes, in buckets of their own, room lookups and, when anonymous, room creation.                                                                                                                                                |
+| `TIDE_WAIT_RATE_LIMIT`         | `20`                                   | Lobby wait streams per client per minute.                                                                                                                                                                                                                         |
+| `TIDE_LOGIN_RATE_LIMIT`        | `10`                                   | Sign-in redirects per client per minute; when anonymous, new anonymous sessions.                                                                                                                                                                                  |
+| `TIDE_PAIR_RATE_LIMIT`         | `10`                                   | With transcripts, machines starting a moil pairing (`POST /moil/v1/pair`) per client per minute.                                                                                                                                                                  |
+| `TIDE_TRANSCRIPTS`             | `false`                                | Turns on transcripts and machine pairing ([Serve transcripts](#serve-transcripts)); needs recording. Read with `strconv.ParseBool`; anything else means off.                                                                                                      |
 
 Rate limits count an IPv6 client by its /64 and an IPv4 client by its
 address; both come from `X-Forwarded-For` only through `TIDE_TRUSTED_PROXIES`.
@@ -449,7 +496,7 @@ meeting under a link someone else can now create.
 ### External media server
 
 With `TIDE_MEDIA_URL` set, tide behaves as before it embedded one: it starts
-no media server and no Redis endpoint, and talks to the media server at that
+no media server, connects to no Redis, and talks to the media server at that
 URL. Then:
 
 - `TIDE_MEDIA_PUBLIC_URL`, `TIDE_MEDIA_API_KEY` and `TIDE_MEDIA_API_SECRET`
@@ -602,7 +649,7 @@ recording, owner, session-revocation, paired-machine, and transcript records.
 
 Recording files already live in S3. Apply the object store's versioning,
 replication, retention, and backup policy separately. The recorder's Redis
-endpoint is in tide's memory and holds nothing to back up.
+holds nothing to back up.
 
 ## Upgrade
 
@@ -618,8 +665,7 @@ requests live in memory, so waiting guests ask again), and gives requests in
 flight 10 seconds. With `TIDE_TRANSCRIPTS=true` it then disconnects paired
 machines, saving what they last reported; they reconnect to the new process,
 which starts their unfinished transcript jobs again. It then stops the media
-server, ending every meeting, and the Redis endpoint, and closes the database
-last. That takes up to about 15 seconds, well within Kubernetes' default
+server, ending every meeting, and closes the database last. That takes up to about 15 seconds, well within Kubernetes' default
 30-second grace; give `docker stop` `--time 20` rather than its default 10. A
 second SIGTERM stops tide at once.
 
@@ -653,12 +699,15 @@ off, and machines can't connect until it is set. Nothing is lost meanwhile
   1. Remove `TIDE_MEDIA_URL` and `TIDE_MEDIA_PUBLIC_URL`; expose 7882/udp and
      7881/tcp on tide instead of the media server ([Choose the media
      path](#choose-the-media-path)), setting `TIDE_MEDIA_NODE_IP` only for a
-     load balancer; set `TIDE_RECORDER_REDIS_PASSWORD` and run the recorder in
-     tide's network namespace (`ws_url: ws://127.0.0.1:7880`,
-     `redis.address: 127.0.0.1:6379` with that password). On Kubernetes that
-     is the base and its recording component.
-  2. Delete the old media server, Redis and recorder first, with the media
-     server's own Services and configuration: it holds the hostPorts (or the
+     load balancer; and run the recorder in tide's network namespace
+     (`ws_url: ws://127.0.0.1:7880`). tide's media server and the recorder
+     share one Redis: an existing Redis can stay, with
+     `TIDE_RECORDER_REDIS_ADDR`, `TIDE_RECORDER_REDIS_PASSWORD` and the
+     recorder's `redis` settings pointing at it, as long as no other media
+     server uses it. On Kubernetes the base and its recording component bring
+     a Redis of their own in tide's pod.
+  2. On Kubernetes, delete the old media server, Redis and recorder first,
+     with the media server's own Services and configuration: it holds the hostPorts (or the
      load balancer's address) tide is about to take, and a tide pod pinned to
      the same node can't schedule while it runs. With the old reference
      names (`media-udp` only exists for a load balancer; reuse its static
