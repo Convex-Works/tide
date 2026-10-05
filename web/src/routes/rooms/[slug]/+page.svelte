@@ -496,14 +496,10 @@
   {#if loadState === 'loading'}
     <p class="text-[12px] text-ink-2" aria-live="polite">Loading…</p>
   {:else if loadState === 'signed-out'}
+    <!-- Only with sign-in: an anonymous tide answers /api/me with a new
+         session rather than 401, so a lost session shows as not-found. -->
     <p class="text-[13px] text-ink-2">
-      {#if currentUser?.anonymous}
-        <!-- Its session ended (tide restarted): no sign-in brings it back. -->
-        This browser can no longer manage this room.
-        <a class="text-accent" href="/">Back to rooms</a>
-      {:else}
-        Sign in from the <a class="text-accent" href="/">dashboard</a> to manage this room.
-      {/if}
+      Sign in from the <a class="text-accent" href="/">dashboard</a> to manage this room.
     </p>
   {:else if loadState === 'not-found'}
     <div class="rounded-card border border-border bg-surface px-4 py-8 text-center">
