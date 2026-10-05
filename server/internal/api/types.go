@@ -50,7 +50,7 @@ type Me struct {
 	Email string `json:"email"`
 	Name  string `json:"name"`
 	// Transcripts is true when this deployment runs transcripts and machine
-	// pairing (KLISI_TRANSCRIPTS, ARCHITECTURE.md §8.1). When false the SPA
+	// pairing (TIDE_TRANSCRIPTS, ARCHITECTURE.md §8.1). When false the SPA
 	// hides /machines and every transcript control; the routes 404.
 	Transcripts bool `json:"transcripts"`
 }
@@ -195,11 +195,11 @@ type TranscriptInfo struct {
 // MachinesResponse lists the signed-in host's paired machines.
 type MachinesResponse struct {
 	Machines []MachineInfo `json:"machines"`
-	// Bundle is the transcription bundle klisi publishes; a machine takes
+	// Bundle is the transcription bundle tide publishes; a machine takes
 	// transcript jobs only once its owner approved exactly this hash.
 	Bundle BundleInfo `json:"bundle"`
 	// MoilURL is the address the moil app pairs with, e.g.
-	// https://klisi.example.com/moil.
+	// https://tide.example.com/moil.
 	MoilURL string `json:"moil_url"`
 	// AppURL is where hosts get the moil app: its latest release, as the
 	// moil SDK names it (moil.AppURL).
@@ -227,7 +227,7 @@ type MachineInfo struct {
 const (
 	// MachineIdle: connected and able to take a job.
 	MachineIdle = "idle"
-	// MachineBusy: connected and running a job, for klisi or another service.
+	// MachineBusy: connected and running a job, for tide or another service.
 	MachineBusy = "busy"
 	// MachinePaused: connected, and its owner paused it in the moil app.
 	MachinePaused = "paused"
@@ -250,7 +250,7 @@ type PairingInfo struct {
 	Arch       string `json:"arch"`
 	AppVersion string `json:"app_version"`
 	ExpiresAt  int64  `json:"expires_at"`
-	// MoilURL is klisi's moil address, which the machine's moil app must
+	// MoilURL is tide's moil address, which the machine's moil app must
 	// show it is pairing with: a pairing relayed through another address
 	// shows the same code, so this is the host's check that it isn't one.
 	MoilURL string `json:"moil_url"`

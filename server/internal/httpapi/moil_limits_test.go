@@ -9,15 +9,15 @@ import (
 
 	"git.convex.works/ConvexWorks/moil/sdk/go/moil"
 
-	"klisi/internal/auth"
-	"klisi/internal/transcripts"
+	"tide/internal/auth"
+	"tide/internal/transcripts"
 )
 
-// klisi keeps at most 4 MiB of a job's data events: a machine that sends
-// more has its attempt stopped and its job failed, rather than making klisi
+// tide keeps at most 4 MiB of a job's data events: a machine that sends
+// more has its attempt stopped and its job failed, rather than making tide
 // hold what it sends.
 func TestAJobKeepsAtMost4MiBOfData(t *testing.T) {
-	k := startKlisi(t, nil)
+	k := startTide(t, nil)
 	alice := k.signIn(auth.Session{Sub: "alice"})
 	bundle, err := transcripts.Bundle()
 	if err != nil {

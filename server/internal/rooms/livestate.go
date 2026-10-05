@@ -7,7 +7,7 @@ import (
 	protocol "github.com/livekit/protocol/livekit"
 	lksdk "github.com/livekit/server-sdk-go/v2"
 
-	"klisi/internal/config"
+	"tide/internal/config"
 )
 
 // LiveRoom is the current SFU-side state of one room, keyed by slug (LiveKit

@@ -38,7 +38,7 @@ jobs:
       - name: Prove test hooks are absent
         working-directory: web
         run: |
-          if grep -R -E "__klisiMediaTest|__klisiRoom|Playback blocked by Klisi test hook" build; then
+          if grep -R -E "__tideMediaTest|__tideRoom|Playback blocked by Tide test hook" build; then
             echo "Production build contains media test instrumentation."
             exit 1
           fi
@@ -62,7 +62,7 @@ jobs:
         env:
           CI_RUN_ID: ${{ github.run_id }}
           CI_JOB_ID: ${{ github.job }}
-          KLISI_MEDIA_SUITE: deterministic
+          TIDE_MEDIA_SUITE: deterministic
         run: ./scripts/run-media-tests.sh
       - name: Preserve media diagnostics
         if: always()
@@ -91,8 +91,8 @@ jobs:
         run: make build
       - uses: https://code.forgejo.org/forgejo/upload-artifact@v4
         with:
-          name: klisi
-          path: bin/klisi
+          name: tide
+          path: bin/tide
           if-no-files-found: error
 
   docker:
@@ -107,8 +107,8 @@ jobs:
           SHA: ${{ github.sha }}
         run: |
           set -eu
-          docker build --iidfile /tmp/klisi-image-id --tag "klisi:${SHA}" .
-          echo "Built image ID: $(cat /tmp/klisi-image-id)"
+          docker build --iidfile /tmp/tide-image-id --tag "tide:${SHA}" .
+          echo "Built image ID: $(cat /tmp/tide-image-id)"
       - name: Push image
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
@@ -127,11 +127,11 @@ jobs:
           registry_path="${registry_path#https://}"
           registry_path="${registry_path%/}"
           registry_host="${registry_path%%/*}"
-          image="${registry_path}/klisi:${SHA}"
+          image="${registry_path}/tide:${SHA}"
 
           printf '%s' "${REGISTRY_TOKEN}" \
             | docker login "${registry_host}" --username "${REGISTRY_USER}" --password-stdin
-          docker tag "klisi:${SHA}" "${image}"
+          docker tag "tide:${SHA}" "${image}"
           push_output="$(docker push "${image}" 2>&1)"
           printf '%s\n' "${push_output}"
           digest="$(printf '%s\n' "${push_output}" \

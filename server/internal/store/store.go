@@ -13,7 +13,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"klisi/internal/api"
+	"tide/internal/api"
 )
 
 //go:embed schema.sql

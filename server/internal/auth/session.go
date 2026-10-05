@@ -14,11 +14,11 @@ import (
 	"strings"
 	"time"
 
-	"klisi/internal/auth/sessionctx"
+	"tide/internal/auth/sessionctx"
 )
 
 const (
-	SessionCookieName = "klisi_session"
+	SessionCookieName = "tide_session"
 	// One day: long enough for a workday, short enough that a stolen cookie
 	// has a bounded life even without explicit revocation.
 	sessionLifetime = 24 * time.Hour

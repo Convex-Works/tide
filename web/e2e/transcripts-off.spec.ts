@@ -8,7 +8,7 @@ import {
 } from '../src/lib/api/types.gen';
 import { defaultState, machine, mockApi, recording } from './mock-api';
 
-// A server with KLISI_TRANSCRIPTS off (ARCHITECTURE.md §8.1): /api/me says
+// A server with TIDE_TRANSCRIPTS off (ARCHITECTURE.md §8.1): /api/me says
 // so, the machine, pairing and transcript routes 404, and the SPA shows no
 // way to them. Against the Vite dev server with the API mocked in the browser.
 

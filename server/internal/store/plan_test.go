@@ -28,7 +28,7 @@ func plan(t *testing.T, db *Store, query string, args ...any) string {
 	return strings.Join(steps, "\n")
 }
 
-// The queries klisi runs on every recordings list and every reconciler
+// The queries tide runs on every recordings list and every reconciler
 // pass find their rows by index, however many recordings and
 // transcripts there are: no full scan, no sort.
 func TestFrequentQueriesUseIndexes(t *testing.T) {

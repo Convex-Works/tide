@@ -107,7 +107,7 @@
 </script>
 
 <svelte:head>
-  <title>klisi</title>
+  <title>tide</title>
   <meta name="description" content="Lean self-hosted video meetings" />
 </svelte:head>
 
@@ -116,7 +116,7 @@
 {:else if dashboardState === 'signed-out'}
   <main class="center-state">
     <section class="sign-in-card">
-      <div class="wordmark">klisi</div>
+      <div class="wordmark">tide</div>
       <p>Create a room and meet without the clutter.</p>
       <button class="primary" type="button" onclick={signIn}>Continue with SSO</button>
     </section>
@@ -124,7 +124,7 @@
 {:else if dashboardState === 'error'}
   <main class="center-state">
     <section class="sign-in-card">
-      <div class="wordmark">klisi</div>
+      <div class="wordmark">tide</div>
       <p role="alert">{error}</p>
       <button type="button" onclick={() => void loadDashboard()}>Try again</button>
     </section>
@@ -132,7 +132,7 @@
 {:else}
   <div class="dashboard-shell">
     <header>
-      <a class="wordmark" href="/">klisi</a>
+      <a class="wordmark" href="/">tide</a>
       <div class="account">
         {#if currentUser?.transcripts}
           <a class="icon-link" href="/machines" aria-label="Machines" title="Machines">

@@ -14,9 +14,9 @@ import (
 
 	protocol "github.com/livekit/protocol/livekit"
 
-	"klisi/internal/api"
-	"klisi/internal/auth"
-	"klisi/internal/store"
+	"tide/internal/api"
+	"tide/internal/auth"
+	"tide/internal/store"
 )
 
 type fakeEgressClient struct {
@@ -285,15 +285,15 @@ func TestStartRecordingFileOutput(t *testing.T) {
 				t.Fatal("S3 output is nil")
 			}
 			wantMetadata := map[string]string{
-				"deployment":           "production",
-				"klisi-filename":       filename,
-				"klisi-meeting-id":     room.ID,
-				"klisi-meeting-name":   room.Name,
-				"klisi-meeting-slug":   room.Slug,
-				"klisi-recording-id":   "recording-1",
-				"klisi-recording-mode": test.mode,
-				"klisi-started-at":     "2023-11-14T22:13:20Z",
-				"klisi-started-by":     "owner",
+				"deployment":          "production",
+				"tide-filename":       filename,
+				"tide-meeting-id":     room.ID,
+				"tide-meeting-name":   room.Name,
+				"tide-meeting-slug":   room.Slug,
+				"tide-recording-id":   "recording-1",
+				"tide-recording-mode": test.mode,
+				"tide-started-at":     "2023-11-14T22:13:20Z",
+				"tide-started-by":     "owner",
 			}
 			if !reflect.DeepEqual(s3.Metadata, wantMetadata) {
 				t.Fatalf("metadata = %#v, want %#v", s3.Metadata, wantMetadata)

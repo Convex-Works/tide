@@ -19,7 +19,7 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
-// An objectStore is S3-compatible storage, as klisi's configuration names
+// An objectStore is S3-compatible storage, as tide's configuration names
 // it, with a client for the tests to look into it.
 type objectStore struct {
 	endpoint, accessKey, secretKey, bucket, region string
@@ -44,20 +44,20 @@ func newObjectStore(endpoint, accessKey, secretKey, bucket, region string) (*obj
 	}, nil
 }
 
-// s3FromEnv returns the store $KLISI_E2E_S3_ENDPOINT names, if it's set.
+// s3FromEnv returns the store $TIDE_E2E_S3_ENDPOINT names, if it's set.
 // Machines take plain http only from loopback, so it must be https or on
 // 127.0.0.1.
 func s3FromEnv() (*objectStore, error) {
-	endpoint := os.Getenv("KLISI_E2E_S3_ENDPOINT")
+	endpoint := os.Getenv("TIDE_E2E_S3_ENDPOINT")
 	if endpoint == "" {
 		return nil, nil
 	}
-	accessKey, secretKey := os.Getenv("KLISI_E2E_S3_ACCESS_KEY"), os.Getenv("KLISI_E2E_S3_SECRET_KEY")
+	accessKey, secretKey := os.Getenv("TIDE_E2E_S3_ACCESS_KEY"), os.Getenv("TIDE_E2E_S3_SECRET_KEY")
 	if accessKey == "" || secretKey == "" {
-		return nil, errors.New("KLISI_E2E_S3_ENDPOINT needs KLISI_E2E_S3_ACCESS_KEY and KLISI_E2E_S3_SECRET_KEY")
+		return nil, errors.New("TIDE_E2E_S3_ENDPOINT needs TIDE_E2E_S3_ACCESS_KEY and TIDE_E2E_S3_SECRET_KEY")
 	}
 	return newObjectStore(endpoint, accessKey, secretKey,
-		envOr("KLISI_E2E_S3_BUCKET", "klisi-e2e"), envOr("KLISI_E2E_S3_REGION", "us-east-1"))
+		envOr("TIDE_E2E_S3_BUCKET", "tide-e2e"), envOr("TIDE_E2E_S3_REGION", "us-east-1"))
 }
 
 func envOr(name, fallback string) string {
@@ -74,7 +74,7 @@ func startMinIO(name string) (*objectStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	user, password := "klisi-e2e", rand.Text()
+	user, password := "tide-e2e", rand.Text()
 	run := exec.Command("docker", "run", "--detach", "--rm", "--name", name,
 		"--publish", "127.0.0.1::9000",
 		"--env", "MINIO_ROOT_USER="+user, "--env", "MINIO_ROOT_PASSWORD="+password,
@@ -97,7 +97,7 @@ func awaitMinIO(container, user, password string) (*objectStore, error) {
 		return nil, fmt.Errorf("finding MinIO's port: %w", err)
 	}
 	address, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
-	store, err := newObjectStore("http://"+address, user, password, "klisi-recordings", "us-east-1")
+	store, err := newObjectStore("http://"+address, user, password, "tide-recordings", "us-east-1")
 	if err != nil {
 		return nil, err
 	}

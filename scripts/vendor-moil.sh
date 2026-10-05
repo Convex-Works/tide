@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Refreshes klisi's vendored copy of moil from a moil checkout: the Go SDK
-# (server/third_party/moil) and the transcribe bundle klisi publishes
+# Refreshes tide's vendored copy of moil from a moil checkout: the Go SDK
+# (server/third_party/moil) and the transcribe bundle tide publishes
 # (server/internal/transcripts/bundle). Only committed files are copied, so the
 # recorded commit describes exactly what landed here.
 #

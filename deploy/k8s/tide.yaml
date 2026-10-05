@@ -1,9 +1,9 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: klisi
+  name: tide
   labels:
-    app.kubernetes.io/name: klisi
+    app.kubernetes.io/name: tide
     app.kubernetes.io/component: app
 spec:
   replicas: 1
@@ -11,12 +11,12 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      app.kubernetes.io/name: klisi
+      app.kubernetes.io/name: tide
       app.kubernetes.io/component: app
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: klisi
+        app.kubernetes.io/name: tide
         app.kubernetes.io/component: app
     spec:
       automountServiceAccountToken: false
@@ -29,8 +29,8 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: klisi
-          image: registry.example.com/klisi:latest # OVERLAY: Use the image built from this repository.
+        - name: tide
+          image: registry.example.com/tide:latest # OVERLAY: Use the image built from this repository.
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
@@ -42,71 +42,71 @@ spec:
               containerPort: 8080
               protocol: TCP
           env:
-            - name: KLISI_ADDR
+            - name: TIDE_ADDR
               value: :8080
-            - name: KLISI_BASE_URL
+            - name: TIDE_BASE_URL
               value: https://meet.example.com # OVERLAY: Set the public HTTPS origin, with no trailing slash.
-            - name: KLISI_SESSION_SECRET
+            - name: TIDE_SESSION_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: klisi-secrets
+                  name: tide-secrets
                   key: session-secret
-            - name: KLISI_DB_PATH
-              value: /data/klisi.db
-            - name: KLISI_LIVEKIT_URL
+            - name: TIDE_DB_PATH
+              value: /data/tide.db
+            - name: TIDE_LIVEKIT_URL
               value: ws://livekit:7880
-            - name: KLISI_LIVEKIT_PUBLIC_URL
+            - name: TIDE_LIVEKIT_PUBLIC_URL
               value: wss://livekit.example.com # OVERLAY: Set the browser-facing signaling URL.
-            - name: KLISI_LIVEKIT_API_KEY
+            - name: TIDE_LIVEKIT_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: livekit-secrets
                   key: api-key
-            - name: KLISI_LIVEKIT_API_SECRET
+            - name: TIDE_LIVEKIT_API_SECRET
               valueFrom:
                 secretKeyRef:
                   name: livekit-secrets
                   key: api-secret
-            - name: KLISI_OIDC_ISSUER
+            - name: TIDE_OIDC_ISSUER
               value: https://id.example.com # OVERLAY: Set the external OIDC issuer URL exactly as published.
-            - name: KLISI_OIDC_CLIENT_ID
-              value: klisi # OVERLAY: Set the registered OIDC client ID.
-            - name: KLISI_OIDC_CLIENT_SECRET
+            - name: TIDE_OIDC_CLIENT_ID
+              value: tide # OVERLAY: Set the registered OIDC client ID.
+            - name: TIDE_OIDC_CLIENT_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: klisi-secrets
+                  name: tide-secrets
                   key: oidc-client-secret
-            - name: KLISI_USER_GROUPS
+            - name: TIDE_USER_GROUPS
               value: "" # OVERLAY: Optional comma-separated OIDC groups allowed to sign in.
-            - name: KLISI_ADMIN_GROUPS
+            - name: TIDE_ADMIN_GROUPS
               value: "" # OVERLAY: Optional comma-separated OIDC groups that administer every room.
-            - name: KLISI_S3_ENDPOINT
-              value: http://s3.storage.svc.cluster.local:9000 # OVERLAY: Set the klisi-server view of S3.
-            - name: KLISI_S3_PUBLIC_ENDPOINT
+            - name: TIDE_S3_ENDPOINT
+              value: http://s3.storage.svc.cluster.local:9000 # OVERLAY: Set the tide-server view of S3.
+            - name: TIDE_S3_PUBLIC_ENDPOINT
               value: https://recordings.example.com # OVERLAY: Set the browser-reachable S3 origin used in presigned URLs.
-            - name: KLISI_S3_EGRESS_ENDPOINT
+            - name: TIDE_S3_EGRESS_ENDPOINT
               value: http://s3.storage.svc.cluster.local:9000 # OVERLAY: Set the egress-worker view of S3.
-            - name: KLISI_S3_BUCKET
-              value: klisi-recordings # OVERLAY: Set the existing recording bucket.
-            - name: KLISI_S3_ACCESS_KEY
+            - name: TIDE_S3_BUCKET
+              value: tide-recordings # OVERLAY: Set the existing recording bucket.
+            - name: TIDE_S3_ACCESS_KEY
               valueFrom:
                 secretKeyRef:
                   name: s3-secrets
                   key: access-key
-            - name: KLISI_S3_SECRET_KEY
+            - name: TIDE_S3_SECRET_KEY
               valueFrom:
                 secretKeyRef:
                   name: s3-secrets
                   key: secret-key
-            - name: KLISI_S3_REGION
+            - name: TIDE_S3_REGION
               value: us-east-1 # OVERLAY: Set the S3 signing region.
-            - name: KLISI_EGRESS_TEMPLATE_URL
-              value: http://klisi:8080/egress-template
-            - name: KLISI_TRUSTED_PROXIES
+            - name: TIDE_EGRESS_TEMPLATE_URL
+              value: http://tide:8080/egress-template
+            - name: TIDE_TRUSTED_PROXIES
               value: "" # OVERLAY: Set ingress proxy IPs or CIDRs, comma-separated, if forwarded client IPs are needed.
-            - name: KLISI_DEV_MODE
+            - name: TIDE_DEV_MODE
               value: "false"
-            - name: KLISI_TRANSCRIPTS
+            - name: TIDE_TRANSCRIPTS
               value: "false" # OVERLAY: Set "true" to run transcripts through moil (alpha); see docs/DEPLOYMENT.md.
           resources:
             requests:
@@ -137,18 +137,18 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: klisi-data
+            claimName: tide-data
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: klisi
+  name: tide
   labels:
-    app.kubernetes.io/name: klisi
+    app.kubernetes.io/name: tide
     app.kubernetes.io/component: app
 spec:
   selector:
-    app.kubernetes.io/name: klisi
+    app.kubernetes.io/name: tide
     app.kubernetes.io/component: app
   ports:
     - name: http
@@ -159,9 +159,9 @@ spec:
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: klisi-data
+  name: tide-data
   labels:
-    app.kubernetes.io/name: klisi
+    app.kubernetes.io/name: tide
     app.kubernetes.io/component: database
 spec:
   accessModes:

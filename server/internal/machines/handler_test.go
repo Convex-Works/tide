@@ -5,7 +5,7 @@ import (
 
 	"git.convex.works/ConvexWorks/moil/sdk/go/moil"
 
-	"klisi/internal/api"
+	"tide/internal/api"
 )
 
 // The page shows one of the api.Machine* states whatever moil reports, and a

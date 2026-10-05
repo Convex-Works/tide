@@ -5,7 +5,7 @@ import (
 
 	lksdk "github.com/livekit/server-sdk-go/v2"
 
-	"klisi/internal/config"
+	"tide/internal/config"
 )
 
 func NewRoomService(cfg config.Config) RoomService {

@@ -16,22 +16,22 @@ func TestGroupAccess(t *testing.T) {
 	}{
 		{name: "unrestricted without configured user groups", allowed: true},
 		{
-			name: "ordinary user", groups: []string{"klisi-users"},
-			userGroups: []string{"klisi-users"}, adminGroups: []string{"admins"},
+			name: "ordinary user", groups: []string{"tide-users"},
+			userGroups: []string{"tide-users"}, adminGroups: []string{"admins"},
 			allowed: true,
 		},
 		{
 			name: "admin is always allowed", groups: []string{"admins"},
-			userGroups: []string{"klisi-users"}, adminGroups: []string{"admins", "klisi-admins"},
+			userGroups: []string{"tide-users"}, adminGroups: []string{"admins", "tide-admins"},
 			allowed: true, admin: true,
 		},
 		{
 			name: "unrelated group denied", groups: []string{"other"},
-			userGroups: []string{"klisi-users"}, adminGroups: []string{"admins"},
+			userGroups: []string{"tide-users"}, adminGroups: []string{"admins"},
 		},
 		{
 			name: "matching is case sensitive", groups: []string{"Admins"},
-			userGroups: []string{"klisi-users"}, adminGroups: []string{"admins"},
+			userGroups: []string{"tide-users"}, adminGroups: []string{"admins"},
 		},
 	}
 

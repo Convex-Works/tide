@@ -406,7 +406,7 @@
 </script>
 
 <svelte:head>
-  <title>{room?.name ?? 'Room'} · klisi</title>
+  <title>{room?.name ?? 'Room'} · tide</title>
 </svelte:head>
 
 {#snippet transcriptCell(id: string, transcript: TranscriptInfo, when: string)}
@@ -475,7 +475,7 @@
 {/snippet}
 
 <header class="flex h-12 items-center justify-between border-b border-border px-4">
-  <a class="text-[15px] font-[550] tracking-[0.02em] text-accent no-underline" href="/">klisi</a>
+  <a class="text-[15px] font-[550] tracking-[0.02em] text-accent no-underline" href="/">tide</a>
   <a
     class="inline-flex items-center gap-1 text-[12px] text-ink-2 no-underline transition-colors hover:text-ink"
     href="/"

@@ -5,8 +5,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"klisi/internal/config"
-	"klisi/internal/store"
+	"tide/internal/config"
+	"tide/internal/store"
 )
 
 func TestModerationRouteRequiresCSRFAndAuthentication(t *testing.T) {
@@ -44,7 +44,7 @@ func TestModerationRouteRequiresCSRFAndAuthentication(t *testing.T) {
 				nil,
 			)
 			if test.csrfHeader != "" {
-				request.Header.Set("X-Klisi-Csrf", test.csrfHeader)
+				request.Header.Set("X-Tide-Csrf", test.csrfHeader)
 			}
 			recorder := httptest.NewRecorder()
 			handler.ServeHTTP(recorder, request)

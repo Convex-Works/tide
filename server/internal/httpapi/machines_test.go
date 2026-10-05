@@ -18,20 +18,20 @@ import (
 	"git.convex.works/ConvexWorks/moil/sdk/go/moil"
 	"git.convex.works/ConvexWorks/moil/sdk/go/moiltest"
 
-	"klisi/internal/api"
-	"klisi/internal/auth"
-	"klisi/internal/config"
-	"klisi/internal/store"
-	"klisi/internal/transcripts"
+	"tide/internal/api"
+	"tide/internal/auth"
+	"tide/internal/config"
+	"tide/internal/store"
+	"tide/internal/transcripts"
 )
 
-// These tests run klisi as main does: the real handler over real HTTP, with a
+// These tests run tide as main does: the real handler over real HTTP, with a
 // real SQLite store. Fake moil machines speak the real protocol to /moil, over
 // HTTP and a WebSocket, while hosts use the /machines page's JSON API with
 // real session cookies, as the SPA does.
 
 func TestPairingAMachineEndToEnd(t *testing.T) {
-	k := startKlisi(t, nil)
+	k := startTide(t, nil)
 	alice := k.signIn(auth.Session{Sub: "alice"})
 	bundle := transcribeBundle(t)
 
@@ -85,7 +85,7 @@ func TestPairingAMachineEndToEnd(t *testing.T) {
 	alice.call(http.MethodGet, fill(api.PairingPath, code), http.StatusNotFound, nil)
 
 	// The app collects its token and connects: the machine is online, and
-	// klisi offers it the very bundle the page names, for its owner to review.
+	// tide offers it the very bundle the page names, for its owner to review.
 	m.FinishPairing()
 	if m.ID() != confirmed.ID {
 		t.Fatalf("the machine was issued %q, the page confirmed %q", m.ID(), confirmed.ID)
@@ -97,7 +97,7 @@ func TestPairingAMachineEndToEnd(t *testing.T) {
 		t.Fatalf("connected machine = %#v, want idle, not approved, seen", machine)
 	}
 
-	// Its owner approves the bundle in the app; once klisi has taken the
+	// Its owner approves the bundle in the app; once tide has taken the
 	// approval in, the page says so.
 	m.Approve(bundle)
 	m.Sync()
@@ -123,7 +123,7 @@ func TestPairingAMachineEndToEnd(t *testing.T) {
 }
 
 func TestMachinesBelongToTheHostWhoConfirmed(t *testing.T) {
-	k := startKlisi(t, nil)
+	k := startTide(t, nil)
 	alice := k.signIn(auth.Session{Sub: "alice"})
 	bob := k.signIn(auth.Session{Sub: "bob"})
 	admin := k.signIn(auth.Session{Sub: "root", IsAdmin: true})
@@ -155,7 +155,7 @@ func TestMachinesBelongToTheHostWhoConfirmed(t *testing.T) {
 		t.Fatalf("the administrator sees %q", names)
 	}
 
-	// Nor can they unpair hers: klisi answers exactly as it does for a
+	// Nor can they unpair hers: tide answers exactly as it does for a
 	// machine that doesn't exist, and the machine stays paired and online.
 	unknown := bob.call(http.MethodDelete, fill(api.MachinePath, "m_nosuchmachine"), http.StatusNotFound, nil)
 	for _, other := range []*host{bob, admin} {
@@ -168,7 +168,7 @@ func TestMachinesBelongToTheHostWhoConfirmed(t *testing.T) {
 		t.Fatalf("studio = %#v, want online", machine)
 	}
 
-	// Alice unpairs it: klisi closes its channel, its token stops working,
+	// Alice unpairs it: tide closes its channel, its token stops working,
 	// and it leaves her list.
 	alice.call(http.MethodDelete, fill(api.MachinePath, studio.ID()), http.StatusNoContent, nil)
 	if closeCode := studio.WaitClosed(); closeCode != 4401 {
@@ -184,7 +184,7 @@ func TestMachinesBelongToTheHostWhoConfirmed(t *testing.T) {
 }
 
 func TestDeniedMachineIsTurnedAway(t *testing.T) {
-	k := startKlisi(t, nil)
+	k := startTide(t, nil)
 	alice := k.signIn(auth.Session{Sub: "alice"})
 	m := moiltest.New(t, k.moilURL())
 	code := m.StartPairing()
@@ -204,7 +204,7 @@ func TestDeniedMachineIsTurnedAway(t *testing.T) {
 }
 
 func TestMachineRoutesNeedASignedInBrowser(t *testing.T) {
-	k := startKlisi(t, nil)
+	k := startTide(t, nil)
 	alice := k.signIn(auth.Session{Sub: "alice"})
 	paired := alice.pair()
 	waiting := moiltest.New(t, k.moilURL())
@@ -239,7 +239,7 @@ func TestMachineRoutesNeedASignedInBrowser(t *testing.T) {
 }
 
 func TestStartingAPairingIsRateLimited(t *testing.T) {
-	k := startKlisi(t, func(cfg *config.Config, _ *http.Server) { cfg.PairRateLimit = 2 })
+	k := startTide(t, func(cfg *config.Config, _ *http.Server) { cfg.PairRateLimit = 2 })
 	alice := k.signIn(auth.Session{Sub: "alice"})
 
 	first := moiltest.New(t, k.moilURL())
@@ -275,14 +275,14 @@ func TestStartingAPairingIsRateLimited(t *testing.T) {
 	alice.machine(first.ID())
 }
 
-// Machines keep one WebSocket open for as long as they run. main serves klisi
+// Machines keep one WebSocket open for as long as they run. main serves tide
 // with read and write timeouts; hijacking the connection for the WebSocket
 // must lift them, or every machine would drop off after 30 seconds. The test
 // shortens them to a second, which is still long enough for every ordinary
 // request to beat them on a slow machine.
 func TestMachineChannelOutlivesServerTimeouts(t *testing.T) {
 	const timeout = time.Second
-	k := startKlisi(t, func(_ *config.Config, server *http.Server) {
+	k := startTide(t, func(_ *config.Config, server *http.Server) {
 		server.ReadHeaderTimeout = timeout
 		server.ReadTimeout = timeout
 		server.WriteTimeout = timeout
@@ -297,7 +297,7 @@ func TestMachineChannelOutlivesServerTimeouts(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer conn.Close()
-	fmt.Fprint(conn, "GET /healthz HTTP/1.1\r\nHost: klisi\r\n\r\n")
+	fmt.Fprint(conn, "GET /healthz HTTP/1.1\r\nHost: tide\r\n\r\n")
 	reader := bufio.NewReader(conn)
 	health, err := http.ReadResponse(reader, nil)
 	if err != nil {
@@ -306,7 +306,7 @@ func TestMachineChannelOutlivesServerTimeouts(t *testing.T) {
 	_, _ = io.Copy(io.Discard, health.Body)
 	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	if _, err := reader.ReadByte(); !errors.Is(err, io.EOF) {
-		t.Fatalf("an idle connection: %v, want klisi to close it", err)
+		t.Fatalf("an idle connection: %v, want tide to close it", err)
 	}
 
 	m := alice.pair()
@@ -314,7 +314,7 @@ func TestMachineChannelOutlivesServerTimeouts(t *testing.T) {
 	time.Sleep(3 * timeout)
 
 	// Well past them, the channel carries messages both ways: the machine's
-	// approval reaches klisi, and klisi offers it a job, assigns it and hears
+	// approval reaches tide, and tide offers it a job, assigns it and hears
 	// how it ended.
 	m.Approve(bundle)
 	m.Sync()
@@ -338,42 +338,42 @@ func TestMachineChannelOutlivesServerTimeouts(t *testing.T) {
 	}
 }
 
-// klisiServer is klisi served as main serves it, on a loopback port: New's
+// tideServer is tide served as main serves it, on a loopback port: New's
 // handler behind an http.Server with main's timeouts, run by Serve, with
 // SQLite on disk.
-type klisiServer struct {
+type tideServer struct {
 	t      *testing.T
 	cfg    config.Config
 	url    string
 	client *http.Client
 	moil   *moil.Server // nil with transcripts off
-	// db is klisi's store, at dbPath.
+	// db is tide's store, at dbPath.
 	db     *store.Store
 	dbPath string
 	// served receives what Serve returned, once it has.
 	served chan error
-	// shutdown starts stopping klisi, as a signal does in main.
+	// shutdown starts stopping tide, as a signal does in main.
 	shutdown context.CancelFunc
 }
 
-// shutdownGrace is how long the test klisi waits for requests in flight when
-// it stops. It is long, so that a test that stops klisi sees what holds it.
+// shutdownGrace is how long the test tide waits for requests in flight when
+// it stops. It is long, so that a test that stops tide sees what holds it.
 const shutdownGrace = time.Minute
 
-// startKlisi serves klisi with a fresh database. configure, if set, adjusts
-// the configuration and the HTTP server before klisi starts. The test's end
-// stops klisi, then closes the database, as main does. The rate limiters'
+// startTide serves tide with a fresh database. configure, if set, adjusts
+// the configuration and the HTTP server before tide starts. The test's end
+// stops tide, then closes the database, as main does. The rate limiters'
 // clock stands still until then.
-func startKlisi(t *testing.T, configure func(*config.Config, *http.Server)) *klisiServer {
+func startTide(t *testing.T, configure func(*config.Config, *http.Server)) *tideServer {
 	t.Helper()
 	db, dbPath := openStore(t)
-	return startKlisiOn(t, db, dbPath, configure)
+	return startTideOn(t, db, dbPath, configure)
 }
 
 // openStore opens a fresh database, which the test's end closes.
 func openStore(t *testing.T) (*store.Store, string) {
 	t.Helper()
-	dbPath := filepath.Join(t.TempDir(), "klisi.db")
+	dbPath := filepath.Join(t.TempDir(), "tide.db")
 	db, err := store.Open(dbPath)
 	if err != nil {
 		t.Fatal(err)
@@ -386,11 +386,11 @@ func openStore(t *testing.T) (*store.Store, string) {
 	return db, dbPath
 }
 
-// startKlisiOn is startKlisi on a database the test opened with openStore.
-func startKlisiOn(t *testing.T, db *store.Store, dbPath string, configure func(*config.Config, *http.Server)) *klisiServer {
+// startTideOn is startTide on a database the test opened with openStore.
+func startTideOn(t *testing.T, db *store.Store, dbPath string, configure func(*config.Config, *http.Server)) *tideServer {
 	t.Helper()
 	stopLimiterClock(t)
-	// The listener comes first, so that klisi knows the base URL it's
+	// The listener comes first, so that tide knows the base URL it's
 	// served at, and tells machines the moil URL they can reach.
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -419,7 +419,7 @@ func startKlisiOn(t *testing.T, db *store.Store, dbPath string, configure func(*
 	}
 	server.Handler = handler
 	ctx, shutdown := context.WithCancel(context.Background())
-	k := &klisiServer{
+	k := &tideServer{
 		t: t, cfg: cfg, url: url, moil: background.transcripts.moilServer(), db: db, dbPath: dbPath,
 		client:   &http.Client{Transport: &http.Transport{}, Timeout: 10 * time.Second},
 		served:   make(chan error, 1),
@@ -429,7 +429,7 @@ func startKlisiOn(t *testing.T, db *store.Store, dbPath string, configure func(*
 	t.Cleanup(func() {
 		k.client.CloseIdleConnections()
 		if err := k.stop(); err != nil {
-			t.Errorf("klisi stopped with %v", err)
+			t.Errorf("tide stopped with %v", err)
 		}
 	})
 	return k
@@ -444,19 +444,19 @@ func (f *transcriptsFeature) moilServer() *moil.Server {
 	return f.moil
 }
 
-// stop stops klisi, if the test hasn't, and returns what Serve returned.
-func (k *klisiServer) stop() error {
+// stop stops tide, if the test hasn't, and returns what Serve returned.
+func (k *tideServer) stop() error {
 	k.shutdown()
 	err, stopped := k.stopped(shutdownGrace + 30*time.Second)
 	if !stopped {
-		k.t.Fatal("klisi never stopped")
+		k.t.Fatal("tide never stopped")
 	}
 	return err
 }
 
 // stopped waits up to within for Serve to return, and says whether it did
 // and what it returned.
-func (k *klisiServer) stopped(within time.Duration) (error, bool) {
+func (k *tideServer) stopped(within time.Duration) (error, bool) {
 	select {
 	case err := <-k.served:
 		k.served <- err // for the next caller
@@ -474,7 +474,7 @@ func stopLimiterClock(t *testing.T) {
 	t.Cleanup(func() { limiterClock = time.Now })
 }
 
-// transcribeBundle is the bundle main hands klisi.
+// transcribeBundle is the bundle main hands tide.
 func transcribeBundle(t *testing.T) *moil.Bundle {
 	t.Helper()
 	bundle, err := transcripts.Bundle()
@@ -484,18 +484,18 @@ func transcribeBundle(t *testing.T) *moil.Bundle {
 	return bundle
 }
 
-func (k *klisiServer) moilURL() string { return k.url + api.MoilBasePath }
+func (k *tideServer) moilURL() string { return k.url + api.MoilBasePath }
 
 // request sends a browser's request: with the session cookie, if any, and
 // the CSRF header the SPA adds, if csrf.
-func (k *klisiServer) request(method, path, body string, cookie *http.Cookie, csrf bool) (int, http.Header, string) {
+func (k *tideServer) request(method, path, body string, cookie *http.Cookie, csrf bool) (int, http.Header, string) {
 	k.t.Helper()
 	return k.requestFrom("", method, path, body, cookie, csrf)
 }
 
 // requestFrom is request from a client at address, as the reverse proxy in
-// front of klisi forwards it, or from the test itself if address is "".
-func (k *klisiServer) requestFrom(address, method, path, body string, cookie *http.Cookie, csrf bool) (int, http.Header, string) {
+// front of tide forwards it, or from the test itself if address is "".
+func (k *tideServer) requestFrom(address, method, path, body string, cookie *http.Cookie, csrf bool) (int, http.Header, string) {
 	k.t.Helper()
 	request, err := http.NewRequest(method, k.url+path, strings.NewReader(body))
 	if err != nil {
@@ -511,7 +511,7 @@ func (k *klisiServer) requestFrom(address, method, path, body string, cookie *ht
 		request.AddCookie(cookie)
 	}
 	if csrf {
-		request.Header.Set("X-Klisi-Csrf", "1")
+		request.Header.Set("X-Tide-Csrf", "1")
 	}
 	response, err := k.client.Do(request)
 	if err != nil {
@@ -527,19 +527,19 @@ func (k *klisiServer) requestFrom(address, method, path, body string, cookie *ht
 
 // A host is a signed-in browser on the /machines page.
 type host struct {
-	k      *klisiServer
+	k      *tideServer
 	sub    string
 	cookie *http.Cookie
-	// from is the host's address, as klisi's reverse proxy forwards it, or
+	// from is the host's address, as tide's reverse proxy forwards it, or
 	// "" for the test's own.
 	from string
 }
 
-func (k *klisiServer) signIn(session auth.Session) *host {
+func (k *tideServer) signIn(session auth.Session) *host {
 	return &host{k: k, sub: session.Sub, cookie: makeSessionCookie(k.t, k.cfg, session)}
 }
 
-// call makes a request as the SPA does, fails the test unless klisi answers
+// call makes a request as the SPA does, fails the test unless tide answers
 // want without letting the answer be cached, decodes the answer into out if
 // set, and returns it.
 func (h *host) call(method, path string, want int, out any) string {
@@ -579,7 +579,7 @@ func (h *host) machine(id string) api.MachineInfo {
 }
 
 // waitForMachine waits until the page shows one of the host's machines as
-// ready says, for what klisi learns without the machine's word, such as its
+// ready says, for what tide learns without the machine's word, such as its
 // connection dropping.
 func (h *host) waitForMachine(id, what string, ready func(api.MachineInfo) bool) {
 	h.k.t.Helper()

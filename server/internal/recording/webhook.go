@@ -10,8 +10,8 @@ import (
 
 	protocol "github.com/livekit/protocol/livekit"
 
-	"klisi/internal/httpx"
-	"klisi/internal/store"
+	"tide/internal/httpx"
+	"tide/internal/store"
 )
 
 // maxWebhookBody bounds the request body read by the LiveKit receiver, which

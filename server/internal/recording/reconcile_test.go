@@ -10,8 +10,8 @@ import (
 
 	protocol "github.com/livekit/protocol/livekit"
 
-	"klisi/internal/auth"
-	"klisi/internal/store"
+	"tide/internal/auth"
+	"tide/internal/store"
 )
 
 func insertRecording(t *testing.T, handler *Handler, room store.Room, id, egressID, status string, startedAt int64) store.Recording {

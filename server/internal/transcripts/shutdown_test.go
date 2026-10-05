@@ -7,18 +7,18 @@ import (
 	"testing"
 	"time"
 
-	"klisi/internal/store"
+	"tide/internal/store"
 )
 
-// Stopping klisi records the ends of the jobs machines finished for up to
+// Stopping tide records the ends of the jobs machines finished for up to
 // its stop grace in all, not for up to two minutes each: storage or the
-// database hanging holds klisi's exit up only so long. The ends it couldn't
+// database hanging holds tide's exit up only so long. The ends it couldn't
 // record leave their rows pending, and the next start submits them again.
 func TestStoppingIsBoundedWhileStorageOrTheDatabaseHangs(t *testing.T) {
 	const jobs = 4
 	for _, test := range []struct {
 		name string
-		// hang makes storage or the database hang as klisi stops, until
+		// hang makes storage or the database hang as tide stops, until
 		// release. The jobs are finished by then.
 		hang func(e *env) (release func())
 		// within is how long stopping may take with a stop grace of 200 ms.
@@ -50,7 +50,7 @@ func TestStoppingIsBoundedWhileStorageOrTheDatabaseHangs(t *testing.T) {
 			}
 			if locked {
 				// Every end has failed to be recorded once, then the
-				// database locks up as klisi stops.
+				// database locks up as tide stops.
 				waitFor(t, "the ends to fail to be recorded", func() bool { return e.s3.Calls(opStat) >= 4*jobs })
 				release = e.lockDatabase(`DROP TRIGGER refuse_ends`)
 			}
@@ -64,15 +64,15 @@ func TestStoppingIsBoundedWhileStorageOrTheDatabaseHangs(t *testing.T) {
 			select {
 			case <-stopped:
 			case <-time.After(30 * time.Second):
-				t.Fatal("klisi didn't stop in 30 s")
+				t.Fatal("tide didn't stop in 30 s")
 			}
 			if took := time.Since(stopping); took > test.within {
-				t.Fatalf("klisi took %v to stop, want at most %v", took, test.within)
+				t.Fatalf("tide took %v to stop, want at most %v", took, test.within)
 			}
 			release()
 			for _, rec := range recordings {
 				if row, ok := e.row(rec); !ok || row.Status != "pending" {
-					t.Fatalf("row of %s after klisi stopped = %+v, %t", rec.ID, row, ok)
+					t.Fatalf("row of %s after tide stopped = %+v, %t", rec.ID, row, ok)
 				}
 			}
 

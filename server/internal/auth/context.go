@@ -3,7 +3,7 @@ package auth
 import (
 	"context"
 
-	"klisi/internal/auth/sessionctx"
+	"tide/internal/auth/sessionctx"
 )
 
 func WithSession(ctx context.Context, session Session) context.Context {

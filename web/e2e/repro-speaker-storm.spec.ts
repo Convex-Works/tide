@@ -66,7 +66,7 @@ test('remote feeds survive an active-speaker event storm', async () => {
     // Simulate a lively conversation: the speaker set flips ~6x/second for 6s,
     // as LiveKit reports alternating speech.
     await alice.evaluate(async () => {
-      const room = (window as any).__klisiRoom;
+      const room = (window as any).__tideRoom;
       const remotes = [...room.remoteParticipants.values()];
       const local = room.localParticipant;
       for (let i = 0; i < 40; i++) {

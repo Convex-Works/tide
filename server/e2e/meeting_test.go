@@ -10,25 +10,25 @@ import (
 	"testing"
 	"time"
 
-	"klisi/internal/api"
-	"klisi/internal/transcripts"
+	"tide/internal/api"
+	"tide/internal/transcripts"
 )
 
 // transcriptLine is a line of the real bundle's plain-text transcript:
 // "[00:01:02] Speaker 2: Shall we start?".
 var transcriptLine = regexp.MustCompile(`^\[\d\d:\d\d:\d\d\] Speaker \d+: \S`)
 
-// TestARealMeetingIsTranscribed runs the transcribe bundle klisi publishes,
+// TestARealMeetingIsTranscribed runs the transcribe bundle tide publishes,
 // with its real models, on a real meeting recording, from the recording's
-// end to the transcript's download. It runs only when KLISI_E2E_MEETING
+// end to the transcript's download. It runs only when TIDE_E2E_MEETING
 // names an audio file. The machine's first transcript downloads 2.9 GB of
-// models; KLISI_E2E_MOIL_CACHE can name a moil cache that already holds
+// models; TIDE_E2E_MOIL_CACHE can name a moil cache that already holds
 // them, such as ~/Library/Caches/moil, where `moil run` keeps its own.
-// KLISI_E2E_MEETING_SPEAKERS, if set, is how many speakers it must find.
+// TIDE_E2E_MEETING_SPEAKERS, if set, is how many speakers it must find.
 func TestARealMeetingIsTranscribed(t *testing.T) {
-	meeting := os.Getenv("KLISI_E2E_MEETING")
+	meeting := os.Getenv("TIDE_E2E_MEETING")
 	if meeting == "" {
-		t.Skip("set KLISI_E2E_MEETING to a meeting recording to transcribe it with the real bundle")
+		t.Skip("set TIDE_E2E_MEETING to a meeting recording to transcribe it with the real bundle")
 	}
 	audio, err := os.ReadFile(meeting)
 	if err != nil {
@@ -38,10 +38,10 @@ func TestARealMeetingIsTranscribed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	k := startKlisiWith(t, transcribe)
+	k := startTideWith(t, transcribe)
 	alice := k.signIn("alice")
 	studio := newMachine(t, "alice-studio")
-	if cache := os.Getenv("KLISI_E2E_MOIL_CACHE"); cache != "" {
+	if cache := os.Getenv("TIDE_E2E_MOIL_CACHE"); cache != "" {
 		studio.shareCache(cache)
 	}
 	studio.Pair(alice)
@@ -62,7 +62,7 @@ func TestARealMeetingIsTranscribed(t *testing.T) {
 		return info != nil && info.Status == api.TranscriptCompleted
 	})
 	t.Logf("transcribed %s in %s, finding %d speakers", filepath.Base(meeting), time.Since(started).Round(time.Second), *info.Speakers)
-	if want := os.Getenv("KLISI_E2E_MEETING_SPEAKERS"); want != "" {
+	if want := os.Getenv("TIDE_E2E_MEETING_SPEAKERS"); want != "" {
 		if n, _ := strconv.Atoi(want); *info.Speakers != n {
 			t.Errorf("found %d speakers, want %d", *info.Speakers, n)
 		}

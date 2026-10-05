@@ -10,11 +10,11 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"klisi/internal/api"
-	"klisi/internal/auth"
-	"klisi/internal/httpx"
-	"klisi/internal/recording"
-	"klisi/internal/store"
+	"tide/internal/api"
+	"tide/internal/auth"
+	"tide/internal/httpx"
+	"tide/internal/recording"
+	"tide/internal/store"
 )
 
 // maxNameLength is the longest room name, in characters (runes), not bytes:

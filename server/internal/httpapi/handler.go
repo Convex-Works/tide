@@ -13,16 +13,16 @@ import (
 
 	"git.convex.works/ConvexWorks/moil/sdk/go/moil"
 
-	"klisi/internal/api"
-	"klisi/internal/auth"
-	"klisi/internal/config"
-	"klisi/internal/httpx"
-	klisilivekit "klisi/internal/livekit"
-	"klisi/internal/lobby"
-	"klisi/internal/moderation"
-	"klisi/internal/recording"
-	"klisi/internal/rooms"
-	"klisi/internal/store"
+	"tide/internal/api"
+	"tide/internal/auth"
+	"tide/internal/config"
+	"tide/internal/httpx"
+	tidelivekit "tide/internal/livekit"
+	"tide/internal/lobby"
+	"tide/internal/moderation"
+	"tide/internal/recording"
+	"tide/internal/rooms"
+	"tide/internal/store"
 )
 
 type Handler struct {
@@ -33,8 +33,8 @@ type Handler struct {
 	lobby       *lobby.Handler
 	moderation  *moderation.Handler
 	recording   *recording.Handler
-	transcripts *transcriptsFeature // nil when KLISI_TRANSCRIPTS is off
-	minter      *klisilivekit.Minter
+	transcripts *transcriptsFeature // nil when TIDE_TRANSCRIPTS is off
+	minter      *tidelivekit.Minter
 }
 
 // Background is the work main runs beside the HTTP server: the reconciler
@@ -44,7 +44,7 @@ type Handler struct {
 // connect to. Serve runs it and stops it in order.
 type Background struct {
 	recording   *recording.Handler
-	transcripts *transcriptsFeature // nil when KLISI_TRANSCRIPTS is off
+	transcripts *transcriptsFeature // nil when TIDE_TRANSCRIPTS is off
 	// lobby's streams end when the HTTP server shuts down.
 	lobby *lobby.Handler
 }
@@ -76,7 +76,7 @@ func (b *Background) Close() error {
 // when cfg.Transcripts is on, and may be nil when it is off.
 func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.Bundle) (http.Handler, *Background, error) {
 	sessions := auth.NewSessions(cfg.SessionSecret, cfg.BaseURL, roomStore)
-	minter := klisilivekit.NewMinter(cfg)
+	minter := tidelivekit.NewMinter(cfg)
 	registry := lobby.NewRegistry(lobby.DefaultRequestTTL)
 	ips := newClientIPResolver(cfg.TrustedProxies)
 	joinRate := orDefault(cfg.JoinRateLimit, config.DefaultJoinRateLimit)
@@ -271,7 +271,7 @@ func (h *Handler) requireAuth(next http.Handler) http.Handler {
 // HttpOnly SameSite=Lax session cookie supplies the remaining current defense.
 func (h *Handler) csrf(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Klisi-Csrf") != "1" {
+		if r.Header.Get("X-Tide-Csrf") != "1" {
 			httpx.WriteError(w, http.StatusForbidden, "Missing CSRF header.")
 			return
 		}

@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Serve runs klisi: server, whose handler New built, on listener, and
+// Serve runs tide: server, whose handler New built, on listener, and
 // background beside it, until ctx is done or the server fails. Then it stops
 // them in the order that lets each finish what it started:
 //
@@ -51,13 +51,13 @@ func Serve(ctx context.Context, server *http.Server, listener net.Listener, back
 		if errors.Is(err, http.ErrServerClosed) {
 			err = nil // someone else shut it down
 		} else {
-			log.Printf("klisi: serving failed: %v", err)
+			log.Printf("tide: serving failed: %v", err)
 		}
 	}
 
 	shutdownCtx, cancelShutdown := context.WithTimeout(context.WithoutCancel(ctx), grace)
 	if shutdownErr := server.Shutdown(shutdownCtx); shutdownErr != nil {
-		log.Printf("klisi: cutting off requests still running after %s: %v", grace, shutdownErr)
+		log.Printf("tide: cutting off requests still running after %s: %v", grace, shutdownErr)
 		_ = server.Close()
 	}
 	cancelShutdown()
@@ -69,7 +69,7 @@ func Serve(ctx context.Context, server *http.Server, listener net.Listener, back
 
 	stopRun()
 	if closeErr := background.Close(); closeErr != nil {
-		log.Printf("klisi: close moil: %v", closeErr)
+		log.Printf("tide: close moil: %v", closeErr)
 	}
 	<-ran
 	return err

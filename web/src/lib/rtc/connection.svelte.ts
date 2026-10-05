@@ -12,6 +12,6 @@ export function setConnectionChrome(state: HairlineState): void {
 
 // Dev-only test hook: lets e2e specs drive the chrome deterministically.
 if (import.meta.env.DEV && typeof window !== 'undefined') {
-  (window as Window & { __klisiChrome?: typeof setConnectionChrome }).__klisiChrome =
+  (window as Window & { __tideChrome?: typeof setConnectionChrome }).__tideChrome =
     setConnectionChrome;
 }

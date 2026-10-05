@@ -12,11 +12,11 @@ import (
 
 	"git.convex.works/ConvexWorks/moil/sdk/go/moil"
 
-	klisi "klisi"
-	"klisi/internal/config"
-	"klisi/internal/httpapi"
-	"klisi/internal/store"
-	"klisi/internal/transcripts"
+	tide "tide"
+	"tide/internal/config"
+	"tide/internal/httpapi"
+	"tide/internal/store"
+	"tide/internal/transcripts"
 )
 
 // shutdownGrace bounds how long a stopping server waits for requests in
@@ -33,16 +33,16 @@ func main() {
 	go func() {
 		<-ctx.Done()
 		// Give the signals back to the runtime, so that a second one stops
-		// klisi at once, as it would any program.
+		// tide at once, as it would any program.
 		stop()
-		log.Print("klisi: stopping; a second signal stops it at once")
+		log.Print("tide: stopping; a second signal stops it at once")
 	}()
 	if err := run(ctx, cfg); err != nil {
 		log.Fatal(err)
 	}
 }
 
-// run serves klisi until ctx is done, then stops it as httpapi.Serve says,
+// run serves tide until ctx is done, then stops it as httpapi.Serve says,
 // and closes the database last, once nothing uses it.
 func run(ctx context.Context, cfg config.Config) error {
 	if cfg.DevMode {
@@ -58,18 +58,18 @@ func run(ctx context.Context, cfg config.Config) error {
 		}
 	}()
 	// Transcripts are off unless the operator turns them on
-	// (ARCHITECTURE.md §8.1); only then does klisi need the bundle.
+	// (ARCHITECTURE.md §8.1); only then does tide need the bundle.
 	var transcribe *moil.Bundle
 	if cfg.Transcripts {
-		log.Print("klisi: transcripts are on: machines can pair through moil at /moil")
+		log.Print("tide: transcripts are on: machines can pair through moil at /moil")
 		transcribe, err = transcripts.Bundle()
 		if err != nil {
 			return fmt.Errorf("load the transcribe bundle: %w", err)
 		}
 	} else {
-		log.Print("klisi: transcripts are off (set KLISI_TRANSCRIPTS=true to turn them on)")
+		log.Print("tide: transcripts are off (set TIDE_TRANSCRIPTS=true to turn them on)")
 	}
-	apiHandler, background, err := httpapi.New(cfg, klisi.WebFS(), db, transcribe)
+	apiHandler, background, err := httpapi.New(cfg, tide.WebFS(), db, transcribe)
 	if err != nil {
 		return err
 	}
@@ -88,6 +88,6 @@ func run(ctx context.Context, cfg config.Config) error {
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
 	}
-	log.Printf("klisi listening on %s", listener.Addr())
+	log.Printf("tide listening on %s", listener.Addr())
 	return httpapi.Serve(ctx, server, listener, background, shutdownGrace)
 }

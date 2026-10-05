@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"klisi/internal/api"
-	"klisi/internal/store"
+	"tide/internal/api"
+	"tide/internal/store"
 )
 
 // Deleting a recording succeeds while storage refuses to remove anything,
@@ -100,7 +100,7 @@ func TestAnOversizedTranscriptIsRefused(t *testing.T) {
 	a.Output("transcript.vtt", append(bytes.Repeat([]byte("v"), 16<<20), 'v'))
 	a.Succeed(map[string]any{"speakers": 2})
 	info := e.waitStatus(room, rec, api.TranscriptFailed)
-	if info.Error != "The transcript the machine uploaded is larger than 16 MiB, more than klisi keeps. Try again." {
+	if info.Error != "The transcript the machine uploaded is larger than 16 MiB, more than tide keeps. Try again." {
 		t.Fatalf("error = %q", info.Error)
 	}
 	for _, key := range []string{txtKey, vttKey} {
@@ -163,9 +163,9 @@ func TestAReplayedURLCantReplaceATranscript(t *testing.T) {
 	}
 }
 
-// A transcript whose files klisi is still checking when it starts to stop
+// A transcript whose files tide is still checking when it starts to stop
 // is kept: recording a run's end goes on, storage included, until it's done.
-func TestATranscriptThatEndsAsKlisiStopsIsKept(t *testing.T) {
+func TestATranscriptThatEndsAsTideStopsIsKept(t *testing.T) {
 	e := newEnv(t)
 	room := e.room("alice", "Standup")
 	machine := e.machine("alice")
@@ -179,7 +179,7 @@ func TestATranscriptThatEndsAsKlisiStopsIsKept(t *testing.T) {
 	stat.Release()
 	e.waitService()
 	if row, ok := e.row(rec); !ok || row.Status != "completed" || row.Speakers == nil || *row.Speakers != 2 {
-		t.Fatalf("row after klisi stopped = %+v, %t", row, ok)
+		t.Fatalf("row after tide stopped = %+v, %t", row, ok)
 	}
 	txtKey, _ := sidecars(rec)
 	if got, _ := e.s3.Object(txtKey); !bytes.Equal(got, txt) {
@@ -187,7 +187,7 @@ func TestATranscriptThatEndsAsKlisiStopsIsKept(t *testing.T) {
 	}
 }
 
-// klisi copies only the file it checked: a machine that replaces its upload
+// tide copies only the file it checked: a machine that replaces its upload
 // between the check and the copy, with the URL it still holds, gets it
 // checked again, and refused.
 func TestAFileReplacedAfterItsCheckIsntCopied(t *testing.T) {
@@ -210,7 +210,7 @@ func TestAFileReplacedAfterItsCheckIsntCopied(t *testing.T) {
 		row, ok := e.row(rec)
 		return ok && row.Status == "failed"
 	})
-	if row, _ := e.row(rec); row.Error != "The transcript the machine uploaded is larger than 16 MiB, more than klisi keeps. Try again." {
+	if row, _ := e.row(rec); row.Error != "The transcript the machine uploaded is larger than 16 MiB, more than tide keeps. Try again." {
 		t.Fatalf("error = %q", row.Error)
 	}
 	txtKey, _ := sidecars(rec)
@@ -219,7 +219,7 @@ func TestAFileReplacedAfterItsCheckIsntCopied(t *testing.T) {
 	}
 }
 
-// A recording deleted while klisi copies its transcript beside it, after
+// A recording deleted while tide copies its transcript beside it, after
 // the deletion removed its files, doesn't keep the copies.
 func TestATranscriptCopiedAsItsRecordingIsDeletedIsRemoved(t *testing.T) {
 	e := newEnv(t)

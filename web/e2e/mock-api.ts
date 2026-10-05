@@ -32,7 +32,7 @@ import {
   type TranscriptInfo
 } from '../src/lib/api/types.gen';
 
-// An in-memory klisi API for specs that run against the Vite dev server
+// An in-memory tide API for specs that run against the Vite dev server
 // alone: every /api request is answered here, from `state`, and recorded in
 // `calls`. Nothing reaches the proxy, so a request the mock doesn't know is
 // a 501 the spec can see. It answers the way the server does
@@ -70,7 +70,7 @@ export const wireNull = null as unknown as undefined;
  * Where the mock's join answers send livekit-client. Nothing listens there:
  * a spec that goes past pre-join answers it with `fakeSfu` (fake-sfu.ts).
  */
-export const fakeSfuURL = 'ws://sfu.klisi.test';
+export const fakeSfuURL = 'ws://sfu.tide.test';
 
 /** A join token for the fake SFU: unsigned, it only carries who joined. */
 function fakeToken(identity: string, name: string): string {
@@ -125,7 +125,7 @@ export function recording(
 export function defaultState(): ApiState {
   return {
     signedIn: true,
-    me: { sub: 'host', email: 'host@klisi.dev', name: 'Ada Host', transcripts: true },
+    me: { sub: 'host', email: 'host@tide.dev', name: 'Ada Host', transcripts: true },
     rooms: [
       {
         id: 'r-standup',
@@ -143,7 +143,7 @@ export function defaultState(): ApiState {
     machines: {
       machines: [],
       bundle,
-      moil_url: 'https://klisi.example.com/moil',
+      moil_url: 'https://tide.example.com/moil',
       app_url: 'https://git.convex.works/ConvexWorks/moil/releases/latest'
     },
     pairings: {}
@@ -235,14 +235,14 @@ export async function mockApi(page: Page, state: ApiState = defaultState()): Pro
     const url = new URL(request.url());
     const method = request.method();
     const path = url.pathname;
-    calls.push({ method, path, search: url.search, csrf: request.headers()['x-klisi-csrf'] });
+    calls.push({ method, path, search: url.search, csrf: request.headers()['x-tide-csrf'] });
 
     const json = (status: number, body: unknown) =>
       route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
     const empty = (status: number) => route.fulfill({ status, body: '' });
 
     const mutating = method !== 'GET';
-    if (mutating && request.headers()['x-klisi-csrf'] !== '1') {
+    if (mutating && request.headers()['x-tide-csrf'] !== '1') {
       return json(403, { error: 'Missing CSRF header.' });
     }
 
@@ -303,7 +303,7 @@ export async function mockApi(page: Page, state: ApiState = defaultState()): Pro
       );
     }
 
-    // With transcripts off (KLISI_TRANSCRIPTS) the server registers none of
+    // With transcripts off (TIDE_TRANSCRIPTS) the server registers none of
     // these routes, so each is the API's catch-all 404, whatever the method.
     const transcriptRoutes = [
       MachinesPath,

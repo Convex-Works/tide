@@ -1,6 +1,6 @@
-# klisi — Architecture
+# tide — Architecture
 
-klisi is a lean, self-hosted video meeting product. It does few things well:
+tide is a lean, self-hosted video meeting product. It does few things well:
 meeting URLs, host auth (OIDC), a guest lobby, mic/cam/screen controls, device
 selection, a participant list with moderation, reconnection, ephemeral chat, and
 Zoom-like server-orchestrated recording with recording management, including
@@ -10,13 +10,13 @@ Everything else is out of scope by design. Feature restraint is the product.
 
 ## 1. Principles
 
-- **Lean to run.** Production is four processes: the klisi binary, LiveKit,
+- **Lean to run.** Production is four processes: the tide binary, LiveKit,
   Redis, and the Egress worker. No Node runtime in production.
 - **The media plane is not ours.** LiveKit owns WebRTC, simulcast, reconnection,
-  and recording capture. klisi owns *policy*: who gets a token, with which
+  and recording capture. tide owns *policy*: who gets a token, with which
   grants, and what happens around the meeting.
 - **Authorization is the token.** Every capability a client has (join, publish,
-  screenshare, admin) is a grant inside a LiveKit JWT minted by the klisi
+  screenshare, admin) is a grant inside a LiveKit JWT minted by the tide
   server. There is no client-asserted role anywhere.
 - **One source of truth per type.** API types are defined once in Go and
   generated into TypeScript. CI fails on drift.
@@ -29,7 +29,7 @@ Everything else is out of scope by design. Feature restraint is the product.
 
 ```
 ┌──────────────────────┐   HTTPS (SPA + /api + SSE)   ┌───────────────────────────┐
-│  Browser             │◄────────────────────────────►│  klisi server (Go binary)  │
+│  Browser             │◄────────────────────────────►│  tide server (Go binary)  │
 │  SvelteKit SPA       │                              │  · serves embedded SPA     │
 │  livekit-client      │                              │  · OIDC + sessions        │
 └──────────┬───────────┘                              │  · token minting          │
@@ -54,7 +54,7 @@ Everything else is out of scope by design. Feature restraint is the product.
 
 | Component | What it is | What it owns |
 |---|---|---|
-| **klisi server** | Single Go binary, embeds the built SPA via `embed.FS` | Auth, sessions, rooms, tokens, lobby, moderation API, recording lifecycle + management, webhooks, the moil service side (pairing, transcript jobs) |
+| **tide server** | Single Go binary, embeds the built SPA via `embed.FS` | Auth, sessions, rooms, tokens, lobby, moderation API, recording lifecycle + management, webhooks, the moil service side (pairing, transcript jobs) |
 | **LiveKit server** | Stateless Go binary (upstream, Apache 2.0) | All media: SFU, simulcast, adaptive streaming, ICE, reconnection/resume |
 | **Egress worker** | Upstream worker service (headless Chrome + GStreamer) | Renders our composite layout page, encodes OGG audio or MP4 video, writes directly to S3 |
 | **Redis** | Required by LiveKit once Egress runs | Egress job queue, LiveKit node state |
@@ -75,9 +75,9 @@ and only then closes the database. A second signal stops it at once.
 ## 3. Repository layout
 
 ```
-klisi/
-  server/                  Go module (module klisi)
-    cmd/klisi/main.go      entrypoint: config, embed, serve
+tide/
+  server/                  Go module (module tide)
+    cmd/tide/main.go      entrypoint: config, embed, serve
     internal/
       api/                 request/response types  ← tygo source of truth
       httpapi/             route handlers, middleware, SSE
@@ -111,7 +111,7 @@ klisi/
 ## 4. Identity, auth, and the token model
 
 **Hosts** authenticate with any OIDC provider (authorization code flow,
-config-driven: issuer, client ID/secret, redirect URL). On callback, the klisi
+config-driven: issuer, client ID/secret, redirect URL). On callback, the tide
 server creates a session: an HttpOnly, Secure, SameSite=Lax cookie containing an
 HMAC-signed payload (subject, email, name, global-admin capability, expiry). No
 session table. Optional comma-separated user and administrator group policies
@@ -121,7 +121,7 @@ can manage every room; ordinary hosts manage rooms they own.
 **Guests** never authenticate. They exist only as a display name typed on the
 pre-join screen and admitted through the lobby.
 
-**LiveKit access tokens** are minted exclusively by the klisi server:
+**LiveKit access tokens** are minted exclusively by the tide server:
 
 | Grant | Host | Guest |
 |---|---|---|
@@ -159,7 +159,7 @@ display name travels in the token's `name` field.
   the room downloads `<slug>.ics`, a single-`VEVENT` iCalendar file built in
   the browser (times in UTC, the meeting URL as `URL` and `LOCATION`, the
   room name as `SUMMARY`). Each room card also has **Add to calendar…**,
-  since rooms are reusable. klisi stores no times, sends no reminders and
+  since rooms are reusable. tide stores no times, sends no reminders and
   syncs no calendar; scheduling on the server is a later decision (§17).
 - Any authenticated host can create rooms; the creator is the room's owner.
   Rooms are persistent (reusable URLs), meetings are implicit sessions within
@@ -167,11 +167,11 @@ display name travels in the token's `name` field.
 
 ## 6. Guest lobby
 
-The lobby lives entirely in the klisi server, in memory. LiveKit is never
+The lobby lives entirely in the tide server, in memory. LiveKit is never
 involved — an unadmitted guest has no token and cannot touch the media plane.
 
 ```
-guest                          klisi server                       host
+guest                          tide server                       host
   │ POST /api/rooms/:slug/join     │                                │
   │  {name}                        │                                │
   │◄── {request_id} ───────────────│                                │
@@ -215,11 +215,11 @@ to the egress job, not to any participant's tab.
    our **layout URL**. Audio-only recordings use OGG; video composites use MP4.
    The S3 destination and identifying recording metadata travel in every egress
    request; its worker-visible endpoint is configured by
-   `KLISI_S3_EGRESS_ENDPOINT`.
+   `TIDE_S3_EGRESS_ENDPOINT`.
 2. The layout is a route of our own SPA (`/egress-template`) implementing
    LiveKit's egress template contract (it receives `url`, `token`, `layout`
    query params and joins as a hidden subscriber). Recordings therefore use
-   klisi's own tile design — same components as the live room. In development,
+   tide's own tile design — same components as the live room. In development,
    Egress loads the route through Vite at `host.docker.internal`; Vite admits
    that hostname through `server.allowedHosts`.
 3. Egress lifecycle webhooks (`egress_started/updated/ended`) hit
@@ -239,13 +239,13 @@ egress failure (status `failed`, surfaced in management UI — never silent).
 
 A completed recording can carry a transcript with speaker labels. It is made by
 [moil](https://git.convex.works/ConvexWorks/moil) on a computer the **room's
-owner** paired with klisi — never on the server, and never on anyone else's
+owner** paired with tide — never on the server, and never on anyone else's
 machine. The owner can already download the recording, so transcription adds
 no new reader of the audio.
 
 **Off unless the operator turns it on.** moil is alpha (macOS only, unsigned,
-no sandbox), so transcripts are behind `KLISI_TRANSCRIPTS` (§12), default
-`false`. When it is off, klisi starts no moil server and no transcript
+no sandbox), so transcripts are behind `TIDE_TRANSCRIPTS` (§12), default
+`false`. When it is off, tide starts no moil server and no transcript
 reconciler, registers none of the machine, pairing, transcript or `/moil/`
 routes (they answer 404 like any unknown path), never fills
 `RecordingInfo.transcript`, and reports `transcripts: false` on `/api/me` so
@@ -263,7 +263,7 @@ because time kept passing and recordings kept ending:
 
 Deleting a recording or room while it is off still removes that recording's
 transcript files (`object_removals`, below), so no object outlives its
-recording. Everything below describes klisi with it on.
+recording. Everything below describes tide with it on.
 
 **Machines.** A signed-in host pairs a computer running the moil app with
 moil's device flow (RFC 8628): the app shows a code and opens
@@ -272,17 +272,17 @@ moil address the app must be pairing with, and confirms. The confirming
 session's `sub` becomes the machine's owner; nothing in the request body can
 name another. The moil SDK
 (`server/third_party/moil`) serves the machine side of the protocol under
-`/moil/` — the moil base URL is `<KLISI_BASE_URL>/moil` — and each machine keeps
+`/moil/` — the moil base URL is `<TIDE_BASE_URL>/moil` — and each machine keeps
 one WebSocket open to `/moil/v1/connect`. Paired machines live in the
 `machines` table, which stores only the SHA-256 of a machine's token. `/machines`
 lists the host's own machines and unpairs them. A host with no machine sees
 three steps there instead: get the moil app (its latest release, which the moil
 SDK names as `moil.AppURL`), pair it, and approve the transcribe bundle, by
 name, version and the hash prefix the app shows. A machine is `idle`, `busy`,
-`paused` or `offline`; a state klisi doesn't know, which only a newer moil SDK
+`paused` or `offline`; a state tide doesn't know, which only a newer moil SDK
 could report, shows as `busy`, since moil offers jobs only to idle machines.
 
-**The bundle.** klisi publishes one moil bundle, `transcribe` (Nemotron 3
+**The bundle.** tide publishes one moil bundle, `transcribe` (Nemotron 3
 Diarization and Parakeet TDT 0.6B v3), vendored in
 `server/internal/transcripts/bundle/` and embedded in the binary. Machine
 owners read and approve it by hash in the moil app. A test pins that hash: a
@@ -306,7 +306,7 @@ is deleted, a transcript is requested):
 3. It cancels every job whose row is gone or no longer `pending`.
 
 A job's title is the room's name, and its params are the recording's times,
-from its row (§8): `started_at`, when klisi started it; `ended_at`, when
+from its row (§8): `started_at`, when tide started it; `ended_at`, when
 egress ended it; and `duration_s`, its file's length in whole seconds, which
 can be a little shorter than the time between. Times are written as moil
 writes them, RFC 3339 in UTC to the second. A time the recording doesn't have
@@ -317,7 +317,7 @@ is left out: egress may not say when a recording ended.
 ```
 
 The bundle doesn't use them: it logs a warning that it ignores the
-`recording` param, and klisi doesn't act on a script's log. They are for the
+`recording` param, and tide doesn't act on a script's log. They are for the
 owner's hooks, which a machine runs after a job succeeds, with the job's title
 and params (moil's `spec/machine.md` §2): a hook filing meeting notes can tell
 when the meeting was, not only when its transcript was made. The params say
@@ -333,24 +333,24 @@ hours or for one hour plus twice the recording's duration, whichever is
 longer: a machine's first attempt also downloads 2.9 GB of models. When a job
 succeeds its row becomes `completed` with the speaker count; when it fails,
 `failed` with an error the UI can show. A machine that ends a job as cancelled
-when klisi didn't cancel it fails it too, rather than have klisi submit it again
-as fast as the machine answers. If klisi can't save the transcript a machine
+when tide didn't cancel it fails it too, rather than have tide submit it again
+as fast as the machine answers. If tide can't save the transcript a machine
 made, its storage or database failing, it tries again every pass for an hour,
 or until the staged files' URLs expire if that's sooner, then fails the row,
-blaming its storage. klisi cancelling a job and server shutdown leave the row
+blaming its storage. tide cancelling a job and server shutdown leave the row
 as it is. A `pending` row no machine has finished within 14 days of
 its request fails ("No machine transcribed it within 14 days"); requesting it
-again retries. The end of a job is recorded even if klisi is stopping, for up
-to 10 seconds in all once it starts to. If the write fails while klisi runs, the
+again retries. The end of a job is recorded even if tide is stopping, for up
+to 10 seconds in all once it starts to. If the write fails while tide runs, the
 row stays `pending` and each pass tries to record the end again, rather than run
-the job again; an end klisi couldn't record by the time it stopped leaves the row
+the job again; an end tide couldn't record by the time it stopped leaves the row
 `pending`, and the next start submits the job again.
 
 **Files.** Presigned URLs are minted when a machine takes an attempt
 (`moil.Job.Prepare`), not at submission, because a job can wait days for a
 laptop to wake. They last for the attempt's time limit plus 15 minutes, at
 most S3's 7 days: a GET for the recording (input `recording.ogg` or
-`recording.mp4`) and a PUT for each output. Machines never write where klisi
+`recording.mp4`) and a PUT for each output. Machines never write where tide
 serves from: each attempt uploads to a staging directory of its own,
 
 ```
@@ -358,13 +358,13 @@ transcripts-staging/<recording-id>/<attempt>-<16 hex digits>/transcript.txt
 transcripts-staging/<recording-id>/<attempt>-<16 hex digits>/transcript.vtt
 ```
 
-and when the job succeeds klisi checks each file against what moil says the
+and when the job succeeds tide checks each file against what moil says the
 machine uploaded (both formats, the size the machine reported, at most 16 MiB),
 before asking storage anything; checks storage has it at that size; copies it
 beside the recording under the recording's basename, as a video player expects
 sidecar captions; checks the copy's size too, since storage that reports no
 entity tag copies whatever is staged by then; and removes the staged copy. A
-file that fails a check fails the row, and klisi removes what it copied:
+file that fails a check fails the row, and tide removes what it copied:
 
 ```
 recordings/<room>/<recording-id>/2026-09-27 14-00 - Standup.ogg
@@ -372,13 +372,13 @@ recordings/<room>/<recording-id>/2026-09-27 14-00 - Standup.txt   transcript
 recordings/<room>/<recording-id>/2026-09-27 14-00 - Standup.vtt   WebVTT captions
 ```
 
-A staging directory is named for the attempt klisi made it for, and unique by
+A staging directory is named for the attempt tide made it for, and unique by
 its random part: moil numbers the attempts of a job submitted again from 1 once
-it has forgotten the last run, as it has after klisi restarts. A machine that
-takes the job again within ten minutes of klisi making its directory, having let
+it has forgotten the last run, as it has after tide restarts. A machine that
+takes the job again within ten minutes of tide making its directory, having let
 it go before starting, is handed the same directory, with URLs that expire when
 the first ones do; another machine, or the same one later, gets a new one. A
-machine that keeps taking a job and letting it go so costs klisi at most one
+machine that keeps taking a job and letting it go so costs tide at most one
 directory every ten minutes.
 
 **Removing files.** The `object_removals` table lists objects to remove, each
@@ -389,9 +389,9 @@ removal that failed, so a deleted recording never keeps its files, even when
 S3 is briefly down. Each pass heals lost egress webhooks (§8) first, then
 spends at most 30 seconds removing, and stops at the first file it can't reach
 S3 for, leaving the rest queued: S3 out of reach never holds the reconciler up. `Prepare` queues each staging key for when its URL
-expires, so an upload that arrives late, from a machine that lost klisi but
+expires, so an upload that arrives late, from a machine that lost tide but
 not S3, is removed too. A transcript copied beside a recording that was
-deleted meanwhile is removed again, however klisi's work on it ends: a job
+deleted meanwhile is removed again, however tide's work on it ends: a job
 knows where its files go beside the recording from its submission, and the try
 that finds the recording gone queues both for removal, whether or not they
 landed.
@@ -409,8 +409,8 @@ landed.
 
 `POST /api/recordings/:id/transcript` requests a transcript for an `available`
 recording or retries a `failed` one, and answers a request for a `pending` one
-with its current status. When `KLISI_S3_PUBLIC_ENDPOINT` is plain `http` and
-klisi isn't on loopback, machines would refuse its URLs, so jobs fail at once
+with its current status. When `TIDE_S3_PUBLIC_ENDPOINT` is plain `http` and
+tide isn't on loopback, machines would refuse its URLs, so jobs fail at once
 with an error naming the setting. Transcripts appear only in recording
 management; there is nothing in the meeting itself: no live captions,
 summaries or editing.
@@ -518,14 +518,14 @@ The rules that follow from it, all of them load-bearing:
   fresh joiner reports `Unknown` until the first quality update.
 - **Subscriptions are declarative.** `applySubscriptions()` states what should
   be subscribed (everything except a camera the local user hid) and calls
-  `setSubscribed` only where reality differs. klisi runs no retry loop against
+  `setSubscribed` only where reality differs. tide runs no retry loop against
   the SFU; livekit-client re-establishes subscriptions itself via
   `sendSyncState()`. Unlocking playback must never touch subscriptions.
 - **livekit-client is pinned exactly.** It owns the media path; a caret range
   is its own supply of regressions. Upgrade client and server as a tested pair,
   behind the media gate (§13).
 
-`window.klisiDiagnostics()` writes a JSON file with the bounded event ledger,
+`window.tideDiagnostics()` writes a JSON file with the bounded event ledger,
 recorded handler faults and the current subscription state. It is local-only
 and exists for incident attribution; it is deliberately not a UI control, since
 the feature list is frozen (§1).
@@ -620,31 +620,31 @@ webhook-derived models) live in `server/internal/api` as plain structs with
 
 ## 12. Configuration
 
-All server config via `KLISI_*` env vars (12-factor, `.env` in dev):
+All server config via `TIDE_*` env vars (12-factor, `.env` in dev):
 
 ```
-KLISI_ADDR=:8080                 KLISI_BASE_URL=http://localhost:8080
-KLISI_SESSION_SECRET=…           KLISI_DB_PATH=./data/klisi.db
-KLISI_LIVEKIT_URL=ws://…:7880    KLISI_LIVEKIT_PUBLIC_URL=wss://…
-KLISI_LIVEKIT_API_KEY=…          KLISI_LIVEKIT_API_SECRET=…
-KLISI_OIDC_ISSUER=…              KLISI_OIDC_CLIENT_ID / _CLIENT_SECRET
-KLISI_USER_GROUPS=…              KLISI_ADMIN_GROUPS=…
-KLISI_S3_ENDPOINT=…              KLISI_S3_PUBLIC_ENDPOINT=…
-KLISI_S3_EGRESS_ENDPOINT=…       KLISI_S3_BUCKET / _ACCESS_KEY / _SECRET_KEY
-KLISI_S3_REGION=…                KLISI_EGRESS_TEMPLATE_URL=…
-KLISI_TRUSTED_PROXIES=…          KLISI_DEV_MODE=false
-KLISI_JOIN_RATE_LIMIT=10         KLISI_WAIT_RATE_LIMIT=20
-KLISI_LOGIN_RATE_LIMIT=10        KLISI_PAIR_RATE_LIMIT=10
-KLISI_TRANSCRIPTS=false
+TIDE_ADDR=:8080                 TIDE_BASE_URL=http://localhost:8080
+TIDE_SESSION_SECRET=…           TIDE_DB_PATH=./data/tide.db
+TIDE_LIVEKIT_URL=ws://…:7880    TIDE_LIVEKIT_PUBLIC_URL=wss://…
+TIDE_LIVEKIT_API_KEY=…          TIDE_LIVEKIT_API_SECRET=…
+TIDE_OIDC_ISSUER=…              TIDE_OIDC_CLIENT_ID / _CLIENT_SECRET
+TIDE_USER_GROUPS=…              TIDE_ADMIN_GROUPS=…
+TIDE_S3_ENDPOINT=…              TIDE_S3_PUBLIC_ENDPOINT=…
+TIDE_S3_EGRESS_ENDPOINT=…       TIDE_S3_BUCKET / _ACCESS_KEY / _SECRET_KEY
+TIDE_S3_REGION=…                TIDE_EGRESS_TEMPLATE_URL=…
+TIDE_TRUSTED_PROXIES=…          TIDE_DEV_MODE=false
+TIDE_JOIN_RATE_LIMIT=10         TIDE_WAIT_RATE_LIMIT=20
+TIDE_LOGIN_RATE_LIMIT=10        TIDE_PAIR_RATE_LIMIT=10
+TIDE_TRANSCRIPTS=false
 ```
 
-`KLISI_TRANSCRIPTS` turns on transcripts and machine pairing (§8.1). Like
-`KLISI_DEV_MODE` it is read with `strconv.ParseBool`, and a value it can't
-parse means the default, off; klisi logs at startup whether transcripts are
+`TIDE_TRANSCRIPTS` turns on transcripts and machine pairing (§8.1). Like
+`TIDE_DEV_MODE` it is read with `strconv.ParseBool`, and a value it can't
+parse means the default, off; tide logs at startup whether transcripts are
 on.
 
 The four rate limits are per-client ceilings over a one-minute window, an IPv6
-client counting by its /64. `KLISI_JOIN_RATE_LIMIT` also sizes the separate
+client counting by its /64. `TIDE_JOIN_RATE_LIMIT` also sizes the separate
 bucket for room lookups (§15), which a meeting page uses once per load. They are configuration because the right value
 depends on the deployment: a public install wants the defaults, while the media
 gate — where every browser shares one container IP — would throttle itself
@@ -665,13 +665,13 @@ iteration:
 | redis | 6379 |
 | egress | — (worker; needs livekit + redis + minio) |
 | minio | 9000 (S3), 9001 (console) |
-| dex | 5556 (issuer), static test users (`host@klisi.dev`) |
+| dex | 5556 (issuer), static test users (`host@tide.dev`) |
 
 `Makefile` targets: `dev` (compose up + Go server + Vite, concurrently),
 `gen` (tygo), `check` (vet + go test + svelte-check + Prettier + type drift),
 `build` (SPA build → embed → single binary), `clean`.
 
-`make dev` detects the host LAN address and writes it as `KLISI_NODE_IP` in
+`make dev` detects the host LAN address and writes it as `TIDE_NODE_IP` in
 `deploy/.env`. LiveKit advertises that address to host browsers. Egress shares
 LiveKit's network namespace so the same WebRTC candidates work inside its
 headless browser, and it stages recordings under `/recordings` on a tmpfs
@@ -681,14 +681,14 @@ S3 has three deliberate views in development:
 
 | Caller | Endpoint | Why |
 |---|---|---|
-| klisi server | `http://localhost:9000` | Object management from the host |
+| tide server | `http://localhost:9000` | Object management from the host |
 | Browser | `http://localhost:9000` | Host-reachable presigned download URLs |
 | Egress | `http://minio:9000` | Uploads from the Compose network |
 
 ### Media gate stack
 
 `deploy/media-test/compose.yaml` is a second, sealed stack used only by the
-media suite: redis, livekit, dex, minio, egress, klisi and a Playwright
+media suite: redis, livekit, dex, minio, egress, tide and a Playwright
 `runner`, on a private `10.253.0.0/24` with **no published host ports**. The
 browser under test runs inside `runner`, so services are reachable only by
 compose DNS name. Configuration is baked into images (`*.Dockerfile`) rather
@@ -703,7 +703,7 @@ One deliberate limitation: the stack serves plain http on a non-localhost
 origin, so pages are **not secure contexts** and `getUserMedia` does not exist.
 Actors therefore join with capture off and publish synthetic canvas/oscillator
 tracks, which take the identical `publishTrack` → SFU path. Covering local
-capture as well needs the stack served over TLS (klisi *and* LiveKit signalling,
+capture as well needs the stack served over TLS (tide *and* LiveKit signalling,
 or the page hits mixed content).
 
 ## 14. CI
@@ -740,9 +740,9 @@ bug one step further from view.
 
 **The rule the convergence scenarios encode** (§9.1). A client must catch up
 from LiveKit's own maps without being told. `deafen()` removes every listener
-klisi registered while leaving the SFU connection intact, and `full-reconnect`
+tide registered while leaving the SFU connection intact, and `full-reconnect`
 does the same thing by a route that happens in production. In both, the probe
-(which reads the SDK) passes while the rendered tiles (which read klisi's
+(which reads the SDK) passes while the rendered tiles (which read tide's
 projection) are the only witness that the state actually reached the user — so
 both are asserted, separately, in that order. The heartbeat that makes this
 work must also cost nothing when idle: a gate scenario watches an idle meeting
@@ -782,22 +782,22 @@ up between runs for iteration.
   CSRF header, and the machine's owner is always that session. Looking up,
   confirming and denying codes is limited to 20 a minute per host and 60 per
   client address (RFC 8628 §5.1), and a host pairs at most 10 machines. The
-  confirm page shows klisi's moil address, which the moil app must be pairing
+  confirm page shows tide's moil address, which the moil app must be pairing
   with. Machine tokens are stored as SHA-256 hashes.
   Transcript jobs go only to the room owner's machines. A machine gets
   presigned URLs when it takes an attempt, valid for its time limit plus 15
   minutes (the same ones if it takes the job again within ten minutes): a
-  GET for the recording, and a PUT for each output to a staging key klisi
-  never serves from; klisi checks each file against the size the machine
+  GET for the recording, and a PUT for each output to a staging key tide
+  never serves from; tide checks each file against the size the machine
   reported, copies it beside the recording, checks the copy, and removes
   staging keys when their URLs expire. The moil app
-  accepts plain http only to loopback storage and only when klisi itself is on
-  loopback, so production needs an https `KLISI_S3_PUBLIC_ENDPOINT`.
+  accepts plain http only to loopback storage and only when tide itself is on
+  loopback, so production needs an https `TIDE_S3_PUBLIC_ENDPOINT`.
 - The transcript bundle runs with the machine owner's permissions and no
-  sandbox (moil's alpha). Owners read and approve it in the moil app; klisi
+  sandbox (moil's alpha). Owners read and approve it in the moil app; tide
   pins its hash so it cannot change silently.
 - No secrets in the SPA: the client knows only its own token and public URLs.
-- `window.klisiDiagnostics()` (§9.1) contains participant identities and display
+- `window.tideDiagnostics()` (§9.1) contains participant identities and display
   names. It is written to the user's own machine by an explicit action and is
   never transmitted anywhere; treat an exported file as personal data.
 - CSP, clickjacking, MIME-sniffing, and referrer-policy headers wrap every
@@ -839,7 +839,7 @@ Egress template route, start/stop from the control bar (host only), webhook
 receiver, recordings table, management UI (list, download via presigned URL,
 delete), red hairline while recording.
 *AC: record a 3-participant meeting including a screenshare; MP4 lands in
-MinIO in klisi's own layout; appears on the dashboard; downloads and plays;
+MinIO in tide's own layout; appears on the dashboard; downloads and plays;
 host's tab crash does not stop the recording.*
 
 **Phase 5 — Polish and hardening.**
@@ -854,17 +854,17 @@ a clean machine.
 | Decision | Choice | Why |
 |---|---|---|
 | Media stack | LiveKit (self-hosted) | Ships reconnection, simulcast, moderation, and Egress recording; Apache 2.0 |
-| Fork vs fresh | Fresh repo, fresh history | mirotalksfu is AGPL; klisi derives nothing from it |
+| Fork vs fresh | Fresh repo, fresh history | mirotalksfu is AGPL; tide derives nothing from it |
 | Backend | Single Go binary, SPA embedded | Leanest production artifact; first-party LiveKit Go SDK |
 | Frontend | SvelteKit SPA, adapter-static | No Node in prod; SSR worthless behind auth |
 | Host auth | Generic OIDC (Dex in dev) | Provider-agnostic by config |
 | Chat | Ephemeral only | No storage, no privacy surface; history is a non-goal |
 | DB | SQLite (modernc, CGO-free) | Single instance; keeps the static binary |
 | Type sync | tygo + CI drift gate | Go structs as single source of truth |
-| Recording | Egress room composite + custom template | Server-owned lifetime; recordings wear klisi's design |
+| Recording | Egress room composite + custom template | Server-owned lifetime; recordings wear tide's design |
 | Transcripts | moil jobs on the room owner's own machine | No model or GPU on the server, no fifth process, no new reader of the audio |
 | Transcript trigger | Automatic once the owner has paired a machine; otherwise on request | Pairing is the opt-in; no per-recording button for hosts who use it |
-| Transcripts switch | `KLISI_TRANSCRIPTS`, default off | moil is alpha; klisi ships publicly without asking operators to run it |
+| Transcripts switch | `TIDE_TRANSCRIPTS`, default off | moil is alpha; tide ships publicly without asking operators to run it |
 | Default slugs | Readable random (`abc-defg-hij`), ~47 bits | Short enough to read aloud; unguessable behind the lookup and join limits; UUIDs made ugly links |
 | Calendar invites | `.ics` built in the browser, nothing stored | Covers "send people a time" without a scheduling model; server-side scheduling stays a later decision |
 | moil SDK | Vendored in `server/third_party/moil` | The forge sits behind Cloudflare Access, so Go can't fetch it in CI or Docker; same precedent as `web/vendor` |

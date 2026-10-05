@@ -7,7 +7,7 @@ server/data/
 
 # go
 /bin/
-server/klisi
+server/tide
 
 # web
 node_modules/

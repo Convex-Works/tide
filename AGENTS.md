@@ -1,4 +1,4 @@
-# klisi
+# tide
 
 Lean self-hosted video meetings: single Go binary (embedded SvelteKit SPA) +
 LiveKit + Redis + Egress + S3. **docs/ARCHITECTURE.md is the contract** — read

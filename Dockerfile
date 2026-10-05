@@ -2,8 +2,8 @@
 
 FROM node:22.17.0-alpine3.22 AS web-builder
 WORKDIR /src/web
-ARG VITE_KLISI_TEST=false
-ENV VITE_KLISI_TEST=${VITE_KLISI_TEST}
+ARG VITE_TIDE_TEST=false
+ENV VITE_TIDE_TEST=${VITE_TIDE_TEST}
 
 # The vendored cuelume tarball is a package.json file dependency, so npm ci
 # needs it at the same relative path as the lockfile records.
@@ -31,8 +31,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -trimpath \
     -tags embed \
     -ldflags="-s -w" \
-    -o /out/klisi \
-    ./cmd/klisi
+    -o /out/tide \
+    ./cmd/tide
 
 FROM alpine:3.22.5 AS runtime-files
 RUN apk add --no-cache ca-certificates tzdata \
@@ -43,13 +43,13 @@ FROM scratch
 COPY --from=runtime-files /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=runtime-files /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=runtime-files --chown=65532:65532 /runtime/data /data
-COPY --from=go-builder /out/klisi /klisi
+COPY --from=go-builder /out/tide /tide
 
-# /data must be backed by a writable volume. Override KLISI_DB_PATH if the
+# /data must be backed by a writable volume. Override TIDE_DB_PATH if the
 # volume is mounted elsewhere; SQLite also creates -wal and -shm sidecars.
-ENV KLISI_ADDR=:8080 \
-    KLISI_DB_PATH=/data/klisi.db
+ENV TIDE_ADDR=:8080 \
+    TIDE_DB_PATH=/data/tide.db
 VOLUME ["/data"]
 EXPOSE 8080
 USER 65532:65532
-ENTRYPOINT ["/klisi"]
+ENTRYPOINT ["/tide"]

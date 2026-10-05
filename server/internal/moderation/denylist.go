@@ -8,7 +8,7 @@ import (
 // Denylist tracks kicked participants for as long as their cached admission
 // token could still be valid. Self-hosted LiveKit does not revoke JWTs on
 // RemoveParticipant, so a kicked guest can reconnect directly to the SFU;
-// klisi closes that hole by re-removing any denylisted identity the moment
+// tide closes that hole by re-removing any denylisted identity the moment
 // it rejoins (see Handler.EnforceOnJoin, driven by the participant_joined
 // webhook).
 type Denylist struct {

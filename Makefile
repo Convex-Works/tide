@@ -4,14 +4,14 @@ dev:
 	# LiveKit must advertise an address reachable by host browsers AND the
 	# egress container; use the LAN IP (falls back to loopback, host-only).
 	@ip=$$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo 127.0.0.1); \
-		echo "KLISI_NODE_IP=$$ip" > deploy/.env
+		echo "TIDE_NODE_IP=$$ip" > deploy/.env
 	docker compose -f deploy/compose.yaml up -d
 	@set -e; \
 		if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
-		(cd server && KLISI_DEV_MODE=true KLISI_BASE_URL=http://localhost:5173 \
-			KLISI_TRANSCRIPTS=$${KLISI_TRANSCRIPTS:-true} \
-			KLISI_EGRESS_TEMPLATE_URL=http://host.docker.internal:5173/egress-template \
-			go run ./cmd/klisi) & go_pid=$$!; \
+		(cd server && TIDE_DEV_MODE=true TIDE_BASE_URL=http://localhost:5173 \
+			TIDE_TRANSCRIPTS=$${TIDE_TRANSCRIPTS:-true} \
+			TIDE_EGRESS_TEMPLATE_URL=http://host.docker.internal:5173/egress-template \
+			go run ./cmd/tide) & go_pid=$$!; \
 		(cd web && npm run dev) & web_pid=$$!; \
 		trap 'kill $$go_pid $$web_pid 2>/dev/null || true' INT TERM EXIT; \
 		wait
@@ -62,7 +62,7 @@ build:
 		mkdir -p server/web; \
 		cp -R web/build server/web/build; \
 		mkdir -p bin; \
-		(cd server && go build -tags embed -o ../bin/klisi ./cmd/klisi)
+		(cd server && go build -tags embed -o ../bin/tide ./cmd/tide)
 
 clean:
 	rm -rf bin web/build web/.svelte-kit server/web/build

@@ -14,16 +14,16 @@ export interface TestUser {
 
 /** Owns rooms it creates, so `can_manage` is true and its token carries host. */
 export const OWNER: TestUser = {
-  email: 'host@klisi.dev',
-  password: 'klisi-dev',
-  name: 'Klisi host'
+  email: 'host@tide.dev',
+  password: 'tide-dev',
+  name: 'Tide host'
 };
 
 /** An ordinary authenticated user: never a host, so it exercises the lobby. */
 export const MEMBER: TestUser = {
-  email: 'member@klisi.dev',
-  password: 'klisi-dev',
-  name: 'Klisi member'
+  email: 'member@tide.dev',
+  password: 'tide-dev',
+  name: 'Tide member'
 };
 
 type StorageState = Awaited<ReturnType<BrowserContext['storageState']>>;
@@ -40,7 +40,7 @@ async function authenticate(browser: Browser, user: TestUser): Promise<StorageSt
     await page.locator('#login').fill(user.email);
     await page.locator('#password').fill(user.password);
     await page.locator('#submit-login').click();
-    // dex has skipApprovalScreen, so the next stop is klisi's callback.
+    // dex has skipApprovalScreen, so the next stop is tide's callback.
     await page.waitForURL((url) => !url.pathname.startsWith('/dex'), { timeout: 30_000 });
     const me = await context.request.get('/api/me');
     if (!me.ok()) {

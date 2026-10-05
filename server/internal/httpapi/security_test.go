@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"klisi/internal/config"
+	"tide/internal/config"
 )
 
 func TestSecurityHeadersArePresentOnAllResponses(t *testing.T) {

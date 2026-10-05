@@ -262,8 +262,8 @@
 </script>
 
 <svelte:head>
-  <title>{details ? `${details.name} · klisi` : 'klisi'}</title>
-  <meta name="description" content="Join a klisi meeting" />
+  <title>{details ? `${details.name} · tide` : 'tide'}</title>
+  <meta name="description" content="Join a tide meeting" />
 </svelte:head>
 
 {#snippet account()}

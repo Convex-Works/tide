@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"klisi/internal/auth"
-	"klisi/internal/httpx"
+	"tide/internal/auth"
+	"tide/internal/httpx"
 )
 
 type tokenBucket struct {

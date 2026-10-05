@@ -15,13 +15,13 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 
-	"klisi/internal/api"
-	"klisi/internal/config"
-	"klisi/internal/httpx"
+	"tide/internal/api"
+	"tide/internal/config"
+	"tide/internal/httpx"
 )
 
 const (
-	oidcStateCookieName = "klisi_oidc_state"
+	oidcStateCookieName = "tide_oidc_state"
 	oidcStateLifetime   = 10 * time.Minute
 )
 
@@ -149,7 +149,7 @@ func (o *OIDC) Callback(w http.ResponseWriter, r *http.Request) {
 	}
 	allowed, isAdmin := groupAccess(claims.Groups, o.userGroups, o.adminGroups)
 	if !allowed {
-		httpx.WriteError(w, http.StatusForbidden, "Your account is not allowed to access Klisi.")
+		httpx.WriteError(w, http.StatusForbidden, "Your account is not allowed to access Tide.")
 		return
 	}
 	if err := o.sessions.Set(w, Session{

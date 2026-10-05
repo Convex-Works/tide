@@ -81,7 +81,7 @@ test('participants hide remote video locally while host moderation stays gated',
           host.evaluate((identity) => {
             const room = (
               window as Window & {
-                __klisiRoom?: {
+                __tideRoom?: {
                   remoteParticipants: Map<
                     string,
                     {
@@ -90,7 +90,7 @@ test('participants hide remote video locally while host moderation stays gated',
                   >;
                 };
               }
-            ).__klisiRoom;
+            ).__tideRoom;
             const participant = room?.remoteParticipants.get(identity ?? '');
             return [...(participant?.videoTrackPublications.values() ?? [])].find(
               (publication) => publication.source === 'camera'
@@ -109,14 +109,14 @@ test('participants hide remote video locally while host moderation stays gated',
           host.evaluate((identity) => {
             const room = (
               window as Window & {
-                __klisiRoom?: {
+                __tideRoom?: {
                   remoteParticipants: Map<
                     string,
                     { videoTrackPublications: Map<string, { source: string; isDesired: boolean }> }
                   >;
                 };
               }
-            ).__klisiRoom;
+            ).__tideRoom;
             const participant = room?.remoteParticipants.get(identity ?? '');
             return [...(participant?.videoTrackPublications.values() ?? [])].find(
               (publication) => publication.source === 'camera'

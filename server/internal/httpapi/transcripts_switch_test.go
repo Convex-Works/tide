@@ -12,13 +12,13 @@ import (
 	"testing/fstest"
 	"time"
 
-	"klisi/internal/api"
-	"klisi/internal/auth"
-	"klisi/internal/config"
-	"klisi/internal/store"
+	"tide/internal/api"
+	"tide/internal/auth"
+	"tide/internal/config"
+	"tide/internal/store"
 )
 
-// KLISI_TRANSCRIPTS (ARCHITECTURE.md §8.1): with it off, klisi has no
+// TIDE_TRANSCRIPTS (ARCHITECTURE.md §8.1): with it off, tide has no
 // machine, pairing, transcript or moil routes, says so on /api/me, and
 // still removes every file of what is deleted.
 
@@ -44,7 +44,7 @@ func transcriptRoutes() []struct{ method, path, body string } {
 	}
 }
 
-// send makes a request as the SPA does, fails the test unless klisi answers
+// send makes a request as the SPA does, fails the test unless tide answers
 // want, and decodes the answer into out if set.
 func (h *host) send(method, path string, want int, out any) {
 	h.k.t.Helper()
@@ -67,7 +67,7 @@ func (h *host) me() api.Me {
 }
 
 func TestTranscriptsOffAnswer404ForTheirRoutes(t *testing.T) {
-	k := startKlisi(t, transcriptsOff)
+	k := startTide(t, transcriptsOff)
 	alice := k.signIn(auth.Session{Sub: "alice", Name: "Alice", Email: "alice@example.com"})
 
 	if me := alice.me(); me.Transcripts || me.Sub != "alice" || me.Email != "alice@example.com" {
@@ -79,14 +79,14 @@ func TestTranscriptsOffAnswer404ForTheirRoutes(t *testing.T) {
 			t.Errorf("%s %s = %d %s, want 404", route.method, route.path, status, body)
 		}
 	}
-	// The rest of klisi is there.
+	// The rest of tide is there.
 	if room := alice.createRoom("Standup"); room.Name != "Standup" {
 		t.Fatalf("created %+v", room)
 	}
 }
 
 func TestTranscriptsOnServeTheirRoutes(t *testing.T) {
-	k := startKlisi(t, nil)
+	k := startTide(t, nil)
 	alice := k.signIn(auth.Session{Sub: "alice", Name: "Alice"})
 
 	if me := alice.me(); !me.Transcripts {
@@ -109,11 +109,11 @@ func TestTranscriptsOnServeTheirRoutes(t *testing.T) {
 }
 
 // The SPA answers every path it doesn't serve a file for with its index,
-// but not the moil paths: a moil app pairing with a klisi without
+// but not the moil paths: a moil app pairing with a tide without
 // transcripts gets 404, not a web page.
 func TestTranscriptsOffMoilPathsAreNotTheSPA(t *testing.T) {
 	db, _ := openStore(t)
-	web := fstest.MapFS{"index.html": {Data: []byte("<!doctype html><title>klisi</title>")}}
+	web := fstest.MapFS{"index.html": {Data: []byte("<!doctype html><title>tide</title>")}}
 	handler, background, err := New(config.Config{
 		BaseURL: "http://localhost:8080", SessionSecret: "test-session-secret",
 		LiveKitURL: "ws://livekit.example", LiveKitAPIKey: "devkey",
@@ -123,7 +123,7 @@ func TestTranscriptsOffMoilPathsAreNotTheSPA(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := background.Close(); err != nil {
-		t.Fatalf("closing klisi without transcripts: %v", err)
+		t.Fatalf("closing tide without transcripts: %v", err)
 	}
 	for path, want := range map[string]int{
 		"/machines":                      http.StatusOK, // the SPA shows "not enabled"
@@ -140,7 +140,7 @@ func TestTranscriptsOffMoilPathsAreNotTheSPA(t *testing.T) {
 }
 
 // fakeStorage is S3 as far as removing objects goes: it records each key
-// klisi deletes.
+// tide deletes.
 type fakeStorage struct {
 	mu      sync.Mutex
 	removed []string
@@ -155,7 +155,7 @@ func startFakeStorage(t *testing.T) (*fakeStorage, string) {
 			return
 		}
 		storage.mu.Lock()
-		storage.removed = append(storage.removed, strings.TrimPrefix(r.URL.Path, "/klisi-recordings/"))
+		storage.removed = append(storage.removed, strings.TrimPrefix(r.URL.Path, "/tide-recordings/"))
 		storage.mu.Unlock()
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -173,8 +173,8 @@ func withStorage(endpoint string) func(*config.Config, *http.Server) {
 	return func(cfg *config.Config, _ *http.Server) {
 		cfg.Transcripts = false
 		cfg.S3Endpoint, cfg.S3PublicEndpoint = endpoint, endpoint
-		cfg.S3Bucket, cfg.S3Region = "klisi-recordings", "us-east-1"
-		cfg.S3AccessKey, cfg.S3SecretKey = "klisi", "klisi-test-secret"
+		cfg.S3Bucket, cfg.S3Region = "tide-recordings", "us-east-1"
+		cfg.S3AccessKey, cfg.S3SecretKey = "tide", "tide-test-secret"
 	}
 }
 
@@ -224,7 +224,7 @@ func wantRemoved(t *testing.T, storage *fakeStorage, db *store.Store, keys []str
 
 func TestTranscriptsOffDeletingARecordingRemovesItsTranscriptFiles(t *testing.T) {
 	storage, endpoint := startFakeStorage(t)
-	k := startKlisi(t, withStorage(endpoint))
+	k := startTide(t, withStorage(endpoint))
 	alice := k.signIn(auth.Session{Sub: "alice", Name: "Alice"})
 	room := alice.createRoom("Standup")
 	recording := addRecording(t, k.db, room, "rec-1")
@@ -249,7 +249,7 @@ func TestTranscriptsOffDeletingARecordingRemovesItsTranscriptFiles(t *testing.T)
 
 func TestTranscriptsOffDeletingARoomRemovesItsTranscriptFiles(t *testing.T) {
 	storage, endpoint := startFakeStorage(t)
-	k := startKlisi(t, withStorage(endpoint))
+	k := startTide(t, withStorage(endpoint))
 	alice := k.signIn(auth.Session{Sub: "alice", Name: "Alice"})
 	room := alice.createRoom("Standup")
 	first, second := addRecording(t, k.db, room, "rec-1"), addRecording(t, k.db, room, "rec-2")
@@ -268,21 +268,21 @@ func TestTranscriptsOffStagingKeysAreStillRemoved(t *testing.T) {
 	if err := db.QueueRemovals(context.Background(), []string{staged}, time.Now().Add(-time.Minute).Unix()); err != nil {
 		t.Fatal(err)
 	}
-	startKlisiOn(t, db, dbPath, withStorage(endpoint))
+	startTideOn(t, db, dbPath, withStorage(endpoint))
 	wantRemoved(t, storage, db, []string{staged})
 }
 
 // /api/me is the SPA's one source for whether to show transcripts.
 func TestMeReportsTheTranscriptsSwitch(t *testing.T) {
 	for _, on := range []bool{false, true} {
-		k := startKlisi(t, func(cfg *config.Config, _ *http.Server) { cfg.Transcripts = on })
+		k := startTide(t, func(cfg *config.Config, _ *http.Server) { cfg.Transcripts = on })
 		status, _, body := k.request(http.MethodGet, api.MePath, "", k.signIn(auth.Session{Sub: "alice"}).cookie, false)
 		var me map[string]any
 		if err := json.Unmarshal([]byte(body), &me); status != http.StatusOK || err != nil {
 			t.Fatalf("/api/me = %d %s", status, body)
 		}
 		if me["transcripts"] != on {
-			t.Fatalf("with KLISI_TRANSCRIPTS=%v, /api/me = %s", on, body)
+			t.Fatalf("with TIDE_TRANSCRIPTS=%v, /api/me = %s", on, body)
 		}
 	}
 }

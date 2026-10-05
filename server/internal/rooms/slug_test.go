@@ -12,7 +12,7 @@ import (
 	"testing/iotest"
 	"time"
 
-	"klisi/internal/store"
+	"tide/internal/store"
 )
 
 var defaultSlugPattern = regexp.MustCompile(`^[a-z]{3}-[a-z]{4}-[a-z]{3}$`)

@@ -87,7 +87,7 @@ test.describe('ics', () => {
     expect(text.replace(/\r\n/g, '')).not.toMatch(/[\r\n]/);
     const lines = unfold(text).split('\r\n');
     expect(lines.slice(0, 2)).toEqual(['BEGIN:VCALENDAR', 'VERSION:2.0']);
-    expect(lines).toContain('PRODID:-//klisi//EN');
+    expect(lines).toContain('PRODID:-//tide//EN');
     expect(lines).toContain('METHOD:PUBLISH');
     expect(lines.filter((line) => line === 'BEGIN:VEVENT')).toHaveLength(1);
     expect(lines).toContain('UID:abc-defg-hij-20261005T073000Z@meet.example.com');

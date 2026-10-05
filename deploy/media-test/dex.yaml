@@ -17,21 +17,21 @@ oauth2:
 enablePasswordDB: true
 
 staticClients:
-  - id: klisi
-    name: klisi
-    secret: klisi-dev-oidc-secret
+  - id: tide
+    name: tide
+    secret: tide-dev-oidc-secret
     redirectURIs:
-      - http://klisi:8080/api/auth/callback
+      - http://tide:8080/api/auth/callback
 
-# Both users share the dev password (klisi-dev). The owner manages rooms; the
+# Both users share the dev password (tide-dev). The owner manages rooms; the
 # member is an ordinary authenticated user, so it exercises the lobby and the
 # non-host token grant.
 staticPasswords:
-  - email: host@klisi.dev
-    hash: $2y$10$F/KI0Qc6sm.Om4J4jrLBlupx3h1ybr1bg8aRdYDUQRGTKuQaIK8Vu
-    username: Klisi host
+  - email: host@tide.dev
+    hash: $2y$10$mN23kC1VYg9sJSDPRpRsY.3lQwMESUhrAlhDPDlxTxUTvswSJ4QDu
+    username: Tide host
     userID: 6f6fb3c0-86e0-4c08-85c5-cb6f5a649b4e
-  - email: member@klisi.dev
-    hash: $2y$10$F/KI0Qc6sm.Om4J4jrLBlupx3h1ybr1bg8aRdYDUQRGTKuQaIK8Vu
-    username: Klisi member
+  - email: member@tide.dev
+    hash: $2y$10$mN23kC1VYg9sJSDPRpRsY.3lQwMESUhrAlhDPDlxTxUTvswSJ4QDu
+    username: Tide member
     userID: 0d0a2f83-4a1c-4f3e-9a17-2f7f3f0c5c11

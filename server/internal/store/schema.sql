@@ -55,7 +55,7 @@ CREATE TABLE IF NOT EXISTS revoked_sessions (
     expires_at INTEGER NOT NULL
 );
 
--- Machines hosts paired with klisi through moil (ARCHITECTURE.md §8.1). The
+-- Machines hosts paired with tide through moil (ARCHITECTURE.md §8.1). The
 -- Store implements moil.Store over this table. A machine's token is never
 -- stored, only its SHA-256; report is the machine's last moil.MachineReport as
 -- JSON (name, hardware, approved bundle hashes, last seen).

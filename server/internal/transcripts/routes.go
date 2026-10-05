@@ -7,10 +7,10 @@ import (
 	"path"
 	"time"
 
-	"klisi/internal/api"
-	"klisi/internal/auth"
-	"klisi/internal/httpx"
-	"klisi/internal/store"
+	"tide/internal/api"
+	"tide/internal/auth"
+	"tide/internal/httpx"
+	"tide/internal/store"
 )
 
 // downloadExpiry is how long a transcript's download URL lasts

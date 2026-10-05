@@ -17,11 +17,11 @@ import (
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 
-	"klisi/internal/config"
-	"klisi/internal/store"
+	"tide/internal/config"
+	"tide/internal/store"
 )
 
-// New makes the recording handler for klisi's LiveKit, with recordings kept
+// New makes the recording handler for tide's LiveKit, with recordings kept
 // in objects.
 func New(cfg config.Config, recordings *store.Store, objects *MinIOStore) *Handler {
 	egress := lksdk.NewEgressClient(cfg.LiveKitURL, cfg.LiveKitAPIKey, cfg.LiveKitAPISecret)
@@ -77,10 +77,10 @@ func (r authWebhookReceiver) Receive(request *http.Request) (*protocol.WebhookEv
 	return protocolwebhook.ReceiveWebhookEvent(request, r.provider)
 }
 
-// MinIOStore is klisi's object storage, reached through two clients made
-// once: one at KLISI_S3_ENDPOINT, where klisi itself reaches storage to
-// remove, check and copy objects, and one at KLISI_S3_PUBLIC_ENDPOINT, the
-// address machines and browsers reach, for the URLs klisi presigns. Each
+// MinIOStore is tide's object storage, reached through two clients made
+// once: one at TIDE_S3_ENDPOINT, where tide itself reaches storage to
+// remove, check and copy objects, and one at TIDE_S3_PUBLIC_ENDPOINT, the
+// address machines and browsers reach, for the URLs tide presigns. Each
 // client keeps its connections open for the next call.
 type MinIOStore struct {
 	bucket string
@@ -98,8 +98,8 @@ type storageClient struct {
 func NewMinIOStore(cfg config.Config) *MinIOStore {
 	return &MinIOStore{
 		bucket: cfg.S3Bucket,
-		server: newStorageClient("KLISI_S3_ENDPOINT", cfg.S3Endpoint, cfg),
-		public: newStorageClient("KLISI_S3_PUBLIC_ENDPOINT", cfg.S3PublicEndpoint, cfg),
+		server: newStorageClient("TIDE_S3_ENDPOINT", cfg.S3Endpoint, cfg),
+		public: newStorageClient("TIDE_S3_PUBLIC_ENDPOINT", cfg.S3PublicEndpoint, cfg),
 	}
 }
 
@@ -180,7 +180,7 @@ func (s *MinIOStore) PresignedPut(ctx context.Context, key string, expiry time.D
 }
 
 // Stat returns the size and entity tag of the object at key, or an error
-// wrapping fs.ErrNotExist if there is none: klisi checks a transcript a
+// wrapping fs.ErrNotExist if there is none: tide checks a transcript a
 // machine uploaded before copying it (ARCHITECTURE.md §8.1).
 func (s *MinIOStore) Stat(ctx context.Context, key string) (int64, string, error) {
 	if s.server.err != nil {

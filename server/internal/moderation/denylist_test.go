@@ -9,8 +9,8 @@ import (
 
 	protocol "github.com/livekit/protocol/livekit"
 
-	"klisi/internal/auth"
-	"klisi/internal/store"
+	"tide/internal/auth"
+	"tide/internal/store"
 )
 
 func TestDenylistBanExpires(t *testing.T) {

@@ -30,7 +30,7 @@
     mediaFatal = true;
     error = 'Recording media could not start.';
     console.error(
-      `KLISI_MEDIA_FATAL ${JSON.stringify({
+      `TIDE_MEDIA_FATAL ${JSON.stringify({
         event: 'egress_media_fatal',
         reason,
         playback: {
@@ -136,7 +136,7 @@
 </script>
 
 <svelte:head>
-  <title>klisi recording</title>
+  <title>tide recording</title>
   <meta name="robots" content="noindex" />
 </svelte:head>
 

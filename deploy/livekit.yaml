@@ -12,7 +12,7 @@ redis:
   address: redis:6379
 
 keys:
-  devkey: klisi-dev-secret-please-change-0000000000
+  devkey: tide-dev-secret-please-change-0000000000
 
 webhook:
   api_key: devkey

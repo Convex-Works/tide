@@ -50,8 +50,8 @@ export async function expectSees(
 
 /**
  * The probe re-derives from LiveKit's own maps, so it reports what the SDK
- * knows even when klisi's projection is stale. The rendered tiles are the only
- * assertion that klisi actually propagated that state to the user.
+ * knows even when tide's projection is stale. The rendered tiles are the only
+ * assertion that tide actually propagated that state to the user.
  */
 export async function expectRenderedTiles(
   actor: MeetingActor,
@@ -223,8 +223,8 @@ export async function expectObservedJoin(
     gap = joinSequenceGap(ledger, peer, sources);
   }
 
-  // The ledger is registered ahead of klisi's handlers, so what it did record
-  // for this peer distinguishes "LiveKit stopped forwarding" from "klisi
+  // The ledger is registered ahead of tide's handlers, so what it did record
+  // for this peer distinguishes "LiveKit stopped forwarding" from "tide
   // mishandled what it was given". Report it on the failure.
   const observed = ledger
     .filter((entry) => entry.identity === peer.identity)

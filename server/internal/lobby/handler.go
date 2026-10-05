@@ -12,11 +12,11 @@ import (
 	"sync"
 	"time"
 
-	"klisi/internal/api"
-	"klisi/internal/auth"
-	"klisi/internal/httpx"
-	klisilivekit "klisi/internal/livekit"
-	"klisi/internal/store"
+	"tide/internal/api"
+	"tide/internal/auth"
+	"tide/internal/httpx"
+	tidelivekit "tide/internal/livekit"
+	"tide/internal/store"
 )
 
 const (
@@ -38,7 +38,7 @@ const (
 type Handler struct {
 	store    *store.Store
 	registry *Registry
-	minter   *klisilivekit.Minter
+	minter   *tidelivekit.Minter
 	streams  *streamCaps
 
 	// ending is closed by EndStreams.
@@ -46,7 +46,7 @@ type Handler struct {
 	endStream sync.Once
 }
 
-func NewHandler(roomStore *store.Store, registry *Registry, minter *klisilivekit.Minter) *Handler {
+func NewHandler(roomStore *store.Store, registry *Registry, minter *tidelivekit.Minter) *Handler {
 	return &Handler{
 		store: roomStore, registry: registry, minter: minter,
 		streams: newStreamCaps(maxStreamsPerKey),

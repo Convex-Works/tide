@@ -36,7 +36,7 @@
 
   // One route, two jobs (ARCHITECTURE.md §8.1): with ?code= the moil app sent
   // the host here to confirm a pairing; without one it lists their machines.
-  // 'off': this server doesn't run transcripts (KLISI_TRANSCRIPTS), so it
+  // 'off': this server doesn't run transcripts (TIDE_TRANSCRIPTS), so it
   // has no machines to show and nothing to pair with.
   type View =
     'loading' | 'signed-out' | 'error' | 'off' | 'confirm' | 'expired' | 'denied' | 'list';
@@ -361,7 +361,7 @@
 </script>
 
 <svelte:head>
-  <title>Machines · klisi</title>
+  <title>Machines · tide</title>
 </svelte:head>
 
 {#snippet codeForm(label: string)}
@@ -385,7 +385,7 @@
 {/snippet}
 
 <header class="flex h-12 items-center justify-between border-b border-border px-4">
-  <a class="text-[15px] font-[550] tracking-[0.02em] text-accent no-underline" href="/">klisi</a>
+  <a class="text-[15px] font-[550] tracking-[0.02em] text-accent no-underline" href="/">tide</a>
   <a
     class="inline-flex items-center gap-1 text-[12px] text-ink-2 no-underline transition-colors hover:text-ink"
     href="/"
@@ -407,7 +407,7 @@
       <p class="m-0 mt-1 text-[12px] text-ink-2">
         {code
           ? 'The machine will belong to the account you sign in with.'
-          : 'Machines you pair with klisi transcribe your recordings.'}
+          : 'Machines you pair with tide transcribe your recordings.'}
       </p>
       <a class="{accentButton} mt-4" href={signInHref} data-sveltekit-reload>
         <SignIn size={16} weight="regular" aria-hidden="true" /> Sign in
@@ -419,7 +419,7 @@
         Transcripts aren't enabled on this server
       </h1>
       <p class="m-0 mt-1 text-[12px] text-ink-2">
-        Machines can't be paired here. Ask your klisi administrator if you need transcripts.
+        Machines can't be paired here. Ask your tide administrator if you need transcripts.
       </p>
     </section>
   {:else if view === 'error'}
@@ -582,7 +582,7 @@
             <li class="flex gap-2">
               <span class="mono w-4 shrink-0 text-ink-2" aria-hidden="true">2</span>
               <span>
-                Pair it with klisi: choose <strong class="font-[550]">Add a machine</strong> on that computer,
+                Pair it with tide: choose <strong class="font-[550]">Add a machine</strong> on that computer,
                 or paste the address below into its moil app.
               </span>
             </li>

@@ -1,4 +1,4 @@
-// Package machines lets hosts pair their own computers with klisi through
+// Package machines lets hosts pair their own computers with tide through
 // moil, and see and unpair them (ARCHITECTURE.md §8.1). The moil SDK serves
 // the machines' side of the protocol; this package is the hosts' side: the
 // /machines page's API. A machine always belongs to the signed-in host who
@@ -13,9 +13,9 @@ import (
 
 	"git.convex.works/ConvexWorks/moil/sdk/go/moil"
 
-	"klisi/internal/api"
-	"klisi/internal/auth"
-	"klisi/internal/httpx"
+	"tide/internal/api"
+	"tide/internal/auth"
+	"tide/internal/httpx"
 )
 
 const (
@@ -24,12 +24,12 @@ const (
 )
 
 // MaxMachinesPerHost is how many machines one host may pair. Every machine
-// keeps a connection open to klisi, so the limit bounds what one account can
-// make klisi hold.
+// keeps a connection open to tide, so the limit bounds what one account can
+// make tide hold.
 const MaxMachinesPerHost = 10
 
 var tooManyMachines = fmt.Sprintf(
-	"You have %d machines paired, the most klisi allows. Unpair one you no longer use, then confirm this code again.",
+	"You have %d machines paired, the most tide allows. Unpair one you no longer use, then confirm this code again.",
 	MaxMachinesPerHost)
 
 // Handler serves the machine and pairing routes of internal/api. Every route
@@ -37,7 +37,7 @@ var tooManyMachines = fmt.Sprintf(
 // check.
 type Handler struct {
 	moil *moil.Server
-	// bundle is the transcription bundle klisi publishes: MachineInfo.Approved
+	// bundle is the transcription bundle tide publishes: MachineInfo.Approved
 	// says whether a machine's owner approved exactly this hash.
 	bundle *moil.Bundle
 	// moilURL is the moil base URL machines pair with: base URL + /moil.

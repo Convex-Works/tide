@@ -14,7 +14,7 @@ import (
 // The moil SDK's own contract for a Store, which the moil.Server relies on.
 func TestMachinesSatisfyMoilStoreContract(t *testing.T) {
 	moiltest.TestStore(t, func(t *testing.T) moil.Store {
-		db, err := Open(filepath.Join(t.TempDir(), "klisi.db"))
+		db, err := Open(filepath.Join(t.TempDir(), "tide.db"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -27,7 +27,7 @@ func TestMachinesSatisfyMoilStoreContract(t *testing.T) {
 // database and still knows which bundles each machine's owner approved.
 func TestMachineReportSurvivesReopen(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "klisi.db")
+	path := filepath.Join(t.TempDir(), "tide.db")
 	db, err := Open(path)
 	if err != nil {
 		t.Fatal(err)

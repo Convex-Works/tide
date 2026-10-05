@@ -7,7 +7,7 @@ import (
 
 	protocol "github.com/livekit/protocol/livekit"
 
-	"klisi/internal/store"
+	"tide/internal/store"
 )
 
 // reconcileGrace spares young or freshly-stopped rows so the normal webhook

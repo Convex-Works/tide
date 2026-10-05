@@ -24,7 +24,7 @@ data:
     webhook:
       api_key: replace-with-livekit-api-key # OVERLAY: Set the api-key identifier from livekit-secrets; do not put the API secret here.
       urls:
-        - http://klisi:8080/api/webhooks/livekit
+        - http://tide:8080/api/webhooks/livekit
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -62,7 +62,7 @@ spec:
           type: RuntimeDefault
       # OVERLAY: Pin option (b) to the public-IP node, for example:
       # nodeSelector:
-      #   klisi.livekit/public: "true"
+      #   tide.livekit/public: "true"
       containers:
         - name: livekit
           image: livekit/livekit-server:v1.13.4 # OVERLAY: Pin a tested LiveKit release.

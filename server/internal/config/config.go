@@ -11,14 +11,14 @@ import (
 
 // Dev-profile secret defaults. These values are publicly known — they are
 // committed to this repo and mirrored in deploy/ — so they are only ever
-// applied when KLISI_DEV_MODE=true, and production explicitly refuses them.
+// applied when TIDE_DEV_MODE=true, and production explicitly refuses them.
 const (
-	devSessionSecret = "klisi-dev-session-secret-please-change"
+	devSessionSecret = "tide-dev-session-secret-please-change"
 	devLiveKitAPIKey = "devkey"
-	devLiveKitSecret = "klisi-dev-secret-please-change-0000000000"
-	devOIDCSecret    = "klisi-dev-oidc-secret"
-	devS3AccessKey   = "klisi"
-	devS3SecretKey   = "klisi-dev-minio"
+	devLiveKitSecret = "tide-dev-secret-please-change-0000000000"
+	devOIDCSecret    = "tide-dev-oidc-secret"
+	devS3AccessKey   = "tide"
+	devS3SecretKey   = "tide-dev-minio"
 )
 
 type Config struct {
@@ -58,7 +58,7 @@ type Config struct {
 	// endpoint that takes no credentials.
 	PairRateLimit int
 	// Transcripts turns on transcripts and machine pairing through moil
-	// (KLISI_TRANSCRIPTS, ARCHITECTURE.md §8.1). Off by default: moil is
+	// (TIDE_TRANSCRIPTS, ARCHITECTURE.md §8.1). Off by default: moil is
 	// alpha, so an operator opts in.
 	Transcripts bool
 }
@@ -72,11 +72,11 @@ const (
 )
 
 // Load reads configuration from the environment. Dev mode is opt-in
-// (KLISI_DEV_MODE=true); outside it, secrets have no defaults and Load
+// (TIDE_DEV_MODE=true); outside it, secrets have no defaults and Load
 // refuses to produce a config that is missing, weak, or equal to a
 // publicly-known dev value — the server must fail closed, not open.
 func Load() (Config, error) {
-	dev := envBool("KLISI_DEV_MODE", false)
+	dev := envBool("TIDE_DEV_MODE", false)
 	// Secrets fall back to the dev profile only in dev mode.
 	secret := func(name, devFallback string) string {
 		if dev {
@@ -84,39 +84,39 @@ func Load() (Config, error) {
 		}
 		return env(name, "")
 	}
-	baseURL := env("KLISI_BASE_URL", "http://localhost:8080")
+	baseURL := env("TIDE_BASE_URL", "http://localhost:8080")
 	cfg := Config{
-		Addr:              env("KLISI_ADDR", ":8080"),
+		Addr:              env("TIDE_ADDR", ":8080"),
 		BaseURL:           baseURL,
-		SessionSecret:     secret("KLISI_SESSION_SECRET", devSessionSecret),
-		DBPath:            env("KLISI_DB_PATH", "./data/klisi.db"),
-		LiveKitURL:        env("KLISI_LIVEKIT_URL", "ws://localhost:7880"),
-		LiveKitPublicURL:  env("KLISI_LIVEKIT_PUBLIC_URL", "ws://localhost:7880"),
-		LiveKitAPIKey:     secret("KLISI_LIVEKIT_API_KEY", devLiveKitAPIKey),
-		LiveKitAPISecret:  secret("KLISI_LIVEKIT_API_SECRET", devLiveKitSecret),
-		OIDCIssuer:        env("KLISI_OIDC_ISSUER", "http://localhost:5556/dex"),
-		OIDCClientID:      env("KLISI_OIDC_CLIENT_ID", "klisi"),
-		OIDCClientSecret:  secret("KLISI_OIDC_CLIENT_SECRET", devOIDCSecret),
-		UserGroups:        parseList(env("KLISI_USER_GROUPS", "")),
-		AdminGroups:       parseList(env("KLISI_ADMIN_GROUPS", "")),
-		S3Endpoint:        env("KLISI_S3_ENDPOINT", "http://localhost:9000"),
-		S3PublicEndpoint:  env("KLISI_S3_PUBLIC_ENDPOINT", "http://localhost:9000"),
-		S3EgressEndpoint:  env("KLISI_S3_EGRESS_ENDPOINT", "http://minio:9000"),
-		S3Bucket:          env("KLISI_S3_BUCKET", "klisi-recordings"),
-		S3AccessKey:       secret("KLISI_S3_ACCESS_KEY", devS3AccessKey),
-		S3SecretKey:       secret("KLISI_S3_SECRET_KEY", devS3SecretKey),
-		S3Region:          env("KLISI_S3_REGION", "us-east-1"),
-		EgressTemplateURL: env("KLISI_EGRESS_TEMPLATE_URL", baseURL+"/egress-template"),
+		SessionSecret:     secret("TIDE_SESSION_SECRET", devSessionSecret),
+		DBPath:            env("TIDE_DB_PATH", "./data/tide.db"),
+		LiveKitURL:        env("TIDE_LIVEKIT_URL", "ws://localhost:7880"),
+		LiveKitPublicURL:  env("TIDE_LIVEKIT_PUBLIC_URL", "ws://localhost:7880"),
+		LiveKitAPIKey:     secret("TIDE_LIVEKIT_API_KEY", devLiveKitAPIKey),
+		LiveKitAPISecret:  secret("TIDE_LIVEKIT_API_SECRET", devLiveKitSecret),
+		OIDCIssuer:        env("TIDE_OIDC_ISSUER", "http://localhost:5556/dex"),
+		OIDCClientID:      env("TIDE_OIDC_CLIENT_ID", "tide"),
+		OIDCClientSecret:  secret("TIDE_OIDC_CLIENT_SECRET", devOIDCSecret),
+		UserGroups:        parseList(env("TIDE_USER_GROUPS", "")),
+		AdminGroups:       parseList(env("TIDE_ADMIN_GROUPS", "")),
+		S3Endpoint:        env("TIDE_S3_ENDPOINT", "http://localhost:9000"),
+		S3PublicEndpoint:  env("TIDE_S3_PUBLIC_ENDPOINT", "http://localhost:9000"),
+		S3EgressEndpoint:  env("TIDE_S3_EGRESS_ENDPOINT", "http://minio:9000"),
+		S3Bucket:          env("TIDE_S3_BUCKET", "tide-recordings"),
+		S3AccessKey:       secret("TIDE_S3_ACCESS_KEY", devS3AccessKey),
+		S3SecretKey:       secret("TIDE_S3_SECRET_KEY", devS3SecretKey),
+		S3Region:          env("TIDE_S3_REGION", "us-east-1"),
+		EgressTemplateURL: env("TIDE_EGRESS_TEMPLATE_URL", baseURL+"/egress-template"),
 		DevMode:           dev,
-		JoinRateLimit:     envPositiveInt("KLISI_JOIN_RATE_LIMIT", DefaultJoinRateLimit),
-		WaitRateLimit:     envPositiveInt("KLISI_WAIT_RATE_LIMIT", DefaultWaitRateLimit),
-		LoginRateLimit:    envPositiveInt("KLISI_LOGIN_RATE_LIMIT", DefaultLoginRateLimit),
-		PairRateLimit:     envPositiveInt("KLISI_PAIR_RATE_LIMIT", DefaultPairRateLimit),
-		Transcripts:       envBool("KLISI_TRANSCRIPTS", false),
+		JoinRateLimit:     envPositiveInt("TIDE_JOIN_RATE_LIMIT", DefaultJoinRateLimit),
+		WaitRateLimit:     envPositiveInt("TIDE_WAIT_RATE_LIMIT", DefaultWaitRateLimit),
+		LoginRateLimit:    envPositiveInt("TIDE_LOGIN_RATE_LIMIT", DefaultLoginRateLimit),
+		PairRateLimit:     envPositiveInt("TIDE_PAIR_RATE_LIMIT", DefaultPairRateLimit),
+		Transcripts:       envBool("TIDE_TRANSCRIPTS", false),
 	}
-	trusted, err := parseTrustedProxies(env("KLISI_TRUSTED_PROXIES", ""))
+	trusted, err := parseTrustedProxies(env("TIDE_TRUSTED_PROXIES", ""))
 	if err != nil {
-		return Config{}, fmt.Errorf("KLISI_TRUSTED_PROXIES: %w", err)
+		return Config{}, fmt.Errorf("TIDE_TRUSTED_PROXIES: %w", err)
 	}
 	cfg.TrustedProxies = trusted
 	if !dev {
@@ -165,15 +165,15 @@ func (c Config) validateProduction() error {
 			problems = append(problems, fmt.Sprintf("%s must be at least %d characters", name, minLen))
 		}
 	}
-	check("KLISI_SESSION_SECRET", c.SessionSecret, 32)
-	check("KLISI_LIVEKIT_API_KEY", c.LiveKitAPIKey, 1)
-	check("KLISI_LIVEKIT_API_SECRET", c.LiveKitAPISecret, 32)
-	check("KLISI_OIDC_CLIENT_SECRET", c.OIDCClientSecret, 16)
-	check("KLISI_S3_ACCESS_KEY", c.S3AccessKey, 1)
-	check("KLISI_S3_SECRET_KEY", c.S3SecretKey, 16)
+	check("TIDE_SESSION_SECRET", c.SessionSecret, 32)
+	check("TIDE_LIVEKIT_API_KEY", c.LiveKitAPIKey, 1)
+	check("TIDE_LIVEKIT_API_SECRET", c.LiveKitAPISecret, 32)
+	check("TIDE_OIDC_CLIENT_SECRET", c.OIDCClientSecret, 16)
+	check("TIDE_S3_ACCESS_KEY", c.S3AccessKey, 1)
+	check("TIDE_S3_SECRET_KEY", c.S3SecretKey, 16)
 	if len(problems) > 0 {
 		return errors.New("refusing to start: " + strings.Join(problems, "; ") +
-			" (set KLISI_DEV_MODE=true only for local development)")
+			" (set TIDE_DEV_MODE=true only for local development)")
 	}
 	return nil
 }

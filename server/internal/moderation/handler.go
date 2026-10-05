@@ -10,8 +10,8 @@ import (
 	protocol "github.com/livekit/protocol/livekit"
 	"github.com/twitchtv/twirp"
 
-	"klisi/internal/httpx"
-	"klisi/internal/store"
+	"tide/internal/httpx"
+	"tide/internal/store"
 )
 
 type roomStore interface {

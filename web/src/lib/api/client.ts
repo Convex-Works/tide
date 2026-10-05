@@ -47,7 +47,7 @@ import {
   type UpdateRoomRequest
 } from './types.gen';
 
-const csrfHeaders = { 'X-Klisi-Csrf': '1' };
+const csrfHeaders = { 'X-Tide-Csrf': '1' };
 
 export class ApiError extends Error {
   constructor(

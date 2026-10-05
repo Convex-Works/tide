@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const artifactRoot = process.env.KLISI_MEDIA_ARTIFACTS ?? '../artifacts/media';
+const artifactRoot = process.env.TIDE_MEDIA_ARTIFACTS ?? '../artifacts/media';
 
 export default defineConfig({
   testDir: './e2e',
@@ -18,7 +18,7 @@ export default defineConfig({
     ['json', { outputFile: `${artifactRoot}/results.json` }]
   ],
   use: {
-    baseURL: process.env.KLISI_MEDIA_BASE_URL ?? 'http://klisi:8080',
+    baseURL: process.env.TIDE_MEDIA_BASE_URL ?? 'http://tide:8080',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure'

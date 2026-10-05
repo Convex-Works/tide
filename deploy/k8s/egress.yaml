@@ -18,12 +18,12 @@ data:
 
     health_port: 8081
 
-    # klisi sends its destination and credentials with every recording request,
+    # tide sends its destination and credentials with every recording request,
     # so these defaults are only for diagnostics or direct operator jobs.
     s3:
       region: us-east-1 # OVERLAY: Set the S3 signing region.
       endpoint: http://s3.storage.svc.cluster.local:9000 # OVERLAY: Set the egress-worker view of S3.
-      bucket: klisi-recordings # OVERLAY: Set the existing recording bucket.
+      bucket: tide-recordings # OVERLAY: Set the existing recording bucket.
       force_path_style: true
 ---
 apiVersion: apps/v1

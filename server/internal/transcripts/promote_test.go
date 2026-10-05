@@ -7,18 +7,18 @@ import (
 	"testing"
 	"time"
 
-	"klisi/internal/api"
-	"klisi/internal/store"
+	"tide/internal/api"
+	"tide/internal/store"
 )
 
-// These tests hold klisi to what it saves of a transcript a machine made:
+// These tests hold tide to what it saves of a transcript a machine made:
 // only what moil says the machine uploaded, checked again once copied,
 // nothing beside a recording deleted meanwhile, and nothing at all once it
 // has tried for long enough.
 
 // A transcript format the machine didn't upload is refused on moil's word,
 // without asking storage, which may not answer "no such key" for it: AWS
-// answers 403 when klisi's credentials can't list the bucket.
+// answers 403 when tide's credentials can't list the bucket.
 func TestAMissingOutputIsRefusedWithoutAskingStorage(t *testing.T) {
 	e := newEnv(t)
 	room := e.room("alice", "Standup")
@@ -34,7 +34,7 @@ func TestAMissingOutputIsRefusedWithoutAskingStorage(t *testing.T) {
 		t.Fatalf("error = %q", info.Error)
 	}
 	if n := e.s3.Calls(opStat); n != 0 {
-		t.Fatalf("klisi asked storage about %d files", n)
+		t.Fatalf("tide asked storage about %d files", n)
 	}
 	if keys := e.s3.Keys("transcripts-staging/"); len(keys) != 0 {
 		t.Fatalf("staged uploads left: %q", keys)
@@ -58,20 +58,20 @@ func TestAStagedFileThatIsntWhatTheMachineReportedIsRefused(t *testing.T) {
 	}
 	a.Succeed(map[string]any{"speakers": 1})
 	info := e.waitStatus(room, rec, api.TranscriptFailed)
-	if info.Error != "The transcript in klisi's storage isn't the one the machine reported uploading. Try again." {
+	if info.Error != "The transcript in tide's storage isn't the one the machine reported uploading. Try again." {
 		t.Fatalf("error = %q", info.Error)
 	}
 	if n := e.s3.Calls(opCopy); n != 0 {
-		t.Fatalf("klisi copied %d files", n)
+		t.Fatalf("tide copied %d files", n)
 	}
 	if keys := e.s3.Keys("recordings/"); len(keys) != 1 || len(e.s3.Keys("transcripts-staging/")) != 0 {
 		t.Fatalf("files beside the recording: %q; staged: %q", keys, e.s3.Keys("transcripts-staging/"))
 	}
 }
 
-// Storage that reports no entity tags copies whatever is staged when klisi
-// copies it, not what klisi checked: a machine that replaces its upload in
-// between gets its replacement copied beside the recording. klisi checks
+// Storage that reports no entity tags copies whatever is staged when tide
+// copies it, not what tide checked: a machine that replaces its upload in
+// between gets its replacement copied beside the recording. tide checks
 // each copy, and refuses one that isn't what the machine reported,
 // removing the copies.
 func TestACopyIsCheckedWhereStorageHasNoEntityTags(t *testing.T) {
@@ -81,9 +81,9 @@ func TestACopyIsCheckedWhereStorageHasNoEntityTags(t *testing.T) {
 		error       string
 	}{
 		{"replaced with one over 16 MiB", bytes.Repeat([]byte("a"), 16<<20+1),
-			"The transcript the machine uploaded is larger than 16 MiB, more than klisi keeps. Try again."},
+			"The transcript the machine uploaded is larger than 16 MiB, more than tide keeps. Try again."},
 		{"replaced with one of another size", []byte("[00:00:01] Speaker 1: Something else entirely."),
-			"The transcript in klisi's storage isn't the one the machine reported uploading. Try again."},
+			"The transcript in tide's storage isn't the one the machine reported uploading. Try again."},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			e := newEnv(t)
@@ -95,7 +95,7 @@ func TestACopyIsCheckedWhereStorageHasNoEntityTags(t *testing.T) {
 
 			copying := e.s3.Hold(opCopy)
 			finish(t, a, 2)
-			copying.Entered(t) // klisi checked the text, and copies it
+			copying.Entered(t) // tide checked the text, and copies it
 			if status := statusOf(t, http.MethodPut, a.Outputs["transcript.txt"].URL, test.replacement); status != http.StatusOK {
 				t.Fatalf("replacing the upload: %d", status)
 			}
@@ -114,9 +114,9 @@ func TestACopyIsCheckedWhereStorageHasNoEntityTags(t *testing.T) {
 	}
 }
 
-// A recording deleted while klisi copies its transcript beside it, after
+// A recording deleted while tide copies its transcript beside it, after
 // the deletion removed its files, keeps no copy, whatever fails after it
-// was deleted: klisi tries again, finds the recording gone, and removes the
+// was deleted: tide tries again, finds the recording gone, and removes the
 // copies, whether or not both landed.
 func TestCopiesLandingAfterTheirRecordingIsDeletedAreRemoved(t *testing.T) {
 	for _, test := range []struct {
@@ -160,7 +160,7 @@ func TestCopiesLandingAfterTheirRecordingIsDeletedAreRemoved(t *testing.T) {
 			copying.Release()
 			txtKey, _ := sidecars(rec)
 			waitFor(t, "the text's copy to land", func() bool { _, ok := e.s3.Object(txtKey); return ok })
-			waitFor(t, "klisi to fail to record the job's end", func() bool {
+			waitFor(t, "tide to fail to record the job's end", func() bool {
 				return strings.Contains(logs.String(), "transcripts: recording "+rec.ID+": record how its job ended, again next pass")
 			})
 			mend()
@@ -175,14 +175,14 @@ func TestCopiesLandingAfterTheirRecordingIsDeletedAreRemoved(t *testing.T) {
 	}
 }
 
-// A transcript klisi can't save, its storage failing, isn't shown running
-// forever: klisi tries again every pass for an hour, or until the staged
+// A transcript tide can't save, its storage failing, isn't shown running
+// forever: tide tries again every pass for an hour, or until the staged
 // files' URLs expire if that's sooner, then fails it, blaming its storage.
-func TestATranscriptKlisiCantSaveFailsInTheEnd(t *testing.T) {
+func TestATranscriptTideCantSaveFailsInTheEnd(t *testing.T) {
 	for _, test := range []struct {
 		name string
 		// left is how long the attempt's URLs have left when it succeeds,
-		// and after is how long klisi tries.
+		// and after is how long tide tries.
 		left, after time.Duration
 	}{
 		{"for an hour", 3 * time.Hour, time.Hour},
@@ -199,12 +199,12 @@ func TestATranscriptKlisiCantSaveFailsInTheEnd(t *testing.T) {
 			e.s3.Break(opStat)
 			finish(t, a, 2)
 			tries := func() int { return e.s3.Calls(opStat) }
-			waitFor(t, "klisi to try a few times", func() bool { e.service.Nudge(); return tries() >= 3 })
+			waitFor(t, "tide to try a few times", func() bool { e.service.Nudge(); return tries() >= 3 })
 			e.clock.Advance(test.after - time.Second)
 			tried := tries()
-			waitFor(t, "klisi to try again", func() bool { e.service.Nudge(); return tries() >= tried+2 })
+			waitFor(t, "tide to try again", func() bool { e.service.Nudge(); return tries() >= tried+2 })
 			if info := e.transcript(room, rec); info.Status != api.TranscriptRunning {
-				t.Fatalf("transcript a second before klisi gives up = %+v", info)
+				t.Fatalf("transcript a second before tide gives up = %+v", info)
 			}
 
 			e.clock.Advance(time.Second)
@@ -212,7 +212,7 @@ func TestATranscriptKlisiCantSaveFailsInTheEnd(t *testing.T) {
 				e.service.Nudge()
 				return info != nil && info.Status == api.TranscriptFailed
 			})
-			if info.Error != "The machine made the transcript, but klisi couldn't save it to its storage. Try again, and if it keeps failing, ask klisi's administrator to check klisi's storage." {
+			if info.Error != "The machine made the transcript, but tide couldn't save it to its storage. Try again, and if it keeps failing, ask tide's administrator to check tide's storage." {
 				t.Fatalf("error = %q", info.Error)
 			}
 			if keys := e.s3.Keys("transcripts-staging/"); len(keys) != 0 {

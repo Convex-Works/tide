@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
-	"klisi/internal/auth"
-	"klisi/internal/httpx"
-	"klisi/internal/store"
+	"tide/internal/auth"
+	"tide/internal/httpx"
+	"tide/internal/store"
 )
 
 type roomLoaderFunc func(context.Context, string) (store.Room, error)
@@ -136,7 +136,7 @@ func TestRequireRoomManager(t *testing.T) {
 // A recording route answers only its room's managers, finding the room by
 // its ID: the slug copied onto a recording is only a denormalized copy.
 func TestRequireRecordingManager(t *testing.T) {
-	db, err := store.Open(filepath.Join(t.TempDir(), "klisi.db"))
+	db, err := store.Open(filepath.Join(t.TempDir(), "tide.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"klisi/internal/api"
-	"klisi/internal/auth"
-	"klisi/internal/store"
+	"tide/internal/api"
+	"tide/internal/auth"
+	"tide/internal/store"
 )
 
 // POST /api/rooms takes an optional name and an optional slug

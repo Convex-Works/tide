@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"time"
 
-	"klisi/internal/store"
+	"tide/internal/store"
 )
 
 const slugAttempts = 32

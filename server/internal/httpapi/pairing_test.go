@@ -15,19 +15,19 @@ import (
 
 	"git.convex.works/ConvexWorks/moil/sdk/go/moiltest"
 
-	"klisi/internal/api"
-	"klisi/internal/auth"
-	"klisi/internal/config"
-	"klisi/internal/machines"
+	"tide/internal/api"
+	"tide/internal/auth"
+	"tide/internal/config"
+	"tide/internal/machines"
 )
 
-// These tests hold klisi to the limits of ARCHITECTURE.md §8.1 and §15, the
+// These tests hold tide to the limits of ARCHITECTURE.md §8.1 and §15, the
 // way clients meet them: over HTTP, with machines speaking moil and hosts
 // using the /machines page's API with real session cookies. Where a test
 // needs clients on different networks, they come through a reverse proxy
-// klisi trusts, as in production, which says where each one is.
+// tide trusts, as in production, which says where each one is.
 
-// behindProxy makes klisi trust the test's own address as its reverse
+// behindProxy makes tide trust the test's own address as its reverse
 // proxy, so that requests can say which client they come from.
 func behindProxy(cfg *config.Config) {
 	_, loopback, _ := net.ParseCIDR("127.0.0.1/32")
@@ -46,7 +46,7 @@ type moilAnswer struct {
 
 // startPairing sends POST /moil/v1/pair from the client at address (through
 // the proxy; "" for the test's own), with the given content type and body.
-func (k *klisiServer) startPairing(address, contentType, body string, header http.Header) moilAnswer {
+func (k *tideServer) startPairing(address, contentType, body string, header http.Header) moilAnswer {
 	k.t.Helper()
 	request, err := http.NewRequest(http.MethodPost, k.moilURL()+"/v1/pair", strings.NewReader(body))
 	if err != nil {
@@ -80,7 +80,7 @@ func (k *klisiServer) startPairing(address, contentType, body string, header htt
 const pairRequest = `{"name":"Studio","os":"linux","arch":"x86_64","app_version":"0.1.0"}`
 
 func TestStartingAPairingTakesOnlyJSON(t *testing.T) {
-	k := startKlisi(t, func(cfg *config.Config, _ *http.Server) { cfg.PairRateLimit = 2 })
+	k := startTide(t, func(cfg *config.Config, _ *http.Server) { cfg.PairRateLimit = 2 })
 	alice := k.signIn(auth.Session{Sub: "alice"})
 
 	// What a web page can send cross-origin without a CORS preflight: a
@@ -127,7 +127,7 @@ func TestStartingAPairingTakesOnlyJSON(t *testing.T) {
 }
 
 func TestIPv6ClientsAreCountedByTheirSlash64(t *testing.T) {
-	k := startKlisi(t, func(cfg *config.Config, _ *http.Server) {
+	k := startTide(t, func(cfg *config.Config, _ *http.Server) {
 		behindProxy(cfg)
 		cfg.PairRateLimit = 2
 	})
@@ -157,7 +157,7 @@ func TestIPv6ClientsAreCountedByTheirSlash64(t *testing.T) {
 }
 
 func TestGuessingPairingCodesIsRateLimited(t *testing.T) {
-	k := startKlisi(t, func(cfg *config.Config, _ *http.Server) { behindProxy(cfg) })
+	k := startTide(t, func(cfg *config.Config, _ *http.Server) { behindProxy(cfg) })
 	const attacker, office = "198.51.100.7", "203.0.113.9"
 	alice := k.signIn(auth.Session{Sub: "alice"})
 	alice.from = office
@@ -177,14 +177,14 @@ func TestGuessingPairingCodesIsRateLimited(t *testing.T) {
 		route := routes[i%len(routes)]
 		mallory.call(route.method, fill(route.path, guess()), http.StatusNotFound, nil)
 	}
-	// Then klisi stops answering them, even with the right code, which it
+	// Then tide stops answering them, even with the right code, which it
 	// neither reveals nor lets mallory confirm or deny.
 	for _, route := range routes {
 		body := mallory.call(route.method, fill(route.path, code), http.StatusTooManyRequests, nil)
 		var refusal api.ErrorResponse
 		if err := json.Unmarshal([]byte(body), &refusal); err != nil || refusal.Error == "" ||
 			strings.Contains(body, "Alice") {
-			t.Fatalf("%s as mallory, limited = %s, want klisi's error", route.method, body)
+			t.Fatalf("%s as mallory, limited = %s, want tide's error", route.method, body)
 		}
 	}
 
@@ -237,7 +237,7 @@ func guesser(code string) func() string {
 }
 
 func TestAHostPairsAtMostTenMachines(t *testing.T) {
-	k := startKlisi(t, func(cfg *config.Config, _ *http.Server) { cfg.PairRateLimit = 100 })
+	k := startTide(t, func(cfg *config.Config, _ *http.Server) { cfg.PairRateLimit = 100 })
 	alice := k.signIn(auth.Session{Sub: "alice"})
 	bob := k.signIn(auth.Session{Sub: "bob"})
 	for i := range machines.MaxMachinesPerHost {
@@ -282,7 +282,7 @@ func TestAHostPairsAtMostTenMachines(t *testing.T) {
 // Confirming codes at once can't pair more machines than the limit, even
 // when the database is slow and the confirmations wait for it together.
 func TestConfirmingCodesAtOnceKeepsToTheLimit(t *testing.T) {
-	k := startKlisi(t, func(cfg *config.Config, _ *http.Server) { cfg.PairRateLimit = 100 })
+	k := startTide(t, func(cfg *config.Config, _ *http.Server) { cfg.PairRateLimit = 100 })
 	alice := k.signIn(auth.Session{Sub: "alice"})
 	studio := alice.pair()
 	for range machines.MaxMachinesPerHost - 2 {
@@ -296,7 +296,7 @@ func TestConfirmingCodesAtOnceKeepsToTheLimit(t *testing.T) {
 		codes[i] = moiltest.New(t, k.moilURL()).StartPairing()
 	}
 
-	// The disk turns slow as the studio reports in: klisi's one database
+	// The disk turns slow as the studio reports in: tide's one database
 	// connection waits for it, and each confirmation waits for the
 	// connection, to check alice's session. When the disk recovers, they
 	// get it in no set order.
@@ -313,14 +313,14 @@ func TestConfirmingCodesAtOnceKeepsToTheLimit(t *testing.T) {
 			defer confirming.Done()
 			request, _ := http.NewRequest(http.MethodPost, k.url+fill(api.PairingConfirmPath, code), nil)
 			request.AddCookie(alice.cookie)
-			request.Header.Set("X-Klisi-Csrf", "1")
+			request.Header.Set("X-Tide-Csrf", "1")
 			if response, err := k.client.Do(request); err == nil {
 				statuses[i] = response.StatusCode
 				response.Body.Close()
 			}
 		}()
 	}
-	// Every confirmation has reached klisi, and waits, before the disk
+	// Every confirmation has reached tide, and waits, before the disk
 	// recovers.
 	deadline := time.Now().Add(10 * time.Second)
 	for k.db.Stats().WaitCount < waits+int64(len(codes)) {
@@ -348,7 +348,7 @@ func TestConfirmingCodesAtOnceKeepsToTheLimit(t *testing.T) {
 }
 
 func TestMachineTextIsShownPlain(t *testing.T) {
-	k := startKlisi(t, nil)
+	k := startTide(t, nil)
 	alice := k.signIn(auth.Session{Sub: "alice"})
 
 	// A machine pairs with a name that reverses what follows it, and other
