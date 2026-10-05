@@ -39,8 +39,9 @@ services:
     networks: [tide]
 
   # The recorder. It reaches tide on the host: signaling through tide's /rtc,
-  # jobs through tide's Redis endpoint (make dev sets
-  # TIDE_RECORDER_REDIS_ADDR=:6379), and media through the LAN address tide
+  # jobs through tide's Redis endpoint on the host's loopback (Docker Desktop
+  # routes host.docker.internal there; on Linux set TIDE_RECORDER_REDIS_ADDR to
+  # the host-gateway address in ./.env), and media through the LAN address tide
   # advertises (TIDE_MEDIA_NODE_IP in deploy/.env). With no LAN address that
   # falls back to 127.0.0.1, which the recorder can't reach: meetings work,
   # recordings don't.

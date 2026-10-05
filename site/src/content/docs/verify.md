@@ -46,7 +46,7 @@ Only with recording. Ask the person to record 30 seconds of that call, stop, and
 aws s3 ls "s3://<S3_BUCKET>/recordings/" --recursive --endpoint-url "<S3_ENDPOINT>"
 ```
 
-Expect one `.mp4` (or `.ogg` for audio only) with a non-zero size. If the recording shows as failed, read the recorder's log: `kubectl -n tide logs deploy/tide -c recorder`, or `docker compose logs recorder`. If it never leaves "starting", the recorder cannot reach tide: check it runs in tide's network and has the same media key, secret and recorder password. If the download fails, `S3_PUBLIC_ENDPOINT` is not reachable from browsers.
+Expect one `.mp4` (or `.ogg` for audio only) with a non-zero size. If the recording shows as failed, read the recorder's log: `kubectl -n tide logs deploy/tide -c recorder`, or `docker compose logs recorder`. If it never leaves "starting", the recorder cannot reach tide: check it runs in tide's network and has the same media key, secret and recorder password. If it fails within a minute, its browser could not reach media: with `TIDE_MEDIA_NODE_IP` set, the recorder must reach that address from inside tide's network ([Prepare](/docs/prepare#4-media-network-path)). If the download fails, `S3_PUBLIC_ENDPOINT` is not reachable from browsers.
 
 ## Done when
 

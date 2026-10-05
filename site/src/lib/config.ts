@@ -34,7 +34,7 @@ export const envGroups: EnvGroup[] = [
         defaultText: 'generated per start when anonymous',
         required: 'with sign-in',
         minLength: 32,
-        description: 'Signs session cookies. Random data.'
+        description: 'Signs session cookies. Random data, checked whenever it is set.'
       },
       {
         name: 'TIDE_DB_PATH',
@@ -72,13 +72,13 @@ export const envGroups: EnvGroup[] = [
         name: 'TIDE_USER_GROUPS',
         default: '',
         description:
-          'Comma-separated groups allowed to sign in, matched exactly. Empty allows every user of the issuer.'
+          'Comma-separated groups allowed to sign in, matched exactly. Empty allows every user of the issuer. Needs sign-in: set without an issuer, tide refuses to start.'
       },
       {
         name: 'TIDE_ADMIN_GROUPS',
         default: '',
         description:
-          'Comma-separated groups whose members manage every room. Always allowed to sign in.'
+          'Comma-separated groups whose members manage every room. Always allowed to sign in. Needs sign-in, as above.'
       }
     ]
   },
@@ -90,7 +90,7 @@ export const envGroups: EnvGroup[] = [
         default: '',
         defaultText: '127.0.0.1 on localhost, else discovered',
         description:
-          'The IPv4 address browsers send audio and video to. Set it when tide is behind a load balancer or NAT, or has no internet access to discover it.'
+          "The IPv4 address browsers send audio and video to. Set it when tide is behind a load balancer or NAT, or has no internet access to discover it. It replaces the machine's own address, so with recording it must be local or routed back."
       },
       {
         name: 'TIDE_MEDIA_UDP_PORT',
@@ -106,7 +106,7 @@ export const envGroups: EnvGroup[] = [
         name: 'TIDE_MEDIA_API_PORT',
         default: '7880',
         description:
-          "The media server's own API, on 127.0.0.1 only. Change it only to run two servers on one host."
+          "The media server's own API, on 127.0.0.1 only. Two tides on one host differ in it, in every other port and in TIDE_ADDR."
       },
       {
         name: 'TIDE_MEDIA_API_KEY',

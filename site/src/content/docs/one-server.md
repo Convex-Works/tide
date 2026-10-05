@@ -74,7 +74,7 @@ journalctl -u tide | grep 'tide:'   # the mode line, e.g. "tide: anonymous, …"
 
 That is an anonymous meeting server: anyone who opens `https://APP_HOST` can create a room.
 
-tide finds its public address itself. Set `TIDE_MEDIA_NODE_IP` to the server's public IPv4 address when that address is on a load balancer or NAT, or the server can't reach the internet.
+tide finds its public address itself. Set `TIDE_MEDIA_NODE_IP` to the server's public IPv4 address when that address is on a load balancer or NAT, or the server can't reach the internet. A set address replaces the server's own, which matters for recording (step 6).
 
 ## 5. Sign-in (optional)
 
@@ -84,9 +84,12 @@ Register an OIDC client with the redirect URI `https://APP_HOST/api/auth/callbac
 TIDE_OIDC_ISSUER=<OIDC_ISSUER>
 TIDE_OIDC_CLIENT_ID=<OIDC_CLIENT_ID>
 TIDE_OIDC_CLIENT_SECRET=<OIDC_CLIENT_SECRET>
-TIDE_SESSION_SECRET=<SESSION_SECRET>     # openssl rand -base64 48
+# openssl rand -base64 48
+TIDE_SESSION_SECRET=<SESSION_SECRET>
 TIDE_DB_PATH=/var/lib/tide/tide.db
 ```
+
+Keep comments on lines of their own: systemd makes a trailing `# …` part of the value.
 
 Rooms now persist. Back up the database ([Operate](/docs/operate#back-up-the-database)).
 
@@ -110,9 +113,11 @@ TIDE_S3_BUCKET=<S3_BUCKET>
 TIDE_S3_REGION=<S3_REGION>
 TIDE_S3_ACCESS_KEY=<S3_ACCESS_KEY>
 TIDE_S3_SECRET_KEY=<S3_SECRET_KEY>
-TIDE_MEDIA_API_KEY=<MEDIA_API_KEY>                  # openssl rand -hex 8
-TIDE_MEDIA_API_SECRET=<MEDIA_API_SECRET>            # openssl rand -hex 32
-TIDE_RECORDER_REDIS_PASSWORD=<RECORDER_PASSWORD>    # openssl rand -hex 32
+# openssl rand -hex 8
+TIDE_MEDIA_API_KEY=<MEDIA_API_KEY>
+# openssl rand -hex 32, for this and the password
+TIDE_MEDIA_API_SECRET=<MEDIA_API_SECRET>
+TIDE_RECORDER_REDIS_PASSWORD=<RECORDER_PASSWORD>
 TIDE_RECORDER_TEMPLATE_URL=http://127.0.0.1:8080/egress-template
 ```
 
@@ -158,7 +163,7 @@ volumes:
   tide-data:
 ```
 
-The recorder shares tide's network, so it reaches tide's media server and coordination endpoint on loopback, where nothing else can. tide uses the host's network because media is UDP. Build the image as in [Install](/docs/install#1-build-the-image), then `docker compose up -d`.
+The recorder shares tide's network, so it reaches tide's media server and coordination endpoint on loopback, where nothing else can. tide uses the host's network because media is UDP. The recorder joins meetings like a browser, through the address tide advertises: leave `TIDE_MEDIA_NODE_IP` unset, or set it only to an address on the server's own interface, or recordings can't connect. Build the image as in [Install](/docs/install#1-build-the-image), then `docker compose up -d`.
 
 ## Done when
 

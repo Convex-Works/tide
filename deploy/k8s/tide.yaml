@@ -71,8 +71,12 @@ spec:
                   key: session-secret
             - name: TIDE_DB_PATH
               value: /data/tide.db
-            - name: TIDE_MEDIA_NODE_IP
-              value: replace-with-public-ipv4 # OVERLAY: Set the public IPv4 address browsers send media to.
+            # OVERLAY: Media path (a) only: add TIDE_MEDIA_NODE_IP, the load
+            # balancer's IPv4 address. For (b) and (c) leave it unset: tide
+            # discovers the node's public address over STUN and advertises the
+            # pod's own address beside it, which the recorder sidecar connects
+            # to. A configured address replaces the pod's, so the sidecar would
+            # then have to reach media through the public one.
             - name: TIDE_OIDC_ISSUER
               value: https://id.example.com # OVERLAY: Set the external OIDC issuer URL exactly as published.
             - name: TIDE_OIDC_CLIENT_ID
@@ -156,14 +160,18 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
-  storageClassName: standard # OVERLAY: Set a storage class with the required durability and topology.
+  # An anonymous tide writes nothing here, but mounts it all the same, so that
+  # turning sign-in on later needs no migration.
+  storageClassName: standard # OVERLAY: Set a storage class with the required durability and topology, in every mode.
   resources:
     requests:
       storage: 5Gi # OVERLAY: Size for SQLite state; recordings do not live here.
 
 # OVERLAY: Media path (a). Copy this resource into an overlay and patch the
 # provider-specific static address annotation. Its IPv4 address is
-# TIDE_MEDIA_NODE_IP.
+# TIDE_MEDIA_NODE_IP. With recording, the recorder sidecar then reaches media
+# only through this address, so the cluster must route it back to the pod
+# (kube-proxy usually does): verify with a test recording.
 # ---
 # apiVersion: v1
 # kind: Service

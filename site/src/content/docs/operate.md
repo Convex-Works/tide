@@ -25,7 +25,7 @@ Alternatives: stop tide, copy `tide.db`, start it; or a storage snapshot that ca
 
 ## Upgrade tide
 
-Restarting tide restarts its media server, which ends every live meeting, and a recording running at the time fails. Upgrade when no meeting is running.
+Restarting tide restarts its media server, which ends every live meeting: browsers disconnect and offer **Rejoin**, and guests go through the lobby again. A recording running at the time fails. Upgrade when no meeting is running.
 
 1. Back up the database.
 2. Build and push the new image, then set its tag (or digest) in the overlay's `images` entry.
@@ -42,7 +42,20 @@ If the installation uses [transcripts](/docs/transcripts) and was running a rele
 
 Releases before this one ran the media server, redis and the recorder as their own Deployments. In this release `TIDE_OIDC_ISSUER` and `TIDE_S3_ENDPOINT` switch sign-in and recording on: an installation that lacks either loses that feature until it is set, and without the issuer tide doesn't open its database. An installation that sets `TIDE_MEDIA_URL` keeps using its own media server, unchanged.
 
-To move onto tide's own media server, rebuild the overlay from the current base as in [Install](/docs/install): drop `TIDE_MEDIA_URL` and `TIDE_MEDIA_PUBLIC_URL`, set `TIDE_MEDIA_NODE_IP`, add `recorder-redis-password` to `media-secrets`, and move the media option to tide. Then delete the old `media`, `redis` and `recorder` Deployments and the media server's hostname.
+To move onto tide's own media server, when no meeting is running:
+
+1. Rebuild the overlay from the current base as in [Install](/docs/install): drop `TIDE_MEDIA_URL` and `TIDE_MEDIA_PUBLIC_URL`, set `TIDE_MEDIA_NODE_IP` only for `MEDIA_OPTION` `lb`, add `recorder-redis-password` to `media-secrets`, and move the media option to tide.
+2. Delete the old media server first. It holds the host ports or load balancer address tide needs, and tide can't start beside it:
+
+   ```sh
+   kubectl -n tide delete deployment media redis recorder
+   kubectl -n tide delete service media redis media-udp --ignore-not-found
+   kubectl -n tide delete configmap media-config recorder-config
+   ```
+
+   For `lb`, reuse the old load balancer's static address for `tide-media`.
+
+3. `kubectl apply -k deploy/overlays/production`, then remove the media server's hostname from the ingress and DNS.
 
 ## Roll back
 

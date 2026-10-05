@@ -16,7 +16,6 @@ docs
 deploy/*
 !deploy/media-test/
 deploy/media-test/*
-!deploy/media-test/livekit.yaml
 !deploy/media-test/dex.yaml
 !deploy/media-test/egress.yaml
 go.work

@@ -48,6 +48,12 @@ password `tide-dev`. `make dev` writes the detected LAN address to
 `deploy/.env` as the media address, starts the Compose stack, then runs the Go
 server and Vite.
 
+It is made for macOS with Docker Desktop. On Linux, recordings need
+`TIDE_MEDIA_NODE_IP=<LAN address>` (the detection uses macOS's `ipconfig`) and
+`TIDE_RECORDER_REDIS_ADDR=172.17.0.1:6379` (usually; Docker on Linux doesn't route
+`host.docker.internal` to the host's loopback) in `.env` at the repository
+root, which `make dev` loads last.
+
 Useful targets:
 
 ```sh
@@ -82,7 +88,7 @@ make media-dev ARGS="media-lifecycle.spec.ts --project=chromium"   # iterate
 changed. Note that changes under `web/src` need the tide image rebuilt,
 because the SPA is embedded in the Go binary; the script handles that.
 
-`media-lifecycle.spec.ts` holds the scenarios where a participant is *already*
+`media-lifecycle.spec.ts` holds the scenarios where a participant is _already_
 in the room when something changes — a later joiner, a reload, a mute, a screen
 share, a departure, a reconnect. See
 [Architecture §14](docs/ARCHITECTURE.md#14-ci) for the rule those encode and
