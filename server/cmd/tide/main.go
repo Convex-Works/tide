@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"git.convex.works/ConvexWorks/moil/sdk/go/moil"
+	"github.com/redis/go-redis/v9"
 
 	tide "tide"
 	"tide/internal/api"
@@ -37,6 +38,12 @@ const mediaStartTimeout = 3 * time.Minute
 // startMediaServer starts the embedded media server; a variable so that
 // main's process tests can hold a start open.
 var startMediaServer = media.Start
+
+// redisWait bounds how long tide waits at startup for the Redis it shares
+// with the recorder to answer (ARCHITECTURE.md §2.1): beside the recorder,
+// in a pod or a Compose project, Redis may come up a moment after tide. A
+// variable so that main's process tests can wait less.
+var redisWait = 30 * time.Second
 
 func main() {
 	cfg, err := config.Load()
@@ -64,11 +71,11 @@ func main() {
 }
 
 // run serves tide until ctx is done, starting and stopping its parts in the
-// order ARCHITECTURE.md §2 gives: the listener, the recorder's Redis
-// endpoint and the media server come up before tide serves; once
-// httpapi.Serve has stopped the server and the background work, the media
-// server stops, then the Redis endpoint, and the database closes last, once
-// nothing uses it.
+// order ARCHITECTURE.md §2 gives: the listener comes up, then, with
+// recording on, Redis must answer, then the media server starts, all before
+// tide serves; once httpapi.Serve has stopped the server and the background
+// work, the media server stops, and the database closes last, once nothing
+// uses it.
 func run(ctx context.Context, cfg config.Config) error {
 	if cfg.DevMode {
 		log.Print("WARNING: dev mode is on — unauthenticated /api/dev/token is exposed and dev secrets are in use")
@@ -126,33 +133,22 @@ func run(ctx context.Context, cfg config.Config) error {
 	return httpapi.Serve(ctx, server, listener, background, shutdownGrace)
 }
 
-// embeddedMedia is the media server tide runs itself and, with recording
-// on, the Redis endpoint it and the recorder coordinate over
-// (ARCHITECTURE.md §2.1). With an external media server both are nil, and
-// there is nothing to run.
+// embeddedMedia is the media server tide runs itself (ARCHITECTURE.md
+// §2.1). With an external media server it is nil, and there is nothing to
+// run.
 type embeddedMedia struct {
 	server *media.Server
-	bus    *media.Bus
 }
 
-// startMedia starts the embedded media server, and first the recorder's
-// Redis endpoint when recording is on, and points cfg's SDK URL at the
+// startMedia starts the embedded media server, once the Redis it shares with
+// the recorder answers when recording is on, and points cfg's SDK URL at the
 // server. addr is tide's own listener, where the server sends its webhooks.
 func startMedia(ctx context.Context, cfg *config.Config, addr net.Addr) (*embeddedMedia, error) {
 	running := &embeddedMedia{}
 	if !cfg.MediaEmbedded {
 		return running, nil
 	}
-	if cfg.Recording {
-		bus, err := media.StartBus(cfg.RecorderRedisAddr, cfg.RecorderRedisPassword)
-		if err != nil {
-			return nil, fmt.Errorf("start the recorder's Redis endpoint on %s: %w", cfg.RecorderRedisAddr, err)
-		}
-		running.bus = bus
-	}
-	startCtx, cancel := context.WithTimeout(ctx, mediaStartTimeout)
-	defer cancel()
-	server, err := startMediaServer(startCtx, media.Options{
+	options := media.Options{
 		APIKey:       cfg.LiveKitAPIKey,
 		APISecret:    cfg.LiveKitAPISecret,
 		NodeIP:       cfg.MediaNodeIP,
@@ -161,9 +157,18 @@ func startMedia(ctx context.Context, cfg *config.Config, addr net.Addr) (*embedd
 		UDPPort:      cfg.MediaUDPPort,
 		InternalPort: cfg.MediaInternalPort,
 		WebhookURL:   webhookURL(addr),
-		Bus:          running.bus,
 		Dev:          cfg.DevMode,
-	})
+	}
+	if cfg.Recording {
+		if err := waitForRedis(ctx, cfg.RecorderRedisAddr, cfg.RecorderRedisPassword); err != nil {
+			return nil, err
+		}
+		options.RedisAddr = cfg.RecorderRedisAddr
+		options.RedisPassword = cfg.RecorderRedisPassword
+	}
+	startCtx, cancel := context.WithTimeout(ctx, mediaStartTimeout)
+	defer cancel()
+	server, err := startMediaServer(startCtx, options)
 	if err != nil {
 		running.close()
 		// LiveKit says "could not resolve external IP" when no STUN server
@@ -187,8 +192,7 @@ func (m *embeddedMedia) signal() http.Handler {
 	return m.server.SignalHandler()
 }
 
-// close stops the media server, which ends every room, and then the Redis
-// endpoint.
+// close stops the media server, which ends every room.
 func (m *embeddedMedia) close() {
 	if m.server != nil {
 		if err := m.server.Close(); err != nil {
@@ -197,9 +201,40 @@ func (m *embeddedMedia) close() {
 			log.Print("tide: media server stopped; every meeting ended")
 		}
 	}
-	if m.bus != nil {
-		if err := m.bus.Close(); err != nil {
-			log.Printf("tide: stop the recorder's Redis endpoint: %v", err)
+}
+
+// waitForRedis waits until the Redis at addr answers an authenticated PING,
+// trying about every second for at most redisWait, or until ctx ends. A
+// password Redis refuses fails at once: waiting won't change it.
+func waitForRedis(ctx context.Context, addr, password string) error {
+	client := redis.NewClient(&redis.Options{
+		Addr: addr, Password: password, MaxRetries: -1,
+		DialTimeout: time.Second, ReadTimeout: time.Second, WriteTimeout: time.Second,
+	})
+	defer client.Close()
+	waitCtx, cancel := context.WithTimeout(ctx, redisWait)
+	defer cancel()
+	logged := false
+	for {
+		err := client.Ping(waitCtx).Err()
+		if err == nil {
+			return nil
+		}
+		if refused := strings.ToUpper(err.Error()); strings.Contains(refused, "WRONGPASS") ||
+			strings.Contains(refused, "NOAUTH") || strings.Contains(refused, "INVALID PASSWORD") {
+			return fmt.Errorf("Redis at %s (TIDE_RECORDER_REDIS_ADDR) refused TIDE_RECORDER_REDIS_PASSWORD: %w", addr, err)
+		}
+		if !logged {
+			log.Printf("tide: waiting up to %s for Redis at %s (TIDE_RECORDER_REDIS_ADDR)", redisWait, addr)
+			logged = true
+		}
+		select {
+		case <-waitCtx.Done():
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			return fmt.Errorf("Redis at %s (TIDE_RECORDER_REDIS_ADDR) didn't answer within %s: %w", addr, redisWait, err)
+		case <-time.After(time.Second):
 		}
 	}
 }

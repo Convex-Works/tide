@@ -301,10 +301,10 @@ func TestLoadRecordingWithEmbeddedMedia(t *testing.T) {
 	cfg = load(t, merge(signedIn, storage, recorder, map[string]string{
 		"TIDE_S3_PUBLIC_ENDPOINT":   "https://files.example.com",
 		"TIDE_S3_RECORDER_ENDPOINT": "http://minio:9000",
-		"TIDE_RECORDER_REDIS_ADDR":  ":6379",
+		"TIDE_RECORDER_REDIS_ADDR":  "redis:6379",
 		"TIDE_TRANSCRIPTS":          "true",
 	}))
-	if cfg.S3PublicEndpoint != "https://files.example.com" || cfg.S3EgressEndpoint != "http://minio:9000" || cfg.RecorderRedisAddr != ":6379" {
+	if cfg.S3PublicEndpoint != "https://files.example.com" || cfg.S3EgressEndpoint != "http://minio:9000" || cfg.RecorderRedisAddr != "redis:6379" {
 		t.Fatalf("S3 views %q, %q, redis %q", cfg.S3PublicEndpoint, cfg.S3EgressEndpoint, cfg.RecorderRedisAddr)
 	}
 	if !cfg.Transcripts || !strings.HasSuffix(cfg.Summary(), "recording on, transcripts on") {
@@ -357,8 +357,10 @@ func TestLoadRefusesContradictions(t *testing.T) {
 			[]string{`TIDE_MEDIA_API_PORT "-1" is not a port`}},
 		{"a Redis address without a port", merge(signedIn, storage, recorder, map[string]string{"TIDE_RECORDER_REDIS_ADDR": "10.0.0.5"}),
 			[]string{`TIDE_RECORDER_REDIS_ADDR "10.0.0.5" is not host:port`}},
-		{"a Redis address with a name", merge(signedIn, storage, recorder, map[string]string{"TIDE_RECORDER_REDIS_ADDR": "redis:6379"}),
-			[]string{`TIDE_RECORDER_REDIS_ADDR "redis:6379": the host must be an IP address`}},
+		{"a Redis address without a host", merge(signedIn, storage, recorder, map[string]string{"TIDE_RECORDER_REDIS_ADDR": ":6379"}),
+			[]string{`TIDE_RECORDER_REDIS_ADDR ":6379": name the host Redis runs on`}},
+		{"a Redis address with a port out of range", merge(signedIn, storage, recorder, map[string]string{"TIDE_RECORDER_REDIS_ADDR": "redis:0"}),
+			[]string{`TIDE_RECORDER_REDIS_ADDR "redis:0": the port must be 1-65535`}},
 		{"a base URL signaling can't follow", map[string]string{"TIDE_BASE_URL": "meet.example.com"},
 			[]string{"TIDE_BASE_URL: \"meet.example.com\" is not an absolute http or https URL"}},
 		{"a trusted proxy that isn't one", map[string]string{"TIDE_TRUSTED_PROXIES": "10.0.0.0/33"},

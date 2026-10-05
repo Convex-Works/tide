@@ -23,8 +23,9 @@ const (
 	devOIDCSecret    = "tide-dev-oidc-secret"
 	devS3AccessKey   = "tide"
 	devS3SecretKey   = "tide-dev-minio"
-	// devRecorderRedisPassword is the recorder's Redis endpoint password in
-	// the dev and media gate stacks, whose recorder configs carry it too.
+	// devRecorderRedisPassword is the requirepass of the Redis beside the
+	// recorder in the dev and media gate stacks, whose recorder configs carry
+	// it too.
 	devRecorderRedisPassword = "tide-dev-recorder-redis-password-please-change"
 )
 
@@ -96,10 +97,11 @@ type Config struct {
 	// on IPv4 loopback only (TIDE_MEDIA_API_PORT; 7880). A recorder in tide's
 	// network namespace signals there.
 	MediaInternalPort int
-	// RecorderRedisAddr and RecorderRedisPassword configure the
-	// Redis-protocol endpoint tide serves for the recorder when recording is
-	// on and the media server is embedded (TIDE_RECORDER_REDIS_ADDR, default
-	// "127.0.0.1:6379"; TIDE_RECORDER_REDIS_PASSWORD, required then).
+	// RecorderRedisAddr and RecorderRedisPassword name the Redis the media
+	// server shares with the recorder, which runs beside the recorder, when
+	// recording is on and the media server is embedded
+	// (TIDE_RECORDER_REDIS_ADDR, host:port to dial, default "127.0.0.1:6379";
+	// TIDE_RECORDER_REDIS_PASSWORD, its requirepass, required then).
 	RecorderRedisAddr     string
 	RecorderRedisPassword string
 }
@@ -112,8 +114,8 @@ const (
 	DefaultPairRateLimit  = 10
 )
 
-// The embedded media server's ports and the recorder's Redis endpoint
-// (ARCHITECTURE.md §2.1).
+// The embedded media server's ports, and where it finds the Redis beside the
+// recorder: in tide's network namespace (ARCHITECTURE.md §2.1).
 const (
 	DefaultMediaInternalPort = 7880
 	DefaultMediaTCPPort      = 7881
@@ -260,10 +262,10 @@ func (c *Config) loadEmbeddedMedia(secret func(name, devFallback string) string)
 	problems = appendProblem(problems, problem)
 	if c.Recording {
 		// The recorder joins rooms with the key and secret, and coordinates
-		// with the media server over tide's Redis endpoint, so all three are
+		// with the media server over the Redis beside it, so all three are
 		// configured, and checked as secrets.
 		c.RecorderRedisAddr = env("TIDE_RECORDER_REDIS_ADDR", DefaultRecorderRedisAddr)
-		problems = appendProblem(problems, checkHostPort("TIDE_RECORDER_REDIS_ADDR", c.RecorderRedisAddr))
+		problems = appendProblem(problems, checkDialAddress("TIDE_RECORDER_REDIS_ADDR", c.RecorderRedisAddr))
 		c.RecorderRedisPassword = secret("TIDE_RECORDER_REDIS_PASSWORD", devRecorderRedisPassword)
 		return problems
 	}
@@ -464,15 +466,15 @@ func envPort(name string, fallback int) (int, string) {
 	return port, ""
 }
 
-// checkHostPort says what is wrong with a listen address, if anything. An
-// empty host means every interface.
-func checkHostPort(name, address string) string {
+// checkDialAddress says what is wrong with an address tide connects to, if
+// anything: host:port, where the host is a name or an IP address.
+func checkDialAddress(name, address string) string {
 	host, port, err := net.SplitHostPort(address)
 	if err != nil {
 		return fmt.Sprintf("%s %q is not host:port", name, address)
 	}
-	if host != "" && net.ParseIP(host) == nil && !strings.EqualFold(host, "localhost") {
-		return fmt.Sprintf("%s %q: the host must be an IP address, localhost, or empty", name, address)
+	if host == "" {
+		return fmt.Sprintf("%s %q: name the host Redis runs on", name, address)
 	}
 	if number, err := strconv.Atoi(port); err != nil || number < 1 || number > 65535 {
 		return fmt.Sprintf("%s %q: the port must be 1-65535", name, address)

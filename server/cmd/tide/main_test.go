@@ -30,6 +30,17 @@ import (
 
 func TestMain(m *testing.M) {
 	if os.Getenv("TIDE_TEST_MAIN") == "1" {
+		if wait := os.Getenv("TIDE_TEST_REDIS_WAIT"); wait != "" {
+			// Only this test binary reads it: waiting the full 30 s for a
+			// Redis that never answers would make a slow test, and tide
+			// itself has no setting for the wait.
+			duration, err := time.ParseDuration(wait)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "test: TIDE_TEST_REDIS_WAIT:", err)
+				os.Exit(2)
+			}
+			redisWait = duration
+		}
 		if os.Getenv("TIDE_TEST_MEDIA_STARTS_SLOWLY") == "1" {
 			// A media server whose start lasts until it is given up on, as
 			// discovering the node address over STUN can take a minute.
