@@ -59,8 +59,41 @@ type Config struct {
 	PairRateLimit int
 	// Transcripts turns on transcripts and machine pairing through moil
 	// (TIDE_TRANSCRIPTS, ARCHITECTURE.md §8.1). Off by default: moil is
-	// alpha, so an operator opts in.
+	// alpha, so an operator opts in. It needs Recording.
 	Transcripts bool
+
+	// Anonymous is true when TIDE_OIDC_ISSUER is unset or empty: there is no
+	// sign-in, anyone may create a room and owns it through an anonymous
+	// session, and rooms live in memory (ARCHITECTURE.md §4.1). DBPath is
+	// then ":memory:" whatever TIDE_DB_PATH says.
+	Anonymous bool
+	// Recording is true when hosts sign in and TIDE_S3_ENDPOINT is set
+	// (ARCHITECTURE.md §8). Without it there is no recorder, no object
+	// storage, and no recording route.
+	Recording bool
+
+	// MediaEmbedded is true when TIDE_MEDIA_URL is unset or empty: tide runs
+	// the media server itself (ARCHITECTURE.md §2.1). LiveKitURL is then
+	// filled in by main once the server is up, LiveKitPublicURL defaults to
+	// the base URL's origin with a ws or wss scheme, and the API key and
+	// secret are generated per start unless the recorder needs them fixed.
+	MediaEmbedded bool
+	// MediaNodeIP is the address advertised for media (TIDE_MEDIA_NODE_IP).
+	// Empty means 127.0.0.1 when the base URL is loopback, else discovered.
+	MediaNodeIP string
+	// MediaTCPPort and MediaUDPPort carry WebRTC media
+	// (TIDE_MEDIA_TCP_PORT, TIDE_MEDIA_UDP_PORT; 7881 and 7882).
+	MediaTCPPort int
+	MediaUDPPort int
+	// MediaInternalPort is the embedded server's loopback API and signaling
+	// port. It is not configurable from the environment (7880); tests set it.
+	MediaInternalPort int
+	// RecorderRedisAddr and RecorderRedisPassword configure the
+	// Redis-protocol endpoint tide serves for the recorder when recording is
+	// on and the media server is embedded (TIDE_RECORDER_REDIS_ADDR, default
+	// "127.0.0.1:6379"; TIDE_RECORDER_REDIS_PASSWORD, required then).
+	RecorderRedisAddr     string
+	RecorderRedisPassword string
 }
 
 // Public per-IP defaults, over a one-minute window.

@@ -56,6 +56,19 @@ export interface Me {
    * hides /machines and every transcript control; the routes 404.
    */
   transcripts: boolean;
+  /**
+   * Recording is true when this deployment records meetings: hosts sign in
+   * and object storage is configured (ARCHITECTURE.md §8). When false the
+   * SPA hides the record control and every recording list; the routes 404.
+   */
+  recording: boolean;
+  /**
+   * Anonymous is true when this deployment has no sign-in
+   * (ARCHITECTURE.md §4.1): the session is an anonymous one that owns the
+   * rooms this browser created, and Email and Name are empty. The SPA shows
+   * no account and no sign-out.
+   */
+  anonymous: boolean;
 }
 export interface RoomInfo {
   id: string;

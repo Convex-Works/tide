@@ -125,7 +125,14 @@ export function recording(
 export function defaultState(): ApiState {
   return {
     signedIn: true,
-    me: { sub: 'host', email: 'host@tide.dev', name: 'Ada Host', transcripts: true },
+    me: {
+      sub: 'host',
+      email: 'host@tide.dev',
+      name: 'Ada Host',
+      transcripts: true,
+      recording: true,
+      anonymous: false
+    },
     rooms: [
       {
         id: 'r-standup',

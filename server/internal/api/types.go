@@ -53,6 +53,15 @@ type Me struct {
 	// pairing (TIDE_TRANSCRIPTS, ARCHITECTURE.md §8.1). When false the SPA
 	// hides /machines and every transcript control; the routes 404.
 	Transcripts bool `json:"transcripts"`
+	// Recording is true when this deployment records meetings: hosts sign in
+	// and object storage is configured (ARCHITECTURE.md §8). When false the
+	// SPA hides the record control and every recording list; the routes 404.
+	Recording bool `json:"recording"`
+	// Anonymous is true when this deployment has no sign-in
+	// (ARCHITECTURE.md §4.1): the session is an anonymous one that owns the
+	// rooms this browser created, and Email and Name are empty. The SPA shows
+	// no account and no sign-out.
+	Anonymous bool `json:"anonymous"`
 }
 
 type RoomInfo struct {
