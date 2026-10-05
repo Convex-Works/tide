@@ -42,12 +42,19 @@ type RevocationStore interface {
 }
 
 type Sessions struct {
-	secret      []byte
+	secret []byte
+	// anonymous is the deployment's mode (ARCHITECTURE.md §4.1): its
+	// sessions are anonymous ones, signed with a key of their own, and Read
+	// refuses every other kind, as a signed-in deployment refuses anonymous
+	// ones.
+	anonymous   bool
 	secure      bool
 	now         func() time.Time
 	revocations RevocationStore
 }
 
+// NewSessions makes the sessions of a deployment with sign-in, signed with
+// secret itself.
 func NewSessions(secret, baseURL string, revocations RevocationStore) *Sessions {
 	parsed, err := url.Parse(baseURL)
 	secure := err == nil && strings.EqualFold(parsed.Scheme, "https")
@@ -57,6 +64,23 @@ func NewSessions(secret, baseURL string, revocations RevocationStore) *Sessions 
 		now:         time.Now,
 		revocations: revocations,
 	}
+}
+
+// anonymousKeyLabel derives the key anonymous sessions are signed with from
+// the session secret. Signed-in sessions keep the secret itself, so a cookie
+// from one mode never verifies in the other when an operator switches modes
+// without changing the secret.
+const anonymousKeyLabel = "tide-session:anonymous"
+
+// NewAnonymousSessions makes the sessions of a deployment without sign-in:
+// anonymous ones only, signed with a key derived from secret.
+func NewAnonymousSessions(secret, baseURL string, revocations RevocationStore) *Sessions {
+	s := NewSessions(secret, baseURL, revocations)
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(anonymousKeyLabel))
+	s.secret = mac.Sum(nil)
+	s.anonymous = true
+	return s
 }
 
 func (s *Sessions) Set(w http.ResponseWriter, session Session) error {
@@ -104,6 +128,11 @@ func (s *Sessions) Read(r *http.Request) (Session, error) {
 		return Session{}, err
 	}
 	if session.Sub == "" {
+		return Session{}, ErrInvalidSession
+	}
+	// The key already separates the modes; the sub is the second lock, should
+	// a cookie ever be signed with the other mode's key.
+	if IsAnonymous(session) != s.anonymous || (s.anonymous && session.IsAdmin) {
 		return Session{}, ErrInvalidSession
 	}
 	if session.Exp <= s.now().Unix() {
