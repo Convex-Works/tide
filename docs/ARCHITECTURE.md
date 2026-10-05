@@ -107,7 +107,12 @@ not a YAML file:
 - **Media** is UDP 7882 (single-port mux) with ICE/TCP 7881 as the fallback,
   on every interface. The advertised address is `TIDE_MEDIA_NODE_IP`, or
   127.0.0.1 when the base URL is loopback, or the public address found over
-  STUN.
+  STUN. A discovered address is advertised *alongside* the machine's own
+  interface addresses; a configured one *replaces* them (LiveKit has no way to
+  add internal candidates to a fixed address). So a recorder in tide's network
+  namespace reaches media through an internal address only when the address
+  is discovered; with `TIDE_MEDIA_NODE_IP` set it must reach that address,
+  which needs the network to route it back (hairpin) where it isn't local.
 - **Webhooks** go to tide's own `/api/webhooks/media` over loopback, signed
   as before.
 - **Keys**: with no recorder, nothing outside the process needs the API key
@@ -122,12 +127,14 @@ not a YAML file:
   keys on its own (it was made for tests), so tide advances its clock every
   second; the bus's locks and node records then expire as Redis's would.
 
-The cost of one process: **restarting tide restarts the media server.** Every
-live meeting drops; clients reconnect on their own when tide is back while
-their token is valid (10 minutes from joining), and otherwise rejoin through
-the meeting page (guests through the lobby). A recording running across a
-restart fails and says so (§8). An operator who can't accept that keeps an
-external media server with `TIDE_MEDIA_URL`.
+The cost of one process: **restarting tide restarts the media server.**
+Stopping tide stops it, which tells every participant the server is shutting
+down; their clients disconnect rather than retry, and the meeting page offers
+**Rejoin**, which asks tide for a new token (guests through the lobby again).
+Without a recorder the media keys are new each start anyway, so no earlier
+token would be accepted. A recording running across a restart fails and says
+so (§8). An operator who can't accept that keeps an external media server
+with `TIDE_MEDIA_URL`.
 
 Single-instance by design for v1: SQLite for durable state (in memory in
 anonymous mode), in-memory for ephemeral state (lobby). Nothing in the design
@@ -229,6 +236,14 @@ on the server, and capabilities still travel only in tokens tide mints.
   refused one answers 429), and the callback route doesn't exist. An
   anonymous session lasts 30 days rather than one, because it is the only key
   to the rooms this browser created and grants nothing else.
+- **Sessions belong to their mode.** Anonymous sessions are signed with a key
+  derived from the session secret for that purpose (HMAC of the secret over
+  `tide-session:anonymous`); signed-in sessions keep the secret itself. A
+  cookie from one mode therefore fails verification in the other, so an
+  operator who adds sign-in to an anonymous deployment (or drops it) without
+  changing the secret doesn't turn anonymous cookies into signed-in hosts, or
+  administrators into anonymous ones. tide also refuses an `anon:` session
+  while signed in, and any other session while anonymous.
 - **Owners are owners.** Everything §6 and §7 say about a room's owner holds
   for the anonymous one: they join without the lobby, admit and deny guests,
   remove, mute, and end the meeting. Every other session, anonymous or not, is
@@ -241,7 +256,11 @@ on the server, and capabilities still travel only in tokens tide mints.
   session secret, unless `TIDE_SESSION_SECRET` sets one, is generated per
   start, so every anonymous session ends with them.
 - **Creating rooms is limited** per client address, in a bucket of its own
-  sized by `TIDE_JOIN_RATE_LIMIT` (§15), since it no longer takes an account.
+  sized by `TIDE_JOIN_RATE_LIMIT` (§15), since it no longer takes an account,
+  and in total: with 10,000 rooms in memory, creating another answers 503
+  ("This server has too many rooms. Try again later.") until the sweep frees
+  some. Many addresses are cheap (an IPv6 /48 is 65,536 of the /64s the
+  limits count), so only a ceiling bounds memory.
 - **No recording, transcripts or machines.** Those routes answer 404 and
   `/api/me` reports `anonymous: true, recording: false, transcripts: false`.
   The SPA shows the same dashboard (this browser's rooms and **New**) with no
@@ -278,6 +297,11 @@ who hosts configures sign-in.
   room name as `SUMMARY`). Each room card also has **Add to calendar…**,
   since rooms are reusable. tide stores no times, sends no reminders and
   syncs no calendar; scheduling on the server is a later decision (§17).
+- Deleting a room ends any meeting live in it (as **End meeting** does,
+  best effort), so its participants can't stay on under a slug someone else
+  can now create and own. The anonymous sweep (§4.1) deletes a room only if
+  it is still idle at that moment, and every token tide mints for a room
+  marks it active first, so a meeting that is starting is never swept.
 - Any signed-in host can create rooms (in anonymous mode, anyone: §4.1); the
   creator is the room's owner. Rooms are persistent (reusable URLs; in
   anonymous mode, until 24 hours unused), meetings are implicit sessions
@@ -803,9 +827,13 @@ whole:
   `TIDE_RECORDER_REDIS_*` settings are unused, and Redis between the media
   server and the recorder is the operator's.
 
-tide refuses to start, naming every problem at once, on anything else:
-S3 without sign-in, transcripts without recording, a required secret missing,
-short, or equal to a shipped dev value, an unparseable IP or port. It logs
+A variable set to the empty string is unset, for every variable: it takes its
+default. tide refuses to start, naming every problem at once, on anything
+else: S3 without sign-in, transcripts without recording, user or
+administrator groups without sign-in (a missing issuer must not quietly open
+a deployment that meant to restrict who hosts), a required secret missing,
+short, or equal to a shipped dev value, an unparseable IP or port, the media
+API and TCP ports equal. It logs
 its mode at startup in one line, e.g. `tide: anonymous, media server
 embedded (node IP discovered), recording off`.
 
@@ -841,9 +869,12 @@ media server and Redis endpoint, runs on the host for fast iteration:
 | dex | 5556 (issuer), static test users (`host@tide.dev`) |
 
 tide on the host listens on 8080 (HTTP and `/rtc` signaling), 7881/tcp and
-7882/udp (media), 127.0.0.1:7880 (its media server's API) and 6379 (the
-recorder's Redis endpoint; `make dev` sets `TIDE_RECORDER_REDIS_ADDR=:6379`
-so the recorder in Docker can reach it).
+7882/udp (media), 127.0.0.1:7880 (its media server's API) and 127.0.0.1:6379
+(the recorder's Redis endpoint). Docker Desktop routes `host.docker.internal`
+to the host's loopback, so the recorder reaches it without tide listening on
+the LAN; Docker on Linux doesn't, and there `TIDE_RECORDER_REDIS_ADDR` must
+name the Docker bridge address (and `make dev`'s LAN detection, which uses
+macOS's `ipconfig`, needs `TIDE_MEDIA_NODE_IP` set by hand).
 
 `Makefile` targets: `dev` (compose up + Go server + Vite, concurrently),
 `gen` (tygo), `check` (vet + go test + svelte-check + Prettier + type drift),
@@ -969,9 +1000,15 @@ up between runs for iteration.
   address as they do guests, and minting a session is a login redirect under
   the login limit. An anonymous session owns only the rooms it created.
 - Signaling (§2.1): tide forwards only `/rtc` and the paths under it to the
-  embedded media server, which checks the token on every connection. The
-  media server's API (room service, egress) listens on loopback only and is
-  never reachable through tide.
+  embedded media server, which checks the token on every connection, and only
+  GET requests without a body (405 and 400 otherwise): every signaling
+  request is a GET, and a body nobody sends would hold a connection open
+  forever. tide's read and write deadlines stand until the media server
+  upgrades the connection to a WebSocket. The media server's API (room
+  service, egress) listens on loopback only and is never reachable through
+  tide.
+- Anonymous rooms are capped at 10,000 in memory (§4.1), and anonymous and
+  signed-in sessions are signed with different keys (§4.1).
 - The recorder's Redis endpoint carries recording jobs, and a recording job
   carries the S3 credentials the recorder uploads with. Every connection must
   `AUTH` with a password of at least 32 characters, and it listens on
