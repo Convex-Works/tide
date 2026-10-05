@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"sync"
+	"time"
 )
 
 // newSignalHandler forwards SignalPath and the paths under it to target, the
@@ -20,7 +22,12 @@ import (
 // connection to a WebSocket. They need no clearing here: the proxy hijacks
 // the connection on a 101, and hijacking clears both deadlines (Go 1.26,
 // net/http/server.go:325, conn.hijackLocked: rwc.SetDeadline(time.Time{})).
-func newSignalHandler(target string) http.Handler {
+//
+// Each request counts in flight until the proxy returns, which for a
+// WebSocket is when its copying has ended; drained tells Close when the
+// media server's last words (its leave on shutdown) have been handed to the
+// browsers.
+func newSignalHandler(target string, flight *inFlight) http.Handler {
 	upstream, err := url.Parse(target)
 	if err != nil {
 		panic("media: signal target " + target + ": " + err.Error())
@@ -52,8 +59,56 @@ func newSignalHandler(target string) http.Handler {
 		r.Body = http.NoBody
 		r.URL.Path = cleaned
 		r.URL.RawPath = ""
+		flight.enter()
+		defer flight.leave()
 		proxy.ServeHTTP(w, r)
 	})
+}
+
+// inFlight counts the signaling requests being forwarded.
+type inFlight struct {
+	mu sync.Mutex
+	n  int
+	// drained is made by a waiter and closed when n reaches zero.
+	drained chan struct{}
+}
+
+func (f *inFlight) enter() {
+	f.mu.Lock()
+	f.n++
+	f.mu.Unlock()
+}
+
+func (f *inFlight) leave() {
+	f.mu.Lock()
+	f.n--
+	if f.n == 0 && f.drained != nil {
+		close(f.drained)
+		f.drained = nil
+	}
+	f.mu.Unlock()
+}
+
+// wait returns once nothing is in flight, or after timeout, and says which.
+func (f *inFlight) wait(timeout time.Duration) bool {
+	f.mu.Lock()
+	if f.n == 0 {
+		f.mu.Unlock()
+		return true
+	}
+	if f.drained == nil {
+		f.drained = make(chan struct{})
+	}
+	drained := f.drained
+	f.mu.Unlock()
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-drained:
+		return true
+	case <-timer.C:
+		return false
+	}
 }
 
 // refuse answers a request the media server never sees and closes its

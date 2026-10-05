@@ -13,6 +13,7 @@ package media
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
 	"strconv"
@@ -74,6 +75,7 @@ type Server struct {
 	lk     *service.LivekitServer
 	url    string
 	signal http.Handler
+	flight *inFlight
 	run    *run
 
 	closeOnce sync.Once
@@ -139,7 +141,8 @@ func Start(ctx context.Context, opts Options) (*Server, error) {
 		case <-ticker.C:
 			if lk.IsRunning() {
 				target := "http://127.0.0.1:" + strconv.Itoa(opts.InternalPort)
-				return &Server{lk: lk, url: target, signal: newSignalHandler(target), run: r}, nil
+				flight := &inFlight{}
+				return &Server{lk: lk, url: target, signal: newSignalHandler(target, flight), flight: flight, run: r}, nil
 			}
 		}
 	}
@@ -207,12 +210,24 @@ func (s *Server) SignalHandler() http.Handler { return s.signal }
 // Close stops the server at once: every room ends, and every participant is
 // told the server is shutting down. Their clients disconnect rather than
 // retry, and the meeting page offers Rejoin, which asks tide for a new token
-// (ARCHITECTURE.md §2.1). It returns once the media ports are released.
+// (ARCHITECTURE.md §2.1). It returns once the media ports are released and
+// the signaling connections SignalHandler forwards have ended, or after
+// drainTimeout: the server's leave travels through them, and tide exiting
+// before they are copied would cut it off, leaving clients to retry a server
+// that is gone.
 func (s *Server) Close() error {
 	s.closeOnce.Do(func() {
 		s.lk.Stop(true)
 		<-s.run.done
 		s.closeErr = s.run.err
+		if !s.flight.wait(drainTimeout) {
+			log.Printf("media: signaling connections still open %s after stopping", drainTimeout)
+		}
 	})
 	return s.closeErr
 }
+
+// drainTimeout bounds how long Close waits for forwarded signaling to end
+// once the server has stopped. Clients close their side as soon as the leave
+// arrives, so this is only reached by one that doesn't.
+const drainTimeout = 2 * time.Second

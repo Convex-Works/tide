@@ -17,7 +17,7 @@ import (
 func TestSignalHandlerTakesOnlyGETsWithoutABody(t *testing.T) {
 	// Nothing listens upstream: every request here is refused before it
 	// would be forwarded.
-	signal := newSignalHandler("http://127.0.0.1:1")
+	signal := newSignalHandler("http://127.0.0.1:1", &inFlight{})
 	mux := http.NewServeMux()
 	mux.Handle(SignalPath, signal)
 	mux.Handle(SignalPath+"/", signal)
