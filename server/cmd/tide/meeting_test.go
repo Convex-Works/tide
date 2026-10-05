@@ -8,12 +8,12 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
 
-	"github.com/livekit/protocol/livekit"
 	lksdk "github.com/livekit/server-sdk-go/v2"
 	"github.com/pion/webrtc/v4"
 	pionmedia "github.com/pion/webrtc/v4/pkg/media"
@@ -96,6 +96,9 @@ func TestOneBinaryHoldsAMeeting(t *testing.T) {
 		}()
 	}
 	listener.OnDisconnected = func() { close(disconnected) }
+	reconnecting := make(chan struct{})
+	var lost sync.Once
+	listener.OnReconnecting = func() { lost.Do(func() { close(reconnecting) }) }
 	grace, err := lksdk.ConnectToRoomWithToken(admission.WSURL, admission.Token, listener)
 	if err != nil {
 		t.Fatalf("the admitted guest connects through tide: %v", err)
@@ -118,17 +121,21 @@ func TestOneBinaryHoldsAMeeting(t *testing.T) {
 		return rooms[0].Active && rooms[0].NumParticipants == 2 && rooms[0].LastActiveAt != nil
 	})
 
-	// Stopping tide ends the meeting with it, by stopping the media server,
-	// which tells everyone it is shutting down: a process that merely died
-	// couldn't say so.
+	// Stopping tide ends the meeting with it, by stopping the media server
+	// before it exits, as its log says; a process that merely died wouldn't.
+	// The guest loses the meeting either way the media server's teardown
+	// races: told it is shutting down, or finding its transport gone first and
+	// retrying a server that is no longer there.
 	k.stop()
+	k.drainLogs()
+	if !k.logged("tide: media server stopped") {
+		t.Fatalf("tide exited without stopping its media server; it logged %q", k.history)
+	}
 	select {
 	case <-disconnected:
+	case <-reconnecting:
 	case <-time.After(15 * time.Second):
 		t.Fatal("the guest stayed connected after tide stopped")
-	}
-	if reason := grace.DisconnectReason(); reason != livekit.DisconnectReason_SERVER_SHUTDOWN {
-		t.Fatalf("the guest was disconnected with %v, want the media server's shutdown", reason)
 	}
 }
 
@@ -183,6 +190,19 @@ func TestEmbeddedTideReleasesItsPortsWhenItStops(t *testing.T) {
 		t.Fatalf("UDP port %d is still taken after tide stopped: %v", udp[0], err)
 	}
 	_ = c.Close()
+}
+
+// drainLogs keeps the lines tide logged that nothing waited for. Call it once
+// tide has exited, when every line is buffered.
+func (k *tideProcess) drainLogs() {
+	for {
+		select {
+		case line := <-k.logs:
+			k.history = append(k.history, line)
+		default:
+			return
+		}
+	}
 }
 
 // anonymousSession is a new browser's first visit: /api/me hands it a

@@ -76,8 +76,9 @@ type RoomInfo struct {
 	Active          bool `json:"active"`
 	NumParticipants int  `json:"num_participants"`
 	Recording       bool `json:"recording"`
-	// LastActiveAt is Unix seconds of the most recent participant join, or null
-	// if the room has never been used.
+	// LastActiveAt is Unix seconds of the most recent join (tide minting a
+	// token for the room, or the media server reporting a participant), or
+	// null if the room has never been used.
 	LastActiveAt *int64 `json:"last_active_at"`
 }
 

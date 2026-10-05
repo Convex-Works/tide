@@ -85,8 +85,9 @@ export interface RoomInfo {
   num_participants: number /* int */;
   recording: boolean;
   /**
-   * LastActiveAt is Unix seconds of the most recent participant join, or null
-   * if the room has never been used.
+   * LastActiveAt is Unix seconds of the most recent join (tide minting a
+   * token for the room, or the media server reporting a participant), or
+   * null if the room has never been used.
    */
   last_active_at?: number /* int64 */;
 }

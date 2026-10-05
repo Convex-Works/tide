@@ -193,6 +193,8 @@ func (m *embeddedMedia) close() {
 	if m.server != nil {
 		if err := m.server.Close(); err != nil {
 			log.Printf("tide: stop the media server: %v", err)
+		} else {
+			log.Print("tide: media server stopped; every meeting ended")
 		}
 	}
 	if m.bus != nil {
