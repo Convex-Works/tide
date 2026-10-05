@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -509,11 +510,9 @@ func TestTokensMarkTheirRoomActive(t *testing.T) {
 	if lastActive() == nil {
 		t.Fatal("the owner's token left without marking the room active")
 	}
-	// The lobby's admission does too: clear the mark, and admit a guest.
-	if _, err := k.db.DeleteRoom(context.Background(), room.ID, time.Now().Unix()); err != nil {
-		t.Fatal(err)
-	}
-	owner.want(http.MethodPost, api.RoomsPath, `{"name":"Again","slug":"`+room.Slug+`"}`, http.StatusCreated, &room)
+	// The lobby's admission does too: in a room nobody joined yet, admit a
+	// guest.
+	owner.want(http.MethodPost, api.RoomsPath, `{"name":"Again"}`, http.StatusCreated, &room)
 	guest := k.browser("192.0.2.31")
 	waiting := guest.join(room.Slug, "Guest")
 	if waiting.RequestID == "" {
@@ -545,5 +544,55 @@ func TestOnlyAnAnonymousDeploymentSweeps(t *testing.T) {
 		if (background.sweeper != nil) != anonymous {
 			t.Errorf("anonymous=%v: sweeper %v", anonymous, background.sweeper)
 		}
+	}
+}
+
+// A join tide began before the room was deleted gets no token: the room's
+// slug is free for someone else's room now, and a token names its room by
+// slug (ARCHITECTURE.md §5). The guest's body arrives after the delete, as a
+// slow client's would.
+func TestNoTokenForARoomDeletedMidJoin(t *testing.T) {
+	k := startTide(t, anonymousMode(100))
+	owner := k.browser("192.0.2.40")
+	owner.me()
+	var room api.RoomInfo
+	owner.want(http.MethodPost, api.RoomsPath, `{"name":"Doomed"}`, http.StatusCreated, &room)
+	owner.want(http.MethodPatch, fill(api.RoomPath, room.Slug), `{"lobby_enabled":false}`, http.StatusOK, nil)
+
+	body, send := io.Pipe()
+	request, err := http.NewRequest(http.MethodPost, k.url+fill(api.RoomJoinPath, room.Slug), body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("X-Tide-Csrf", "1")
+	request.Header.Set("X-Forwarded-For", "192.0.2.41")
+	answered := make(chan *http.Response, 1)
+	go func() {
+		response, err := k.client.Do(request)
+		if err != nil {
+			t.Error(err)
+			close(answered)
+			return
+		}
+		answered <- response
+	}()
+	// tide has loaded the room and waits for the body when the room goes.
+	time.Sleep(300 * time.Millisecond)
+	if _, err := k.db.DeleteRoom(context.Background(), room.ID, time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := send.Write([]byte(`{"name":"Late"}`)); err != nil {
+		t.Fatal(err)
+	}
+	_ = send.Close()
+	response, ok := <-answered
+	if !ok {
+		return
+	}
+	defer response.Body.Close()
+	answer, _ := io.ReadAll(response.Body)
+	if response.StatusCode != http.StatusNotFound || strings.Contains(string(answer), "token") {
+		t.Fatalf("join into a room deleted mid-join = %d %s, want 404 and no token", response.StatusCode, answer)
 	}
 }

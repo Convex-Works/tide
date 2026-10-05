@@ -299,7 +299,11 @@ who hosts configures sign-in.
   syncs no calendar; scheduling on the server is a later decision (§17).
 - Deleting a room ends any meeting live in it (as **End meeting** does,
   best effort), so its participants can't stay on under a slug someone else
-  can now create and own. The anonymous sweep (§4.1) deletes a room only if
+  can now create and own. Tokens name their room by slug and live 10 minutes,
+  so a slug freed by deleting or renaming its room is held that long
+  (`freed_slugs`) before another room may take it (409, as for a slug in
+  use), and tide mints a token only if the room still exists as it marks it
+  active, never for one deleted while the join was under way. The anonymous sweep (§4.1) deletes a room only if
   it is still idle at that moment, and every token tide mints for a room
   marks it active first, so a meeting that is starting is never swept.
 - Any signed-in host can create rooms (in anonymous mode, anyone: §4.1); the

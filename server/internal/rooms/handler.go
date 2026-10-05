@@ -273,7 +273,7 @@ func (h *Handler) Update(w http.ResponseWriter, r *http.Request) {
 			room.Slug = slug
 		}
 	}
-	if err := h.store.UpdateRoom(r.Context(), room); err != nil {
+	if err := h.store.UpdateRoom(r.Context(), room, time.Now().Unix()); err != nil {
 		if store.IsSlugConflict(err) {
 			httpx.WriteError(w, http.StatusConflict, "That room link is already in use.")
 			return
