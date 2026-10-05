@@ -1,44 +1,9 @@
 name: tide
 
+# What tide doesn't contain. tide itself, with its media server and the
+# recorder's Redis endpoint inside it, runs on the host (`make dev`).
+
 services:
-  redis:
-    image: redis:7-alpine
-    command: redis-server --save 60 1 --loglevel warning
-    # No host port: only LiveKit (on the compose network) talks to Redis.
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-    networks: [tide]
-
-  livekit:
-    image: livekit/livekit-server:v1.13.4
-    command: --config /etc/livekit.yaml --node-ip ${TIDE_NODE_IP:-127.0.0.1}
-    volumes:
-      - ./livekit.yaml:/etc/livekit.yaml:ro
-    # Signal/API on loopback only; media ports stay on all interfaces
-    # because browsers dial the advertised TIDE_NODE_IP (LAN) directly and
-    # ICE/SRTP require the token handshake anyway.
-    # Loopback needs BOTH families: browsers resolve localhost to ::1 first,
-    # and a v4-only bind makes fresh WebSockets fail intermittently.
-    ports:
-      - "127.0.0.1:7880:7880"
-      - "[::1]:7880:7880"
-      - "7881:7881"
-      - "7882:7882/udp"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    depends_on:
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:7880/ || exit 1"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-    networks: [tide]
-
   minio:
     image: minio/minio:RELEASE.2025-04-22T22-12-26Z
     command: server /data --console-address :9001
@@ -73,10 +38,25 @@ services:
     restart: "no"
     networks: [tide]
 
+  # The recorder. It reaches tide on the host: signaling through tide's /rtc,
+  # jobs through tide's Redis endpoint (make dev sets
+  # TIDE_RECORDER_REDIS_ADDR=:6379), and media through the LAN address tide
+  # advertises (TIDE_MEDIA_NODE_IP in deploy/.env). With no LAN address that
+  # falls back to 127.0.0.1, which the recorder can't reach: meetings work,
+  # recordings don't.
   egress:
     image: livekit/egress:v1.13.0
     environment:
       EGRESS_CONFIG_FILE: /etc/egress.yaml
+    # The recorder checks the Redis endpoint once at startup and exits if it
+    # isn't there, so it waits for tide, which serves /healthz only once its
+    # media server and Redis endpoint are up.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >-
+        until wget -q -O /dev/null http://host.docker.internal:8080/healthz; do sleep 1; done;
+        exec /entrypoint.sh
     volumes:
       - ./egress.yaml:/etc/egress.yaml:ro
     cap_add:
@@ -87,11 +67,9 @@ services:
     # Staging area for file egress before the S3 upload; egress runs non-root.
     tmpfs:
       - /recordings:mode=1777
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     depends_on:
-      livekit:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
       minio-init:
         condition: service_completed_successfully
     healthcheck:
@@ -99,10 +77,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 20
-    # Egress shares LiveKit's network namespace: the SFU advertises
-    # node_ip 127.0.0.1 for host browsers in dev, and this makes the same
-    # candidate address correct for egress's in-container Chrome too.
-    network_mode: "service:livekit"
+    networks: [tide]
 
   dex:
     image: ghcr.io/dexidp/dex:v2.43.1

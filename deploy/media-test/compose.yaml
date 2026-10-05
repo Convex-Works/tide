@@ -5,37 +5,12 @@ name: tide-media-test
 # by its compose DNS name. Configuration is baked into images rather than
 # bind-mounted because CI drives compose from inside a container, where host
 # bind mounts do not resolve on the daemon's filesystem.
+#
+# tide runs its media server embedded, as a production install does, and the
+# recorder shares tide's network namespace: the gate's only media processes
+# are tide and the recorder.
 
 services:
-  redis:
-    image: redis:7.4.5-alpine
-    command: redis-server --save "" --appendonly no --loglevel warning
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 2s
-      timeout: 2s
-      retries: 30
-    networks:
-      media:
-        ipv4_address: ${TIDE_MEDIA_NET_PREFIX:-10.253.0}.2
-
-  livekit:
-    build:
-      context: ../..
-      dockerfile: deploy/media-test/livekit.Dockerfile
-    command: --config /etc/livekit.yaml --node-ip ${TIDE_MEDIA_NET_PREFIX:-10.253.0}.3
-    depends_on:
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:7880/ || exit 1"]
-      interval: 2s
-      timeout: 2s
-      retries: 30
-    networks:
-      media:
-        ipv4_address: ${TIDE_MEDIA_NET_PREFIX:-10.253.0}.3
-
   # Real OIDC. Without a session the suite cannot reach /m/[slug], the lobby,
   # host token grants, moderation or recording — /api/dev/token mints only
   # non-host tokens, so those paths were previously untestable.
@@ -95,6 +70,16 @@ services:
       dockerfile: deploy/media-test/egress.Dockerfile
     environment:
       EGRESS_CONFIG_FILE: /etc/egress.yaml
+    # The recorder checks tide's Redis endpoint once at startup and exits if it
+    # isn't there. tide's image has no shell for a healthcheck, so the recorder
+    # waits for /healthz, which tide serves only once its media server and
+    # Redis endpoint are up.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >-
+        until wget -q -O /dev/null http://localhost:8080/healthz; do sleep 1; done;
+        exec /entrypoint.sh
     cap_add:
       - SYS_ADMIN
     security_opt:
@@ -104,10 +89,8 @@ services:
     tmpfs:
       - /recordings:mode=1777
     depends_on:
-      livekit:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      tide:
+        condition: service_started
       minio-init:
         condition: service_completed_successfully
     healthcheck:
@@ -115,9 +98,11 @@ services:
       interval: 5s
       timeout: 3s
       retries: 30
-    # Egress shares LiveKit's network namespace so the SFU's advertised
-    # node_ip (the .3 address below) is the correct candidate for its Chrome.
-    network_mode: "service:livekit"
+    # The recorder shares tide's network namespace: it signals at
+    # 127.0.0.1:7880 (the media server itself), reaches the Redis endpoint on
+    # tide's loopback, and the media server's advertised address (the .4
+    # address below) is the correct candidate for its Chrome too.
+    network_mode: "service:tide"
 
   tide:
     build:
@@ -130,10 +115,13 @@ services:
       TIDE_BASE_URL: http://tide:8080
       TIDE_DB_PATH: /data/tide.db
       TIDE_DEV_MODE: "true"
-      TIDE_MEDIA_URL: ws://livekit:7880
-      TIDE_MEDIA_PUBLIC_URL: ws://livekit:7880
+      # The media server runs inside tide (no TIDE_MEDIA_URL). Browsers signal
+      # through tide's /rtc and send media to this address; the recorder uses
+      # the same key, secret and Redis password (egress.yaml).
+      TIDE_MEDIA_NODE_IP: ${TIDE_MEDIA_NET_PREFIX:-10.253.0}.4
       TIDE_MEDIA_API_KEY: devkey
       TIDE_MEDIA_API_SECRET: tide-dev-secret-please-change-0000000000
+      TIDE_RECORDER_REDIS_PASSWORD: tide-dev-recorder-redis-password-please-change
       TIDE_OIDC_ISSUER: http://dex:5556/dex
       TIDE_OIDC_CLIENT_ID: tide
       TIDE_OIDC_CLIENT_SECRET: tide-dev-oidc-secret
@@ -143,7 +131,8 @@ services:
       TIDE_S3_BUCKET: tide-recordings
       TIDE_S3_ACCESS_KEY: tide
       TIDE_S3_SECRET_KEY: tide-dev-minio
-      TIDE_RECORDER_TEMPLATE_URL: http://tide:8080/egress-template
+      # The recorder shares tide's network namespace.
+      TIDE_RECORDER_TEMPLATE_URL: http://localhost:8080/egress-template
       # Every browser in the suite shares the runner's single container IP, so
       # the public per-IP defaults (10 joins/min) would throttle the gate.
       TIDE_JOIN_RATE_LIMIT: "10000"
@@ -153,8 +142,6 @@ services:
       # runs them: without transcripts.
       TIDE_TRANSCRIPTS: "false"
     depends_on:
-      livekit:
-        condition: service_healthy
       dex:
         condition: service_healthy
       minio-init:
@@ -183,8 +170,6 @@ services:
     volumes:
       - media-artifacts:/artifacts
     depends_on:
-      livekit:
-        condition: service_healthy
       egress:
         condition: service_healthy
       tide:

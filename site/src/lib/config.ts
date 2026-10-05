@@ -4,10 +4,12 @@
 
 export type EnvVar = {
   name: `TIDE_${string}`;
-  /** The value used when the variable is unset. */
+  /** The value used when the variable is unset, as a literal. */
   default: string;
-  /** Required outside dev mode: tide refuses to start without it. */
-  required?: boolean;
+  /** Said instead of a literal default, in Markdown, when it depends. */
+  defaultText?: string;
+  /** The mode that needs it, as in "with sign-in": outside dev mode, tide then refuses to start without it. */
+  required?: string;
   /** The shortest value tide accepts outside dev mode. */
   minLength?: number;
   description: string;
@@ -24,55 +26,27 @@ export const envGroups: EnvGroup[] = [
         name: 'TIDE_BASE_URL',
         default: 'http://localhost:8080',
         description:
-          'The HTTPS origin people open, scheme and port included. Used for redirects, the sign-in callback and cookies.'
+          'The HTTPS origin people open, scheme and port included. Used for redirects, the sign-in callback, cookies and the signaling address browsers get.'
+      },
+      {
+        name: 'TIDE_SESSION_SECRET',
+        default: '',
+        defaultText: 'generated per start when anonymous',
+        required: 'with sign-in',
+        minLength: 32,
+        description: 'Signs session cookies. Random data.'
       },
       {
         name: 'TIDE_DB_PATH',
         default: './data/tide.db',
         description:
-          'SQLite database. The image sets `/data/tide.db`; mount a durable volume there.'
-      },
-      {
-        name: 'TIDE_SESSION_SECRET',
-        default: '',
-        required: true,
-        minLength: 32,
-        description: 'Signs session cookies. Random data.'
+          'SQLite database, with sign-in. The image sets `/data/tide.db`; mount a durable volume there. Anonymous tide keeps rooms in memory.'
       },
       {
         name: 'TIDE_DEV_MODE',
         default: 'false',
         description:
-          'Accepts the development secrets in the repository and an unauthenticated token route. Never in production.'
-      }
-    ]
-  },
-  {
-    title: 'Media server',
-    vars: [
-      {
-        name: 'TIDE_MEDIA_URL',
-        default: 'ws://localhost:7880',
-        description: 'The media server as tide reaches it, inside the cluster.'
-      },
-      {
-        name: 'TIDE_MEDIA_PUBLIC_URL',
-        default: 'ws://localhost:7880',
-        description: 'The media server as browsers reach it: `wss://MEDIA_HOST`.'
-      },
-      {
-        name: 'TIDE_MEDIA_API_KEY',
-        default: '',
-        required: true,
-        description:
-          'Key ID shared by tide, the media server and the recorder. Letters, digits, `-` and `_`.'
-      },
-      {
-        name: 'TIDE_MEDIA_API_SECRET',
-        default: '',
-        required: true,
-        minLength: 32,
-        description: 'The secret for that key.'
+          'Accepts the development secrets in the repository and an unauthenticated token route. Turns nothing else on. Never in production.'
       }
     ]
   },
@@ -81,14 +55,16 @@ export const envGroups: EnvGroup[] = [
     vars: [
       {
         name: 'TIDE_OIDC_ISSUER',
-        default: 'http://localhost:5556/dex',
-        description: 'Issuer URL, exactly as the issuer’s discovery document states it.'
+        default: '',
+        defaultText: 'none: anonymous',
+        description:
+          'Turns sign-in on. The issuer URL, exactly as its discovery document states it. Without it anyone can create a room, and rooms live in memory.'
       },
       { name: 'TIDE_OIDC_CLIENT_ID', default: 'tide', description: 'Registered client ID.' },
       {
         name: 'TIDE_OIDC_CLIENT_SECRET',
         default: '',
-        required: true,
+        required: 'with sign-in',
         minLength: 16,
         description: 'Registered client secret.'
       },
@@ -107,21 +83,77 @@ export const envGroups: EnvGroup[] = [
     ]
   },
   {
-    title: 'Storage',
+    title: 'Media',
+    vars: [
+      {
+        name: 'TIDE_MEDIA_NODE_IP',
+        default: '',
+        defaultText: '127.0.0.1 on localhost, else discovered',
+        description:
+          'The IPv4 address browsers send audio and video to. Set it when tide is behind a load balancer or NAT, or has no internet access to discover it.'
+      },
+      {
+        name: 'TIDE_MEDIA_UDP_PORT',
+        default: '7882',
+        description: 'Media over UDP, on every interface. Open it publicly.'
+      },
+      {
+        name: 'TIDE_MEDIA_TCP_PORT',
+        default: '7881',
+        description: 'Media for networks that block UDP. Open it publicly.'
+      },
+      {
+        name: 'TIDE_MEDIA_API_KEY',
+        default: '',
+        defaultText: 'generated per start',
+        required: 'with recording',
+        description:
+          'Key ID the media server signs with, shared with the recorder. Letters, digits, `-` and `_`.'
+      },
+      {
+        name: 'TIDE_MEDIA_API_SECRET',
+        default: '',
+        defaultText: 'generated per start',
+        required: 'with recording',
+        minLength: 32,
+        description: 'The secret for that key.'
+      },
+      {
+        name: 'TIDE_MEDIA_URL',
+        default: '',
+        defaultText: 'none: built in',
+        description:
+          'An external media server, as tide reaches it. Only to keep an installation from before tide carried its own; then the key, the secret and `TIDE_MEDIA_PUBLIC_URL` are required.'
+      },
+      {
+        name: 'TIDE_MEDIA_PUBLIC_URL',
+        default: '',
+        defaultText: 'the base URL, as `ws` or `wss`',
+        description:
+          'The signaling address browsers get. Leave it unset unless `TIDE_MEDIA_URL` is set.'
+      }
+    ]
+  },
+  {
+    title: 'Recording',
     vars: [
       {
         name: 'TIDE_S3_ENDPOINT',
-        default: 'http://localhost:9000',
-        description: 'The store as tide reaches it.'
+        default: '',
+        defaultText: 'none: no recording',
+        description:
+          'Turns recording on; needs sign-in and the recorder. The store as tide reaches it.'
       },
       {
         name: 'TIDE_S3_PUBLIC_ENDPOINT',
-        default: 'http://localhost:9000',
+        default: '',
+        defaultText: '`TIDE_S3_ENDPOINT`',
         description: 'The store as browsers reach it. Public HTTPS; download links name this host.'
       },
       {
         name: 'TIDE_S3_RECORDER_ENDPOINT',
-        default: 'http://minio:9000',
+        default: '',
+        defaultText: '`TIDE_S3_ENDPOINT`',
         description: 'The store as the recorder reaches it.'
       },
       {
@@ -130,24 +162,39 @@ export const envGroups: EnvGroup[] = [
         description: 'An existing bucket. Recordings go under `recordings/`.'
       },
       { name: 'TIDE_S3_REGION', default: 'us-east-1', description: 'Signing region.' },
-      { name: 'TIDE_S3_ACCESS_KEY', default: '', required: true, description: 'Access key.' },
+      {
+        name: 'TIDE_S3_ACCESS_KEY',
+        default: '',
+        required: 'with recording',
+        description: 'Access key.'
+      },
       {
         name: 'TIDE_S3_SECRET_KEY',
         default: '',
-        required: true,
+        required: 'with recording',
         minLength: 16,
         description: 'Secret key.'
-      }
-    ]
-  },
-  {
-    title: 'Recording',
-    vars: [
+      },
+      {
+        name: 'TIDE_RECORDER_REDIS_PASSWORD',
+        default: '',
+        required: 'with recording',
+        minLength: 32,
+        description:
+          'Password the recorder uses for tide’s coordination endpoint. Hex keeps it safe in the recorder’s YAML.'
+      },
+      {
+        name: 'TIDE_RECORDER_REDIS_ADDR',
+        default: '127.0.0.1:6379',
+        description:
+          'Where tide serves that endpoint. Run the recorder in tide’s network and leave it alone; recording jobs carry the bucket’s credentials.'
+      },
       {
         name: 'TIDE_RECORDER_TEMPLATE_URL',
-        default: 'TIDE_BASE_URL + /egress-template',
+        default: '',
+        defaultText: '`TIDE_BASE_URL` + `/egress-template`',
         description:
-          'The page the recorder loads to draw a meeting. In Kubernetes: `http://tide:8080/egress-template`.'
+          'The page the recorder loads to draw a meeting. With the recorder in tide’s network: `http://127.0.0.1:8080/egress-template`.'
       }
     ]
   },
@@ -158,12 +205,13 @@ export const envGroups: EnvGroup[] = [
         name: 'TIDE_TRUSTED_PROXIES',
         default: '',
         description:
-          'Comma-separated IPs or CIDRs whose `X-Forwarded-For` tide believes. Only your ingress. An invalid entry stops startup.'
+          'Comma-separated IPs or CIDRs whose `X-Forwarded-For` tide believes. Only your proxy or ingress. An invalid entry stops startup.'
       },
       {
         name: 'TIDE_JOIN_RATE_LIMIT',
         default: '10',
-        description: 'Joins per client per minute. Also bounds room lookups.'
+        description:
+          'Joins per client per minute. Also bounds room lookups and, when anonymous, room creation.'
       },
       {
         name: 'TIDE_WAIT_RATE_LIMIT',
@@ -173,7 +221,7 @@ export const envGroups: EnvGroup[] = [
       {
         name: 'TIDE_LOGIN_RATE_LIMIT',
         default: '10',
-        description: 'Sign-in redirects per client per minute.'
+        description: 'Sign-ins per client per minute, anonymous ones included.'
       },
       {
         name: 'TIDE_PAIR_RATE_LIMIT',
@@ -188,7 +236,8 @@ export const envGroups: EnvGroup[] = [
       {
         name: 'TIDE_TRANSCRIPTS',
         default: 'false',
-        description: 'Turns on [transcripts](/docs/transcripts) and machine pairing.'
+        description:
+          'Turns on [transcripts](/docs/transcripts) and machine pairing. Needs recording.'
       }
     ]
   }
@@ -202,9 +251,10 @@ export function configurationMarkdown(): string {
   const sections = envGroups.map((group) => {
     const rows = group.vars.map((v) => {
       const rule = v.required
-        ? `**Required**${v.minLength ? `, ${v.minLength}+ characters` : ''}. `
+        ? `**Required ${v.required}**${v.minLength ? `, ${v.minLength}+ characters` : ''}. `
         : '';
-      const fallback = v.required ? '—' : v.default ? `\`${v.default}\`` : 'empty';
+      const fallback =
+        v.defaultText ?? (v.default ? `\`${v.default}\`` : v.required ? '—' : 'empty');
       return `| \`${v.name}\` | ${fallback} | ${cell(rule + v.description)} |`;
     });
     return [
@@ -218,7 +268,7 @@ export function configurationMarkdown(): string {
   return [
     '# Configuration',
     '',
-    'tide reads only environment variables. Outside development it refuses to start while a required variable is missing, too short, or a value from the repository’s development setup.',
+    'tide reads only environment variables, and every one is optional: with none set it is an anonymous meeting server on `http://localhost:8080`. `TIDE_OIDC_ISSUER` turns sign-in on, and `TIDE_S3_ENDPOINT` recording. Outside development, tide refuses to start while a variable the mode needs is missing, too short, or a value from the repository’s development setup, and it logs its mode in one line at startup.',
     '',
     ...sections.flatMap((section) => [section, ''])
   ].join('\n');

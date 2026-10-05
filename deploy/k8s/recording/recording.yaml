@@ -1,0 +1,146 @@
+# Turns recording on for the tide Deployment in ../tide.yaml: tide gets the
+# object store and the fixed media key, secret and Redis password the recorder
+# shares, and the recorder runs beside it in the same pod. Sharing the network
+# namespace is what keeps this simple: the recorder signals at 127.0.0.1:7880
+# (the media server itself), coordinates over tide's Redis endpoint on
+# 127.0.0.1:6379, which tide serves only on loopback, and loads the layout
+# page from localhost:8080.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tide
+spec:
+  template:
+    spec:
+      containers:
+        - name: tide
+          env:
+            - name: TIDE_MEDIA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: media-secrets
+                  key: api-key
+            - name: TIDE_MEDIA_API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: media-secrets
+                  key: api-secret
+            - name: TIDE_RECORDER_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: media-secrets
+                  key: recorder-redis-password
+            - name: TIDE_S3_ENDPOINT
+              value: http://s3.storage.svc.cluster.local:9000 # OVERLAY: Set the tide-server view of S3.
+            - name: TIDE_S3_PUBLIC_ENDPOINT
+              value: https://recordings.example.com # OVERLAY: Set the browser-reachable S3 origin used in presigned URLs.
+            - name: TIDE_S3_RECORDER_ENDPOINT
+              value: http://s3.storage.svc.cluster.local:9000 # OVERLAY: Set the recorder view of S3.
+            - name: TIDE_S3_BUCKET
+              value: tide-recordings # OVERLAY: Set the existing recording bucket.
+            - name: TIDE_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secrets
+                  key: access-key
+            - name: TIDE_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: s3-secrets
+                  key: secret-key
+            - name: TIDE_S3_REGION
+              value: us-east-1 # OVERLAY: Set the S3 signing region.
+            - name: TIDE_RECORDER_TEMPLATE_URL
+              value: http://localhost:8080/egress-template
+        - name: recorder
+          image: livekit/egress:v1.13.0 # OVERLAY: Pin a release tested with tide's media server.
+          imagePullPolicy: IfNotPresent
+          # The recorder checks the Redis endpoint once at startup and exits
+          # without it, so it waits for tide's /healthz, which tide serves only
+          # once its media server and Redis endpoint are up.
+          command:
+            - /bin/sh
+            - -c
+            - >-
+              until wget -q -O /dev/null http://127.0.0.1:8080/healthz; do sleep 1; done;
+              exec /entrypoint.sh
+          env:
+            - name: LIVEKIT_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: media-secrets
+                  key: api-key
+            - name: LIVEKIT_API_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: media-secrets
+                  key: api-secret
+            - name: RECORDER_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: media-secrets
+                  key: recorder-redis-password
+            # Kubernetes expands $(RECORDER_REDIS_PASSWORD) when it starts the
+            # container, so the password never appears in the spec. tide sends
+            # each recording's S3 destination and credentials with the job, so
+            # the recorder needs no storage settings of its own.
+            - name: EGRESS_CONFIG_BODY
+              value: |
+                ws_url: ws://127.0.0.1:7880
+                redis:
+                  address: 127.0.0.1:6379
+                  password: "$(RECORDER_REDIS_PASSWORD)"
+                health_port: 8081
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["SYS_ADMIN"]
+            seccompProfile:
+              type: Unconfined
+          ports:
+            - name: recorder-health
+              containerPort: 8081
+              protocol: TCP
+          resources:
+            requests:
+              cpu: "2"
+              memory: 2Gi
+            limits:
+              cpu: "4"
+              memory: 4Gi
+          # No readiness probe: the pod's readiness is tide's alone, so a busy
+          # or restarting recorder never takes meetings out of service.
+          startupProbe:
+            httpGet:
+              path: /
+              port: recorder-health
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /
+              port: recorder-health
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 4
+          volumeMounts:
+            - name: recorder-shm
+              mountPath: /dev/shm
+            - name: recorder-staging
+              mountPath: /recordings
+            - name: recorder-tmp
+              mountPath: /home/egress/tmp
+      volumes:
+        - name: recorder-shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Gi
+        - name: recorder-staging
+          emptyDir: {}
+        - name: recorder-tmp
+          emptyDir: {}

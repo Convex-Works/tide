@@ -1,14 +1,25 @@
 .PHONY: dev gen server-check web-check typesync check media media-dev moil-e2e build clean
 
+# The signed-in deployment with recording, against the Compose stack: Dex for
+# sign-in, MinIO for storage, the recorder in Docker. tide (with its media
+# server) and Vite run on the host. The anonymous mode needs none of this:
+# `make build && ./bin/tide`.
 dev:
-	# LiveKit must advertise an address reachable by host browsers AND the
-	# egress container; use the LAN IP (falls back to loopback, host-only).
+	# tide's media server must advertise an address reachable by host browsers
+	# AND the recorder container; use the LAN IP (falls back to loopback:
+	# host-only, and recordings can't connect).
 	@ip=$$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo 127.0.0.1); \
-		echo "TIDE_NODE_IP=$$ip" > deploy/.env
+		echo "TIDE_MEDIA_NODE_IP=$$ip" > deploy/.env
 	docker compose -f deploy/compose.yaml up -d
 	@set -e; \
+		set -a; . deploy/.env; set +a; \
 		if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
 		(cd server && TIDE_DEV_MODE=true TIDE_BASE_URL=http://localhost:5173 \
+			TIDE_OIDC_ISSUER=http://localhost:5556/dex \
+			TIDE_S3_ENDPOINT=http://localhost:9000 \
+			TIDE_S3_PUBLIC_ENDPOINT=http://localhost:9000 \
+			TIDE_S3_RECORDER_ENDPOINT=http://minio:9000 \
+			TIDE_RECORDER_REDIS_ADDR=:6379 \
 			TIDE_TRANSCRIPTS=$${TIDE_TRANSCRIPTS:-true} \
 			TIDE_RECORDER_TEMPLATE_URL=http://host.docker.internal:5173/egress-template \
 			go run ./cmd/tide) & go_pid=$$!; \

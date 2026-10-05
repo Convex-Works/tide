@@ -12,8 +12,8 @@ run_identity="${CI_RUN_ID:-local}-${CI_JOB_ID:-media}-$$"
 project_name="$(printf '%s' "tide-media-${run_identity}" | tr '[:upper:]_' '[:lower:]-' | tr -cd 'a-z0-9-')"
 project_name="$(printf '%.55s' "${project_name}")"
 
-# The stack pins container addresses so LiveKit can advertise a reachable
-# node-ip, which means it needs a /24 to itself. A fixed one collides whenever
+# The stack pins container addresses so tide's media server can advertise a
+# reachable node IP, which means it needs a /24 to itself. A fixed one collides whenever
 # two gate runs overlap on a runner — and every pull request produces two, one
 # for the push event and one for the pull_request event.
 #
@@ -52,7 +52,7 @@ cleanup() {
   if [ -n "${runner_id}" ]; then
     docker cp "${runner_id}:/artifacts/." "${artifact_dir}/" 2>/dev/null || true
   fi
-  compose logs --no-color livekit tide >"${artifact_dir}/stack.log" 2>&1 || true
+  compose logs --no-color tide egress >"${artifact_dir}/stack.log" 2>&1 || true
   # --rmi local: the per-run project name means every run builds a uniquely
   # named image set, so images `down` leaves behind are garbage no later run
   # can reuse. Run 339 found the end of that road: the runner disk filled,
