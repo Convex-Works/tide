@@ -15,7 +15,8 @@ Everything else is out of scope by design. Feature restraint is the product.
   itself (§2.1), so a deployment without recording is that one process and
   nothing else. Recording adds exactly one more, the recorder (headless Chrome
   and GStreamer, which can't live in a Go binary), plus the object storage it
-  writes to. No Node runtime and no Redis process.
+  writes to, and the Redis the two coordinate over. No Node runtime, and no
+  Redis unless you record.
 - **The media plane is not ours.** LiveKit owns WebRTC, simulcast, reconnection,
   and recording capture. It runs inside the tide binary as a library, but tide
   only configures it and talks to it through the server SDK, as it would to an
@@ -45,20 +46,21 @@ Everything else is out of scope by design. Feature restraint is the product.
                                                                  │  │ media server (LiveKit, │  │
                                                                  │  │ in-process, loopback   │  │
                                                                  │  │ API on 127.0.0.1:7880) │  │
-                                                                 │  └────────────────────────┘  │
-                                                                 │  ┌────────────────────────┐  │
-                                    only with recording ───────► │  │ Redis endpoint (6379,  │  │
-                                                                 │  │ in memory, password)   │  │
-                                                                 │  └────────────────────────┘  │
-                                                                 └───────▲──────────┬───────────┘
-                                                    signaling via /rtc,  │          │ presigned URLs,
-                                                    jobs via Redis,      │          │ object management
-                                                    media via 7881/7882  │          ▼
-                                                                 ┌───────┴──────┐  ┌────────┐
-                                                                 │  Recorder    │─►│  S3 /  │
-                                                                 │  (Egress:    │  │ MinIO  │
-                                                                 │  Chrome+GST) │  └───▲────┘
-                                                                 └──────────────┘      │
+                                                                 │  └───────────┬────────────┘  │
+                                                                 └───────▲──────┼─────┬─────────┘
+                                                 signaling via /rtc,     │      │     │ presigned URLs,
+                                                 media via 7881/7882     │      │     │ object management
+                 only with recording ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄│┄┄┄┄┄┄│┄┄┄┄┄│┄┄┄┄┄┄┄┄┄
+                                                                 ┌───────┴────┐ │     ▼
+                                                                 │ Recorder   │ │  ┌────────┐
+                                                                 │ (Egress:   │─┼─►│ S3 /   │
+                                                                 │ Chrome+GST)│ │  │ MinIO  │
+                                                                 └───────┬────┘ │  └───▲────┘
+                                                                         ▼      ▼      │
+                                                                 ┌──────────────────┐  │
+                                                                 │ Redis: jobs and  │  │
+                                                                 │ the signal relay │  │
+                                                                 └──────────────────┘  │
 ┌──────────────────────┐   WebSocket /moil/v1/connect  (opened by the machine)         │
 │  Owner's machine     │──────────────────────────────► tide                           │
 │  moil app + uv       │◄───── recording GET, transcript PUT (presigned) ──────────────┘
@@ -67,10 +69,10 @@ Everything else is out of scope by design. Feature restraint is the product.
 
 | Component | What it is | What it owns |
 |---|---|---|
-| **tide** | Single Go binary: the SPA via `embed.FS`, LiveKit's SFU and a Redis-protocol endpoint as libraries | Auth, sessions, rooms, tokens, lobby, moderation API, recording lifecycle + management, webhooks, the moil service side (pairing, transcript jobs), and every media session |
+| **tide** | Single Go binary: the SPA via `embed.FS` and LiveKit's SFU as a library | Auth, sessions, rooms, tokens, lobby, moderation API, recording lifecycle + management, webhooks, the moil service side (pairing, transcript jobs), and every media session |
 | **Media server** | LiveKit's server (Apache 2.0) running inside tide (§2.1) | All media: SFU, simulcast, adaptive streaming, ICE, reconnection/resume |
 | **Recorder** *(recording only)* | LiveKit's Egress worker, a separate process (headless Chrome + GStreamer) | Renders our composite layout page, encodes OGG audio or MP4 video, writes directly to S3 |
-| **Redis endpoint** *(recording only)* | miniredis inside tide (§2.1), in memory | The job bus between the media server and the recorder |
+| **Redis** *(recording only)* | Redis 7, beside the recorder (§2.1), nothing durable in it | The job bus between the media server and the recorder, which also carries the media server's signal relay once configured |
 | **MinIO (dev) / S3 (prod)** *(recording only)* | Object storage | Recording files |
 | **Dex (dev only)** | OIDC identity provider | Host login in the dev stack; any OIDC provider in prod; none in anonymous mode |
 | **Paired machines (optional)** | Hosts' own computers running the [moil](https://git.convex.works/ConvexWorks/moil) app | Transcribing their owner's recordings; not part of the deployment |
@@ -84,8 +86,8 @@ could contradict it:
 |---|---|---|
 | no `TIDE_OIDC_ISSUER` | **Anonymous**: anyone creates rooms, rooms live in memory, no recording (§4.1) | tide |
 | `TIDE_OIDC_ISSUER` | **Signed-in**: hosts sign in, rooms persist in SQLite, no recording | tide |
-| `TIDE_OIDC_ISSUER` + `TIDE_S3_ENDPOINT` | **Signed-in with recording** (§8) | tide + recorder |
-| … + `TIDE_TRANSCRIPTS=true` | **… with transcripts** on owners' machines (§8.1) | tide + recorder |
+| `TIDE_OIDC_ISSUER` + `TIDE_S3_ENDPOINT` | **Signed-in with recording** (§8) | tide + recorder + Redis |
+| … + `TIDE_TRANSCRIPTS=true` | **… with transcripts** on owners' machines (§8.1) | tide + recorder + Redis |
 
 tide refuses to start rather than guess: S3 without sign-in, transcripts
 without recording, or a recorder that would lack fixed keys or a Redis
@@ -120,12 +122,15 @@ not a YAML file:
   recording on they must be configured, because the recorder joins rooms with
   them.
 - **State**: with no recorder the media server keeps its state in memory and
-  needs no Redis. With recording on, tide also serves a **Redis-protocol
-  endpoint** (miniredis, in memory) on `TIDE_RECORDER_REDIS_ADDR`, which both
-  the media server and the recorder use as their job bus. Every connection
-  must `AUTH` with `TIDE_RECORDER_REDIS_PASSWORD`. miniredis doesn't expire
-  keys on its own (it was made for tests), so tide advances its clock every
-  second; the bus's locks and node records then expire as Redis's would.
+  needs no Redis. The recorder only speaks Redis, so with recording on the
+  media server and the recorder share a **Redis** at
+  `TIDE_RECORDER_REDIS_ADDR` (default `127.0.0.1:6379`: a Redis in tide's
+  network namespace, beside the recorder), with `requirepass` set to
+  `TIDE_RECORDER_REDIS_PASSWORD`. Once the media server uses Redis its signal
+  relay goes over it too, so that Redis is in the path of every meeting's
+  signaling, though it holds nothing durable: tide waits up to 30 seconds for
+  it at startup, then refuses to start naming the address, and a Redis
+  restart interrupts joins briefly while the clients reconnect to it.
 
 The cost of one process: **restarting tide restarts the media server.**
 Stopping tide stops it, which tells every participant the server is shutting
@@ -140,17 +145,17 @@ Single-instance by design for v1: SQLite for durable state (in memory in
 anonymous mode), in-memory for ephemeral state (lobby). Nothing in the design
 blocks moving to Postgres + multi-replica later; nothing pays that cost now.
 
-The server starts in order: it binds tide's listener, starts the Redis
-endpoint (recording only), then the media server (its webhooks need the
-listener's port), and serves only once both are up; any of them failing to
-start stops tide with that error.
+The server starts in order: it binds tide's listener, waits for Redis
+(recording only), then starts the media server (its webhooks need the
+listener's port), and serves only once it is up; either failing stops tide
+with that error.
 
 The server stops in order on SIGTERM or SIGINT (`httpapi.Serve`, then
 `main`): it stops taking connections and gives requests in flight 10 seconds,
 ending lobby streams at once; then it disconnects the machines, ending their
 jobs without touching the jobs' rows; then it waits for the reconcilers and
-job followers; then it stops the media server, which ends every room, and the
-Redis endpoint; and only then closes the database. A second signal stops it at
+job followers; then it stops the media server, which ends every room; and
+only then closes the database. A second signal stops it at
 once.
 
 ## 3. Repository layout
@@ -166,8 +171,8 @@ tide/
       rooms/               room CRUD, slugs
       lobby/               in-memory lobby registry
       livekit/             token minting, server SDK calls, webhook verify
-      media/               the embedded media server, its /rtc forwarding,
-                           and the recorder's Redis endpoint (§2.1)
+      media/               the embedded media server and its /rtc
+                           forwarding (§2.1)
       recording/           egress control, recording state machine
       machines/            pairing and managing hosts' moil machines
       transcripts/         transcript jobs, reconciler; bundle/ is the
@@ -819,7 +824,8 @@ whole:
   characters are required. With the media server embedded, recording also
   requires `TIDE_MEDIA_API_KEY`, `TIDE_MEDIA_API_SECRET` (at least 32
   characters) and `TIDE_RECORDER_REDIS_PASSWORD` (at least 32), which the
-  recorder is configured with too.
+  recorder is configured with too, and `TIDE_RECORDER_REDIS_ADDR` names the
+  Redis they share (`host:port`, a name or an address).
 - **Transcripts**: `TIDE_TRANSCRIPTS=true` needs recording.
 - **Media server**: embedded unless `TIDE_MEDIA_URL` is non-empty. Embedded,
   the token's `ws_url` is the base URL's origin with `ws`/`wss` (so
@@ -864,22 +870,19 @@ Per-variable reference, defaults, and production rules: `docs/DEPLOYMENT.md`.
 ## 13. Development environment
 
 `deploy/compose.yaml` runs what tide doesn't contain; tide itself, with its
-media server and Redis endpoint, runs on the host for fast iteration:
+media server, runs on the host for fast iteration:
 
 | Service | Port(s) |
 |---|---|
-| egress (the recorder) | — (worker; reaches tide at `host.docker.internal`, needs minio) |
+| redis | 127.0.0.1:6379 (for tide on the host; the recorder uses `redis:6379`) |
+| egress (the recorder) | — (worker; reaches tide at `host.docker.internal`, needs redis + minio) |
 | minio | 9000 (S3), 9001 (console) |
 | dex | 5556 (issuer), static test users (`host@tide.dev`) |
 
 tide on the host listens on 8080 (HTTP and `/rtc` signaling), 7881/tcp and
-7882/udp (media), 127.0.0.1:7880 (its media server's API) and 127.0.0.1:6379
-(the recorder's Redis endpoint). Docker Desktop routes `host.docker.internal`
-to the host's loopback, so the recorder reaches it without tide listening on
-the LAN; Docker on Linux doesn't, and there `TIDE_RECORDER_REDIS_ADDR` must
-name the host-gateway address `host.docker.internal` resolves to (usually
-`docker0`'s 172.17.0.1) (and `make dev`'s LAN detection, which uses
-macOS's `ipconfig`, needs `TIDE_MEDIA_NODE_IP` set by hand).
+7882/udp (media) and 127.0.0.1:7880 (its media server's API). `make dev`'s
+LAN detection uses macOS's `ipconfig`; on Linux `TIDE_MEDIA_NODE_IP` is set
+by hand.
 
 `Makefile` targets: `dev` (compose up + Go server + Vite, concurrently),
 `gen` (tygo), `check` (vet + go test + svelte-check + Prettier + type drift),
@@ -892,9 +895,8 @@ needs none of the stack: `make build && ./bin/tide`.
 in `deploy/.env`, which it also loads into tide's environment. The media server
 advertises that address, which both host browsers and the recorder's headless
 browser in Docker can reach; the recorder reaches signaling at
-`ws://host.docker.internal:8080` and the Redis endpoint at
-`host.docker.internal:6379`, and stages recordings under `/recordings` on a
-tmpfs before upload. Vite proxies `/api`, `/moil` and `/rtc` (WebSockets
+`ws://host.docker.internal:8080` and Redis at `redis:6379`, and stages
+recordings under `/recordings` on a tmpfs before upload. Vite proxies `/api`, `/moil` and `/rtc` (WebSockets
 included) to the Go server, so the SPA on 5173 signals through its own
 origin as it does in production.
 
@@ -909,17 +911,16 @@ S3 has three deliberate views in development:
 ### Media gate stack
 
 `deploy/media-test/compose.yaml` is a second, sealed stack used only by the
-media suite: dex, minio, egress, tide and a Playwright `runner`, on a private
-`10.253.0.0/24` with **no published host ports**. tide runs its media server
-embedded, as production does, advertising its own address on that network;
-the recorder shares tide's network namespace, so it signals at
-`ws://127.0.0.1:7880` (the media server itself), uses the Redis endpoint at
-`127.0.0.1:6379` (both listen on IPv4 loopback only, and `localhost` may
-resolve to `::1` first), loads the layout from `http://localhost:8080`, and
-gets the same media candidates as the browsers. It waits for tide's
-`/healthz`, which answers only once the media server and the Redis endpoint
-are up, because the recorder checks Redis once at startup and exits without
-it. The browser under test runs inside
+media suite: dex, minio, redis, egress, tide and a Playwright `runner`, on a
+private `10.253.0.0/24` with **no published host ports**. tide runs its media
+server embedded, as production does, advertising its own address on that
+network, and reaches Redis at `redis:6379`; the recorder shares tide's
+network namespace, so it signals at `ws://127.0.0.1:7880` (the media server
+itself; it listens on IPv4 loopback only, and `localhost` may resolve to
+`::1` first), uses the same `redis:6379`, loads the layout from
+`http://localhost:8080`, and gets the same media candidates as the browsers.
+It waits for tide's `/healthz`, which answers only once the media server is
+up. The browser under test runs inside
 `runner`, so services are reachable only by compose DNS name. Configuration is
 baked into images (`*.Dockerfile`) rather than bind-mounted, because CI drives
 compose from inside a container where host bind mounts do not resolve on the
@@ -1014,13 +1015,13 @@ up between runs for iteration.
   tide.
 - Anonymous rooms are capped at 10,000 in memory (§4.1), and anonymous and
   signed-in sessions are signed with different keys (§4.1).
-- The recorder's Redis endpoint carries recording jobs, and a recording job
-  carries the S3 credentials the recorder uploads with. Every connection must
-  `AUTH` with a password of at least 32 characters, and it listens on
-  `127.0.0.1:6379` unless `TIDE_RECORDER_REDIS_ADDR` says otherwise: the
-  reference deployments run the recorder in tide's network namespace (a
-  Compose `network_mode`, a Kubernetes sidecar). An operator who widens the
-  address keeps it off public networks.
+- The recorder's Redis carries recording jobs, and a recording job carries
+  the S3 credentials the recorder uploads with, as well as the media server's
+  signal relay. It requires a password of at least 32 characters
+  (`requirepass`), and the reference deployments keep it off every network:
+  in Kubernetes it runs in tide's pod bound to 127.0.0.1, in Compose on the
+  project's private network with no published port. It is a separate,
+  ordinary Redis, so nothing a client sends it can take tide down.
 - With no recorder, the media server's API key and secret are generated per
   start and never leave the process.
 - A default room slug carries ~47 bits from `crypto/rand` (§5). With
@@ -1104,14 +1105,14 @@ a clean machine.
 1-4 acceptance list from scratch.*
 
 **Phase 6 — One binary.**
-The media server and the recorder's Redis endpoint inside tide (§2.1),
-anonymous mode (§4.1), recording on only when configured (§8), `/rtc`
-signaling on tide's origin, the dev, gate and Kubernetes stacks without
-LiveKit or Redis processes.
+The media server inside tide (§2.1), anonymous mode (§4.1), recording on
+only when configured (§8), `/rtc` signaling on tide's origin, Redis only
+beside the recorder, the dev, gate and Kubernetes stacks without a LiveKit
+process.
 *AC: `./bin/tide` with an empty environment serves a meeting two browsers on
 the machine can hold, creator as host and the other through the lobby, with
 no other process running; the media gate, recording included, passes with
-the recorder as the only other media process; a signed-in deployment without
+the recorder and its Redis as the only other processes; a signed-in deployment without
 S3 hides every recording control; `TIDE_MEDIA_URL` still drives an external
 media server.*
 
@@ -1136,7 +1137,7 @@ media server.*
 | moil SDK | Vendored in `server/third_party/moil` | The forge sits behind Cloudflare Access, so Go can't fetch it in CI or Docker; same precedent as `web/vendor` |
 | Media server process | LiveKit's server as a library inside tide; external one still possible via `TIDE_MEDIA_URL` | One executable to deploy; the price is that a tide restart ends live meetings (§2.1) |
 | Signaling origin | tide forwards `/rtc` to the embedded server | One origin, one certificate, one ingress route |
-| Redis | None without a recorder; miniredis inside tide with one | LiveKit needs Redis only to reach the recorder, which only speaks Redis; miniredis is pure Go and speaks the protocol, where Go KV stores (Badger, bbolt) don't |
+| Redis | None without a recorder; an ordinary Redis 7 beside the recorder with one | LiveKit needs Redis only to reach the recorder, which only speaks Redis. miniredis inside tide was tried and measured: fast enough (≈1,600 commands/s, sub-millisecond publishes), but one subscriber that stopped reading froze its single lock, and every meeting's signal relay with it, and it trusted request sizes before AUTH; a bug in it would take every meeting down. Valkey works too (same protocol); Redis matches what production already runs |
 | Sign-in | Optional: no issuer means anonymous mode | Running a meeting server shouldn't require an identity provider; ownership stays a server-checked `sub` either way |
 | Anonymous rooms | In memory, gone 24 hours after last use or at restart | No persistence to operate; links still work for later the same day |
 | Recording switch | On when sign-in and `TIDE_S3_ENDPOINT` are set | Recording costs a second process and storage; a deployment that doesn't want it shouldn't run either |
