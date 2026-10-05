@@ -1,7 +1,7 @@
 // Package media runs the media server inside tide (ARCHITECTURE.md §2.1):
-// LiveKit's SFU as a library, started from Options rather than a YAML file,
-// and, when recording is on, the Redis-protocol endpoint the recorder and the
-// SFU coordinate over.
+// LiveKit's SFU as a library, started from Options rather than a YAML file.
+// With recording on it shares a Redis, which tide doesn't run, with the
+// recorder; without, it keeps its state in memory.
 //
 // tide talks to the embedded server exactly as it talks to an external one:
 // through the server SDK at URL(), with the same API key and secret, and
@@ -59,10 +59,12 @@ type Options struct {
 	// http://127.0.0.1:8080/api/webhooks/media.
 	WebhookURL string
 
-	// Bus is the Redis-protocol endpoint the SFU coordinates over. Nil means
-	// single-node, in-memory state, which is right whenever there is no
-	// recorder.
-	Bus *Bus
+	// RedisAddr (host:port) and RedisPassword name the Redis the SFU shares
+	// with the recorder, which only speaks Redis; once the SFU uses it, its
+	// signal relay goes over it too. An empty RedisAddr means single-node,
+	// in-memory state, which is right whenever there is no recorder.
+	RedisAddr     string
+	RedisPassword string
 
 	// Dev gives the SFU info logs and a 5 s departure timeout, as the media
 	// gate needs; otherwise it logs warnings and keeps LiveKit's 20 s. The
@@ -166,8 +168,8 @@ var apiPortFree = func(port int) error {
 // started server stops.
 //
 // It can't stop the rest. Before it listens, LiveKit's Start registers the
-// node and starts its router (with a bus: a keepalive published every 2 s)
-// and its IO service (psrpc handlers on the bus); it stops them only in a
+// node and starts its router (with Redis: a keepalive published every 2 s)
+// and its IO service (psrpc handlers on Redis); it stops them only in a
 // Stop that follows a successful start, and keeps them in private fields.
 // apiPortFree leaves only a port taken between that check and LiveKit's own
 // listen, and tide exits after a failed start, so they end with the process;

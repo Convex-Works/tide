@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -14,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	lksdk "github.com/livekit/server-sdk-go/v2"
 	"github.com/pion/webrtc/v4"
 	pionmedia "github.com/pion/webrtc/v4/pkg/media"
@@ -152,33 +154,58 @@ func TestASignalWhileTheMediaServerStartsStopsTide(t *testing.T) {
 	k.waitForLog("tide: stopped while starting")
 }
 
-// The embedded mode stops in order and lets go of everything: with
-// recording on, a SIGTERM stops tide cleanly within its grace, and the
-// media ports, the media server's API port and the recorder's Redis
-// endpoint are all free again.
-func TestEmbeddedTideReleasesItsPortsWhenItStops(t *testing.T) {
-	tcp, udp := freePorts(t, 4)
-	k := startMainWith(t,
-		"TIDE_OIDC_ISSUER=http://127.0.0.1:1/dex", "TIDE_OIDC_CLIENT_SECRET="+strings.Repeat("o", 20),
-		"TIDE_SESSION_SECRET="+testSessionSecret, "TIDE_DB_PATH="+filepath.Join(t.TempDir(), "tide.db"),
+// testRedisPassword is the requirepass of the test processes' Redis.
+var testRedisPassword = strings.Repeat("r", 40)
+
+// startTestRedis starts a stand-in, in the test process, for the Redis a
+// recording deployment runs beside the recorder, on addr ("127.0.0.1:0" for
+// any port). miniredis was made for tests; tide itself never runs it.
+func startTestRedis(t *testing.T, addr string) *miniredis.Miniredis {
+	t.Helper()
+	kv := miniredis.NewMiniRedis()
+	kv.RequireAuth(testRedisPassword)
+	if err := kv.StartAddr(addr); err != nil {
+		t.Fatalf("start the test Redis on %s: %v", addr, err)
+	}
+	t.Cleanup(kv.Close)
+	return kv
+}
+
+// recordingEnv is a signed-in tide with recording on and its media server
+// embedded on the given ports (API, TCP media; UDP media), sharing the Redis
+// at redisAddr.
+func recordingEnv(t *testing.T, redisAddr string, apiPort, tcpPort, udpPort int) []string {
+	return []string{
+		"TIDE_OIDC_ISSUER=http://127.0.0.1:1/dex", "TIDE_OIDC_CLIENT_SECRET=" + strings.Repeat("o", 20),
+		"TIDE_SESSION_SECRET=" + testSessionSecret, "TIDE_DB_PATH=" + filepath.Join(t.TempDir(), "tide.db"),
 		"TIDE_S3_ENDPOINT=http://127.0.0.1:1", "TIDE_S3_ACCESS_KEY=test-access",
-		"TIDE_S3_SECRET_KEY="+strings.Repeat("k", 20),
-		"TIDE_MEDIA_API_KEY=test-key", "TIDE_MEDIA_API_SECRET="+strings.Repeat("m", 40),
-		"TIDE_RECORDER_REDIS_PASSWORD="+strings.Repeat("r", 40),
-		fmt.Sprintf("TIDE_RECORDER_REDIS_ADDR=127.0.0.1:%d", tcp[0]),
-		fmt.Sprintf("TIDE_MEDIA_API_PORT=%d", tcp[1]),
-		fmt.Sprintf("TIDE_MEDIA_TCP_PORT=%d", tcp[2]),
-		fmt.Sprintf("TIDE_MEDIA_UDP_PORT=%d", udp[0]))
+		"TIDE_S3_SECRET_KEY=" + strings.Repeat("k", 20),
+		"TIDE_MEDIA_API_KEY=test-key", "TIDE_MEDIA_API_SECRET=" + strings.Repeat("m", 40),
+		"TIDE_RECORDER_REDIS_PASSWORD=" + testRedisPassword,
+		"TIDE_RECORDER_REDIS_ADDR=" + redisAddr,
+		fmt.Sprintf("TIDE_MEDIA_API_PORT=%d", apiPort),
+		fmt.Sprintf("TIDE_MEDIA_TCP_PORT=%d", tcpPort),
+		fmt.Sprintf("TIDE_MEDIA_UDP_PORT=%d", udpPort),
+	}
+}
+
+// The embedded mode with recording keeps its media server's state in the
+// Redis beside the recorder, stops in order, and lets go of everything: a
+// SIGTERM stops tide cleanly within its grace, and the media ports and the
+// media server's API port are free again.
+func TestEmbeddedTideReleasesItsPortsWhenItStops(t *testing.T) {
+	kv := startTestRedis(t, "127.0.0.1:0")
+	tcp, udp := freePorts(t, 2)
+	k := startMainWith(t, recordingEnv(t, kv.Addr(), tcp[0], tcp[1], udp[0])...)
 	if !k.logged("media server embedded") || !k.logged("recording on") {
 		t.Fatalf("tide didn't start signed in with recording and its media server embedded: %q", k.history)
 	}
-	// While tide runs, they are taken.
-	if l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", tcp[0])); err == nil {
-		_ = l.Close()
-		t.Fatal("the recorder's Redis endpoint isn't listening")
+	// The media server registered itself where the recorder looks for it.
+	if !slices.Contains(kv.Keys(), "nodes") {
+		t.Fatalf("the media server keeps nothing in Redis; keys: %v", kv.Keys())
 	}
 	k.stop()
-	for _, port := range tcp[:3] {
+	for _, port := range tcp {
 		l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
 		if err != nil {
 			t.Fatalf("TCP port %d is still taken after tide stopped: %v", port, err)
@@ -190,6 +217,64 @@ func TestEmbeddedTideReleasesItsPortsWhenItStops(t *testing.T) {
 		t.Fatalf("UDP port %d is still taken after tide stopped: %v", udp[0], err)
 	}
 	_ = c.Close()
+}
+
+// Beside the recorder, Redis may come up a moment after tide: tide waits for
+// it, then serves.
+func TestTideWaitsForALateRedis(t *testing.T) {
+	tcp, udp := freePorts(t, 3)
+	redisAddr := fmt.Sprintf("127.0.0.1:%d", tcp[2])
+	late := make(chan *miniredis.Miniredis, 1)
+	go func() {
+		time.Sleep(2 * time.Second)
+		kv := miniredis.NewMiniRedis()
+		kv.RequireAuth(testRedisPassword)
+		if err := kv.StartAddr(redisAddr); err != nil {
+			t.Errorf("start the late Redis: %v", err)
+		}
+		late <- kv
+	}()
+	t.Cleanup(func() { (<-late).Close() })
+	k := startMainWith(t, append(recordingEnv(t, redisAddr, tcp[0], tcp[1], udp[0]), "TIDE_TEST_REDIS_WAIT=20s")...)
+	if !k.logged("waiting up to 20s for Redis at " + redisAddr) {
+		t.Fatalf("tide didn't say it waited for Redis; it logged %q", k.history)
+	}
+	k.stop()
+}
+
+// A Redis that never answers stops tide from starting, and the error says
+// which setting to look at.
+func TestTideRefusesARedisThatNeverAnswers(t *testing.T) {
+	tcp, udp := freePorts(t, 3)
+	redisAddr := fmt.Sprintf("127.0.0.1:%d", tcp[2]) // nothing listens there
+	k := launchMain(t, append(recordingEnv(t, redisAddr, tcp[0], tcp[1], udp[0]), "TIDE_TEST_REDIS_WAIT=2s")...)
+	if state := k.wait(15 * time.Second); state.Success() {
+		t.Fatal("tide exited 0 without a Redis")
+	}
+	k.drainLogs()
+	if !k.logged("Redis at " + redisAddr + " (TIDE_RECORDER_REDIS_ADDR) didn't answer within 2s") {
+		t.Fatalf("tide's error doesn't name the address and the setting; it logged %q", k.history)
+	}
+}
+
+// A password Redis refuses won't get better by waiting: tide stops at once,
+// naming the setting.
+func TestTideRefusesAWrongRedisPassword(t *testing.T) {
+	kv := miniredis.NewMiniRedis()
+	kv.RequireAuth("another-password-entirely-0123456789")
+	if err := kv.StartAddr("127.0.0.1:0"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(kv.Close)
+	tcp, udp := freePorts(t, 2)
+	k := launchMain(t, append(recordingEnv(t, kv.Addr(), tcp[0], tcp[1], udp[0]), "TIDE_TEST_REDIS_WAIT=60s")...)
+	if state := k.wait(10 * time.Second); state.Success() {
+		t.Fatal("tide exited 0 with a password Redis refuses")
+	}
+	k.drainLogs()
+	if !k.logged("refused TIDE_RECORDER_REDIS_PASSWORD") {
+		t.Fatalf("tide's error doesn't name the password setting; it logged %q", k.history)
+	}
 }
 
 // drainLogs keeps the lines tide logged that nothing waited for. Call it once

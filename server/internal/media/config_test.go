@@ -6,12 +6,11 @@ import (
 )
 
 func TestLivekitConfig(t *testing.T) {
-	bus := startBus(t, ":0")
 	opts := Options{
 		APIKey: testKey, APISecret: testSecret, Loopback: true,
 		InternalPort: 17880, TCPPort: 17881, UDPPort: 17882,
 		WebhookURL: "http://127.0.0.1:8080/api/webhooks/media",
-		Bus:        bus,
+		RedisAddr:  "redis:6379", RedisPassword: testRedisPassword,
 	}
 	conf, err := livekitConfig(opts)
 	if err != nil {
@@ -33,8 +32,8 @@ func TestLivekitConfig(t *testing.T) {
 	if conf.WebHook.APIKey != testKey || !slices.Equal(conf.WebHook.URLs, []string{opts.WebhookURL}) {
 		t.Errorf("webhook: key %q, urls %v", conf.WebHook.APIKey, conf.WebHook.URLs)
 	}
-	if conf.Redis.Address != bus.dialAddr() || conf.Redis.Password != testBusPassword {
-		t.Errorf("redis at %q, want the bus at %q with its password", conf.Redis.Address, bus.dialAddr())
+	if conf.Redis.Address != "redis:6379" || conf.Redis.Password != testRedisPassword {
+		t.Errorf("redis at %q, want redis:6379 with its password", conf.Redis.Address)
 	}
 	if conf.Logging.Level != "warn" || conf.Room.DepartureTimeout != 20 {
 		t.Errorf("production: log level %q, departure timeout %ds; want warn and LiveKit's 20s",
@@ -68,6 +67,6 @@ func TestLivekitConfigAdvertisesAGivenNodeIP(t *testing.T) {
 		t.Error("a LAN node IP enables loopback candidates")
 	}
 	if conf.Redis.Address != "" {
-		t.Errorf("redis at %q without a bus", conf.Redis.Address)
+		t.Errorf("redis at %q when none was named", conf.Redis.Address)
 	}
 }

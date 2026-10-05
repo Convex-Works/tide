@@ -122,15 +122,8 @@ func TestMediaFlowsThroughSignalHandler(t *testing.T) {
 	t.Run("in memory", func(t *testing.T) {
 		mediaFlows(t, testOptions(t))
 	})
-	t.Run("over the bus", func(t *testing.T) {
-		bus, err := StartBus("127.0.0.1:0", "bus-password-0123456789-0123456789")
-		if err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = bus.Close() })
-		opts := testOptions(t)
-		opts.Bus = bus
-		mediaFlows(t, opts)
+	t.Run("over Redis", func(t *testing.T) {
+		mediaFlows(t, withRedis(testOptions(t), startRedis(t)))
 	})
 }
 
@@ -442,12 +435,11 @@ func TestFailedStartReleasesTheMediaPorts(t *testing.T) {
 }
 
 // A start refused for a taken API port starts nothing: once started,
-// LiveKit's router publishes a keepalive on the bus every 2 s, and a failed
+// LiveKit's router publishes a keepalive to Redis every 2 s, and a failed
 // LiveKit Start can't stop it.
-func TestFailedStartLeavesTheBusAlone(t *testing.T) {
-	bus := startBus(t, "127.0.0.1:0")
-	opts := testOptions(t)
-	opts.Bus = bus
+func TestFailedStartLeavesRedisAlone(t *testing.T) {
+	kv := startRedis(t)
+	opts := withRedis(testOptions(t), kv)
 	blocker, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(opts.InternalPort))
 	if err != nil {
 		t.Fatal(err)
@@ -462,10 +454,10 @@ func TestFailedStartLeavesTheBusAlone(t *testing.T) {
 		t.Fatalf("start error %q doesn't say the port is taken", err)
 	}
 	time.Sleep(500 * time.Millisecond)
-	before := bus.kv.CommandCount()
+	before := kv.CommandCount()
 	time.Sleep(5 * time.Second)
-	if after := bus.kv.CommandCount(); after != before {
-		t.Fatalf("%d commands reached the bus in the 5 s after a failed start", after-before)
+	if after := kv.CommandCount(); after != before {
+		t.Fatalf("%d commands reached Redis in the 5 s after a failed start", after-before)
 	}
 }
 
@@ -516,5 +508,44 @@ func TestStartRefusesIncompleteOptions(t *testing.T) {
 				t.Fatalf("timed out instead of refusing: %v", err)
 			}
 		})
+	}
+}
+
+// With Redis named, the media server keeps its rooms and its node there,
+// where the recorder finds them, and releases LiveKit's room lock with its
+// script as it creates a room.
+func TestMediaServerKeepsItsStateInRedis(t *testing.T) {
+	kv := startRedis(t)
+	s := startServer(t, withRedis(testOptions(t), kv))
+
+	ctx := context.Background()
+	rooms := lksdk.NewRoomServiceClient(s.URL(), testKey, testSecret)
+	if _, err := rooms.CreateRoom(ctx, &livekit.CreateRoomRequest{Name: "in-redis"}); err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+	client := redisClient(t, kv)
+	if n := client.Exists(ctx, "room_lock:in-redis").Val(); n != 0 {
+		t.Fatal("the room lock outlived the room's creation")
+	}
+	if !client.HExists(ctx, "rooms", "in-redis").Val() {
+		keys, _ := client.Keys(ctx, "*").Result()
+		t.Fatalf("the room isn't in Redis; keys: %v", keys)
+	}
+	if n := client.HLen(ctx, "nodes").Val(); n != 1 {
+		t.Fatalf("%d nodes registered in Redis, want 1", n)
+	}
+}
+
+// A media server without Redis keeps nothing in one: it is a single node,
+// in memory.
+func TestMediaServerWithoutRedisUsesNone(t *testing.T) {
+	kv := startRedis(t)
+	s := startServer(t, testOptions(t))
+	rooms := lksdk.NewRoomServiceClient(s.URL(), testKey, testSecret)
+	if _, err := rooms.CreateRoom(context.Background(), &livekit.CreateRoomRequest{Name: "in-memory"}); err != nil {
+		t.Fatalf("create room: %v", err)
+	}
+	if n := kv.CommandCount(); n != 0 {
+		t.Fatalf("a media server without Redis sent %d commands to one", n)
 	}
 }

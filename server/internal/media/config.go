@@ -90,9 +90,9 @@ func livekitConfig(opts Options) (*config.Config, error) {
 		conf.WebHook.APIKey = opts.APIKey
 		conf.WebHook.URLs = []string{opts.WebhookURL}
 	}
-	if opts.Bus != nil {
-		conf.Redis.Address = opts.Bus.dialAddr()
-		conf.Redis.Password = opts.Bus.Password()
+	if opts.RedisAddr != "" {
+		conf.Redis.Address = opts.RedisAddr
+		conf.Redis.Password = opts.RedisPassword
 	}
 	conf.Logging.Level = "warn"
 	if opts.Dev {
