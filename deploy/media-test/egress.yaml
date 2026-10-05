@@ -5,9 +5,10 @@ api_secret: tide-dev-secret-please-change-0000000000
 # correct for egress's Chrome too.
 ws_url: ws://127.0.0.1:7880
 
-# tide's Redis endpoint, on its loopback.
+# The Redis tide's media server uses too, by its compose name (the recorder
+# resolves it from tide's network namespace).
 redis:
-  address: 127.0.0.1:6379
+  address: redis:6379
   password: tide-dev-recorder-redis-password-please-change
 
 health_port: 8081

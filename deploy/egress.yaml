@@ -1,11 +1,11 @@
 api_key: devkey
 api_secret: tide-dev-secret-please-change-0000000000
 # tide runs on the host with its media server inside it: the recorder signals
-# through tide's /rtc and coordinates over tide's Redis endpoint.
+# through tide's /rtc, and shares the compose project's Redis with it.
 ws_url: ws://host.docker.internal:8080
 
 redis:
-  address: host.docker.internal:6379
+  address: redis:6379
   password: tide-dev-recorder-redis-password-please-change
 
 health_port: 8081

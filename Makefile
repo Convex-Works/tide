@@ -1,18 +1,15 @@
 .PHONY: dev gen server-check web-check typesync check media media-dev moil-e2e build clean
 
 # The signed-in deployment with recording, against the Compose stack: Dex for
-# sign-in, MinIO for storage, the recorder in Docker. tide (with its media
-# server) and Vite run on the host. The anonymous mode needs none of this:
-# `make build && ./bin/tide`.
+# sign-in, MinIO for storage, Redis and the recorder in Docker. tide (with its
+# media server) and Vite run on the host; tide finds Redis at its default
+# 127.0.0.1:6379, where Compose publishes it. The anonymous mode needs none of
+# this: `make build && ./bin/tide`.
 dev:
 	# tide's media server must advertise an address reachable by host browsers
 	# AND the recorder container; use the LAN IP (falls back to loopback:
-	# host-only, and recordings can't connect). The recorder reaches tide's
-	# Redis endpoint on its default 127.0.0.1:6379 because Docker Desktop
-	# routes host.docker.internal to the host's loopback. Docker on Linux
-	# doesn't, and has no ipconfig: put TIDE_MEDIA_NODE_IP and
-	# TIDE_RECORDER_REDIS_ADDR (the host-gateway address) in ./.env, which is
-	# loaded after deploy/.env.
+	# host-only, and recordings can't connect). Linux has no ipconfig: put
+	# TIDE_MEDIA_NODE_IP in ./.env, which is loaded after deploy/.env.
 	@ip=$$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo 127.0.0.1); \
 		echo "TIDE_MEDIA_NODE_IP=$$ip" > deploy/.env
 	docker compose -f deploy/compose.yaml up -d

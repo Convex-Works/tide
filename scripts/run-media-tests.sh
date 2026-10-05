@@ -52,7 +52,7 @@ cleanup() {
   if [ -n "${runner_id}" ]; then
     docker cp "${runner_id}:/artifacts/." "${artifact_dir}/" 2>/dev/null || true
   fi
-  compose logs --no-color tide egress >"${artifact_dir}/stack.log" 2>&1 || true
+  compose logs --no-color tide egress redis >"${artifact_dir}/stack.log" 2>&1 || true
   # --rmi local: the per-run project name means every run builds a uniquely
   # named image set, so images `down` leaves behind are garbage no later run
   # can reuse. Run 339 found the end of that road: the runner disk filled,
