@@ -1,15 +1,11 @@
 // Shared display formatters for the dashboard and meeting detail views.
 
-/** Long relative form, e.g. "4 days ago" — used for recording timestamps. */
-export function relativeDate(timestamp: number): string {
-  const seconds = Math.round(timestamp - Date.now() / 1000);
-  const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
-  if (Math.abs(seconds) < 60) return formatter.format(seconds, 'second');
-  const minutes = Math.round(seconds / 60);
-  if (Math.abs(minutes) < 60) return formatter.format(minutes, 'minute');
-  const hours = Math.round(minutes / 60);
-  if (Math.abs(hours) < 24) return formatter.format(hours, 'hour');
-  return formatter.format(Math.round(hours / 24), 'day');
+/** Local calendar date as yyyy-mm-dd, e.g. "2026-09-28" — used for recording timestamps. */
+export function isoDate(timestamp: number): string {
+  const date = new Date(timestamp * 1000);
+  const month = (date.getMonth() + 1).toString().padStart(2, '0');
+  const day = date.getDate().toString().padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
 }
 
 /** Date and time for accessible names, e.g. "Sep 26, 2026, 2:00 PM". */

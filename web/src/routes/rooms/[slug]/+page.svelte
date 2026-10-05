@@ -37,7 +37,7 @@
     type RoomInfo,
     type TranscriptInfo
   } from '$lib/api/types.gen';
-  import { dateTimeLabel, durationLabel, relativeDate, sizeLabel } from '$lib/format';
+  import { dateTimeLabel, durationLabel, isoDate, sizeLabel } from '$lib/format';
   import Button from '$lib/ui/Button.svelte';
   import RoomStatus from '$lib/ui/RoomStatus.svelte';
 
@@ -576,7 +576,7 @@
                 class="min-w-0 truncate text-[11px] text-ink-2"
                 datetime={new Date(recording.started_at * 1000).toISOString()}
               >
-                {relativeDate(recording.started_at)}
+                {isoDate(recording.started_at)}
               </time>
               <span class="hidden text-[11px] text-ink-2 sm:block">
                 {durationLabel(recording.duration_s)}
