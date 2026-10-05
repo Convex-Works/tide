@@ -1,7 +1,14 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { CalendarPlus, Check, Copy, Desktop, Plus } from 'phosphor-svelte';
-  import { AuthRequiredError, listRooms, logout, me } from '$lib/api/client';
+  import {
+    AuthRequiredError,
+    listRooms,
+    logout,
+    me,
+    rateLimited,
+    rateLimitedMessage
+  } from '$lib/api/client';
   import { AuthLoginPath, type Me, type RoomInfo } from '$lib/api/types.gen';
   import AddToCalendarDialog from '$lib/ui/AddToCalendarDialog.svelte';
   import Button from '$lib/ui/Button.svelte';
@@ -39,8 +46,13 @@
         dashboardState = 'signed-out';
         return;
       }
-      error =
-        cause instanceof Error ? cause.message : 'Could not load the dashboard. Reload the page.';
+      // Without sign-in, /api/me issues this browser's session under the
+      // login limit; a refusal there is the only way into this state.
+      error = rateLimited(cause)
+        ? rateLimitedMessage
+        : cause instanceof Error
+          ? cause.message
+          : 'Could not load the dashboard. Reload the page.';
       dashboardState = 'error';
     }
   }
@@ -139,8 +151,12 @@
             <Desktop size={16} weight="regular" aria-hidden="true" />
           </a>
         {/if}
-        <span>{currentUser?.name}</span>
-        <button type="button" onclick={() => void signOut()}>Sign out</button>
+        <!-- Without sign-in there is no account, and signing out would only
+             orphan the rooms this browser created (ARCHITECTURE.md §4.1). -->
+        {#if !currentUser?.anonymous}
+          <span>{currentUser?.name}</span>
+          <button type="button" onclick={() => void signOut()}>Sign out</button>
+        {/if}
       </div>
     </header>
 

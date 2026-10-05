@@ -109,8 +109,22 @@ function jsonRequest(method: string, body: unknown): RequestInit {
   };
 }
 
+/**
+ * Who this browser is, and what the deployment offers them. Without sign-in
+ * (ARCHITECTURE.md §4.1) the server answers a browser with no session by
+ * issuing an anonymous one, so it never throws AuthRequiredError there; it
+ * may refuse with 429 instead (see rateLimited).
+ */
 export function me(): Promise<Me> {
   return requestJSON<Me>(MePath);
+}
+
+/** What to say when the server refused under a per-client limit (§15). */
+export const rateLimitedMessage = 'Too many requests from this network. Try again in a minute.';
+
+/** Whether the server refused under a per-client rate limit. */
+export function rateLimited(cause: unknown): boolean {
+  return cause instanceof ApiError && cause.status === 429;
 }
 
 /**

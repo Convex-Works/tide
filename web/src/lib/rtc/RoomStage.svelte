@@ -18,6 +18,7 @@
     roomName,
     onleave,
     canManage = false,
+    canRecord = false,
     pending = [],
     peopleOpen = $bindable(false),
     lobbyError = '',
@@ -30,6 +31,8 @@
     roomName: string;
     onleave: () => void;
     canManage?: boolean;
+    /** A host on a deployment that records (ARCHITECTURE.md §8). */
+    canRecord?: boolean;
     pending?: LobbyRequestInfo[];
     peopleOpen?: boolean;
     lobbyError?: string;
@@ -261,6 +264,7 @@
     {chatOpen}
     {unreadChat}
     {canManage}
+    {canRecord}
     {view}
     {roomSlug}
     ontogglepeople={togglePeople}
