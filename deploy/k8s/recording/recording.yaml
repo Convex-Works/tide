@@ -1,9 +1,9 @@
 # Turns recording on for the tide Deployment in ../tide.yaml: tide gets the
 # object store and the fixed media key, secret and Redis password the recorder
-# shares, and the recorder runs beside it in the same pod. Sharing the network
-# namespace is what keeps this simple: the recorder signals at 127.0.0.1:7880
-# (the media server itself), coordinates over tide's Redis endpoint on
-# 127.0.0.1:6379, which tide serves only on loopback, and loads the layout
+# shares, and Redis and the recorder run beside it in the same pod. Sharing
+# the network namespace is what keeps this simple: Redis listens on
+# 127.0.0.1:6379 only, where tide and the recorder both find it; the recorder
+# signals at 127.0.0.1:7880 (the media server itself) and loads the layout
 # page from localhost:8080.
 apiVersion: apps/v1
 kind: Deployment
@@ -12,6 +12,59 @@ metadata:
 spec:
   template:
     spec:
+      initContainers:
+        # A native sidecar (restartPolicy: Always; Kubernetes 1.29 or later):
+        # it starts, and passes its startup probe, before tide and the
+        # recorder start, and runs beside them for the pod's life. Nothing in
+        # it is durable. The password reaches redis-server through a config
+        # file on a memory volume, never its command line.
+        - name: redis
+          image: redis:7.4.8-alpine3.21 # OVERLAY: Pin by digest.
+          imagePullPolicy: IfNotPresent
+          restartPolicy: Always
+          command:
+            - /bin/sh
+            - -ec
+          args:
+            - |
+              umask 077
+              printf 'requirepass %s\n' "$REDISCLI_AUTH" > /data/redis.conf
+              exec redis-server /data/redis.conf --bind 127.0.0.1 --port 6379 --save '' --appendonly no
+          env:
+            # redis-cli reads REDISCLI_AUTH too, so the probes authenticate.
+            - name: REDISCLI_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: media-secrets
+                  key: recorder-redis-password
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+          startupProbe:
+            exec:
+              command: ["/bin/sh", "-c", "redis-cli -h 127.0.0.1 ping | grep -q PONG"]
+            periodSeconds: 1
+            failureThreshold: 30
+          readinessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "redis-cli -h 127.0.0.1 ping | grep -q PONG"]
+            periodSeconds: 10
+            timeoutSeconds: 2
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
       containers:
         - name: tide
           env:
@@ -25,6 +78,9 @@ spec:
                 secretKeyRef:
                   name: media-secrets
                   key: api-secret
+            # The Redis sidecar above, in this pod.
+            - name: TIDE_RECORDER_REDIS_ADDR
+              value: 127.0.0.1:6379
             - name: TIDE_RECORDER_REDIS_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -55,15 +111,8 @@ spec:
         - name: recorder
           image: livekit/egress:v1.13.0 # OVERLAY: Pin a release tested with tide's media server.
           imagePullPolicy: IfNotPresent
-          # The recorder checks the Redis endpoint once at startup and exits
-          # without it, so it waits for tide's /healthz, which tide serves only
-          # once its media server and Redis endpoint are up.
-          command:
-            - /bin/sh
-            - -c
-            - >-
-              until wget -q -O /dev/null http://127.0.0.1:8080/healthz; do sleep 1; done;
-              exec /entrypoint.sh
+          # The recorder checks Redis once at startup and exits without it;
+          # the Redis sidecar is up before this container starts.
           env:
             - name: LIVEKIT_API_KEY
               valueFrom:
@@ -136,6 +185,10 @@ spec:
             - name: recorder-tmp
               mountPath: /home/egress/tmp
       volumes:
+        - name: redis-data
+          emptyDir:
+            medium: Memory
+            sizeLimit: 16Mi
         - name: recorder-shm
           emptyDir:
             medium: Memory

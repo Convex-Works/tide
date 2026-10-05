@@ -1,9 +1,28 @@
 name: tide
 
-# What tide doesn't contain. tide itself, with its media server and the
-# recorder's Redis endpoint inside it, runs on the host (`make dev`).
+# What tide doesn't contain. tide itself, with its media server inside it,
+# runs on the host (`make dev`).
 
 services:
+  # The Redis the media server inside tide and the recorder share once
+  # recording is on. Published on loopback only, where tide on the host finds
+  # it at its default address (TIDE_RECORDER_REDIS_ADDR=127.0.0.1:6379); the
+  # recorder uses redis:6379 on the compose network. Nothing in it is durable.
+  redis:
+    image: redis:7.4.8-alpine3.21
+    command: ["redis-server", "--requirepass", "tide-dev-recorder-redis-password-please-change", "--save", "", "--appendonly", "no"]
+    environment:
+      REDISCLI_AUTH: tide-dev-recorder-redis-password-please-change
+    ports:
+      - "127.0.0.1:6379:6379"
+      - "[::1]:6379:6379"
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    networks: [tide]
+
   minio:
     image: minio/minio:RELEASE.2025-04-22T22-12-26Z
     command: server /data --console-address :9001
@@ -38,10 +57,8 @@ services:
     restart: "no"
     networks: [tide]
 
-  # The recorder. It reaches tide on the host: signaling through tide's /rtc,
-  # jobs through tide's Redis endpoint on the host's loopback (Docker Desktop
-  # routes host.docker.internal there; on Linux set TIDE_RECORDER_REDIS_ADDR to
-  # the host-gateway address in ./.env), and media through the LAN address tide
+  # The recorder. It takes jobs over redis:6379 and reaches tide on the host:
+  # signaling through tide's /rtc, and media through the LAN address tide
   # advertises (TIDE_MEDIA_NODE_IP in deploy/.env). With no LAN address that
   # falls back to 127.0.0.1, which the recorder can't reach: meetings work,
   # recordings don't.
@@ -49,15 +66,6 @@ services:
     image: livekit/egress:v1.13.0
     environment:
       EGRESS_CONFIG_FILE: /etc/egress.yaml
-    # The recorder checks the Redis endpoint once at startup and exits if it
-    # isn't there, so it waits for tide, which serves /healthz only once its
-    # media server and Redis endpoint are up.
-    entrypoint:
-      - /bin/sh
-      - -c
-      - >-
-        until wget -q -O /dev/null http://host.docker.internal:8080/healthz; do sleep 1; done;
-        exec /entrypoint.sh
     volumes:
       - ./egress.yaml:/etc/egress.yaml:ro
     cap_add:
@@ -70,7 +78,10 @@ services:
       - /recordings:mode=1777
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # The recorder checks Redis once at startup and exits without it.
     depends_on:
+      redis:
+        condition: service_healthy
       minio-init:
         condition: service_completed_successfully
     healthcheck:

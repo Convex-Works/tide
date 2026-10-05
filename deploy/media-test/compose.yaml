@@ -7,10 +7,25 @@ name: tide-media-test
 # bind mounts do not resolve on the daemon's filesystem.
 #
 # tide runs its media server embedded, as a production install does, and the
-# recorder shares tide's network namespace: the gate's only media processes
-# are tide and the recorder.
+# recorder shares tide's network namespace: besides tide, the gate runs the
+# recorder and the Redis the two share, as a production install with
+# recording does.
 
 services:
+  redis:
+    image: redis:7.4.8-alpine3.21
+    command: ["redis-server", "--requirepass", "tide-dev-recorder-redis-password-please-change", "--save", "", "--appendonly", "no"]
+    environment:
+      REDISCLI_AUTH: tide-dev-recorder-redis-password-please-change
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    networks:
+      media:
+        ipv4_address: ${TIDE_MEDIA_NET_PREFIX:-10.253.0}.2
+
   # Real OIDC. Without a session the suite cannot reach /m/[slug], the lobby,
   # host token grants, moderation or recording — /api/dev/token mints only
   # non-host tokens, so those paths were previously untestable.
@@ -70,10 +85,10 @@ services:
       dockerfile: deploy/media-test/egress.Dockerfile
     environment:
       EGRESS_CONFIG_FILE: /etc/egress.yaml
-    # The recorder checks tide's Redis endpoint once at startup and exits if it
-    # isn't there. tide's image has no shell for a healthcheck, so the recorder
-    # waits for /healthz, which tide serves only once its media server and
-    # Redis endpoint are up.
+    # tide's image has no shell for a healthcheck, so the recorder waits for
+    # tide's /healthz, which tide serves only once its media server is up: the
+    # runner, which waits for a healthy recorder, then starts against a tide
+    # that serves.
     entrypoint:
       - /bin/sh
       - -c
@@ -91,6 +106,8 @@ services:
     depends_on:
       tide:
         condition: service_started
+      redis:
+        condition: service_healthy
       minio-init:
         condition: service_completed_successfully
     healthcheck:
@@ -99,9 +116,9 @@ services:
       timeout: 3s
       retries: 30
     # The recorder shares tide's network namespace: it signals at
-    # 127.0.0.1:7880 (the media server itself), reaches the Redis endpoint on
-    # tide's loopback, and the media server's advertised address (the .4
-    # address below) is the correct candidate for its Chrome too.
+    # 127.0.0.1:7880 (the media server itself), takes jobs over redis:6379 as
+    # tide does, and the media server's advertised address (the .4 address
+    # below) is the correct candidate for its Chrome too.
     network_mode: "service:tide"
 
   tide:
@@ -117,10 +134,11 @@ services:
       TIDE_DEV_MODE: "true"
       # The media server runs inside tide (no TIDE_MEDIA_URL). Browsers signal
       # through tide's /rtc and send media to this address; the recorder uses
-      # the same key, secret and Redis password (egress.yaml).
+      # the same key, secret and Redis (egress.yaml).
       TIDE_MEDIA_NODE_IP: ${TIDE_MEDIA_NET_PREFIX:-10.253.0}.4
       TIDE_MEDIA_API_KEY: devkey
       TIDE_MEDIA_API_SECRET: tide-dev-secret-please-change-0000000000
+      TIDE_RECORDER_REDIS_ADDR: redis:6379
       TIDE_RECORDER_REDIS_PASSWORD: tide-dev-recorder-redis-password-please-change
       TIDE_OIDC_ISSUER: http://dex:5556/dex
       TIDE_OIDC_CLIENT_ID: tide
@@ -143,6 +161,8 @@ services:
       TIDE_TRANSCRIPTS: "false"
     depends_on:
       dex:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
