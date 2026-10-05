@@ -96,8 +96,9 @@ external one, which keeps the pre-1.0 four-process topology working
 unchanged. Embedded, `internal/media` starts LiveKit's server from options,
 not a YAML file:
 
-- Its HTTP API and signaling listen on **127.0.0.1:7880** only. tide's server
-  SDK calls go there, exactly as they would to an external server.
+- Its HTTP API and signaling listen on **127.0.0.1:7880** only
+  (`TIDE_MEDIA_API_PORT`, for two tides on one host). tide's server SDK calls
+  go there, exactly as they would to an external server.
 - **Browsers reach signaling through tide**: tide forwards `/rtc` and
   everything under it (WebSocket upgrades included) to that loopback port, so
   the token's `ws_url` is tide's own origin (`wss://<host>`) and a deployment
@@ -760,6 +761,7 @@ TIDE_SESSION_SECRET=…           TIDE_DB_PATH=./data/tide.db
 TIDE_OIDC_ISSUER=…              TIDE_OIDC_CLIENT_ID / _CLIENT_SECRET
 TIDE_USER_GROUPS=…              TIDE_ADMIN_GROUPS=…
 TIDE_MEDIA_NODE_IP=…            TIDE_MEDIA_TCP_PORT=7881   TIDE_MEDIA_UDP_PORT=7882
+TIDE_MEDIA_API_PORT=7880
 TIDE_MEDIA_API_KEY=…            TIDE_MEDIA_API_SECRET=…
 TIDE_MEDIA_URL=…                TIDE_MEDIA_PUBLIC_URL=…    (external media server only)
 TIDE_S3_ENDPOINT=…              TIDE_S3_PUBLIC_ENDPOINT=…

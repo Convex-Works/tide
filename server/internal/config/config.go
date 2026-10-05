@@ -92,8 +92,9 @@ type Config struct {
 	// (TIDE_MEDIA_TCP_PORT, TIDE_MEDIA_UDP_PORT; 7881 and 7882).
 	MediaTCPPort int
 	MediaUDPPort int
-	// MediaInternalPort is the embedded server's loopback API and signaling
-	// port. It is not configurable from the environment (7880); tests set it.
+	// MediaInternalPort is the embedded server's API and signaling port,
+	// on IPv4 loopback only (TIDE_MEDIA_API_PORT; 7880). A recorder in tide's
+	// network namespace signals there.
 	MediaInternalPort int
 	// RecorderRedisAddr and RecorderRedisPassword configure the
 	// Redis-protocol endpoint tide serves for the recorder when recording is
@@ -237,14 +238,18 @@ func (c *Config) loadEmbeddedMedia(secret func(name, devFallback string) string)
 		}
 		c.LiveKitPublicURL = publicURL
 	}
-	c.MediaInternalPort = DefaultMediaInternalPort
+	var problem string
+	c.MediaInternalPort, problem = envPort("TIDE_MEDIA_API_PORT", DefaultMediaInternalPort)
+	problems = appendProblem(problems, problem)
 	c.MediaNodeIP = strings.TrimSpace(os.Getenv("TIDE_MEDIA_NODE_IP"))
 	if c.MediaNodeIP != "" && net.ParseIP(c.MediaNodeIP) == nil {
 		problems = append(problems, fmt.Sprintf("TIDE_MEDIA_NODE_IP %q is not an IP address", c.MediaNodeIP))
 	}
-	var problem string
 	c.MediaTCPPort, problem = envPort("TIDE_MEDIA_TCP_PORT", DefaultMediaTCPPort)
 	problems = appendProblem(problems, problem)
+	if c.MediaTCPPort == c.MediaInternalPort {
+		problems = append(problems, fmt.Sprintf("TIDE_MEDIA_API_PORT and TIDE_MEDIA_TCP_PORT are both %d", c.MediaTCPPort))
+	}
 	c.MediaUDPPort, problem = envPort("TIDE_MEDIA_UDP_PORT", DefaultMediaUDPPort)
 	problems = appendProblem(problems, problem)
 	if c.Recording {

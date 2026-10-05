@@ -64,7 +64,8 @@ it when discovery would be wrong or impossible:
   right one.
 
 A DNS name is not a substitute; give an IPv4 address. Change the ports with
-`TIDE_MEDIA_UDP_PORT` and `TIDE_MEDIA_TCP_PORT`.
+`TIDE_MEDIA_UDP_PORT` and `TIDE_MEDIA_TCP_PORT`, and the loopback API port
+with `TIDE_MEDIA_API_PORT` when two tides share a host.
 
 ## Run the binary on a server
 
@@ -356,6 +357,7 @@ startup.
 | `TIDE_MEDIA_NODE_IP`           | 127.0.0.1 on loopback, else discovered | The IPv4 address advertised for media ([The media address](#the-media-address)). Must parse as an IP.                                                                                                                         |
 | `TIDE_MEDIA_UDP_PORT`          | `7882`                                 | Media over UDP, every interface. 1–65535.                                                                                                                                                                                     |
 | `TIDE_MEDIA_TCP_PORT`          | `7881`                                 | Media over TCP for networks that block UDP. 1–65535.                                                                                                                                                                          |
+| `TIDE_MEDIA_API_PORT`          | `7880`                                 | The media server's own API and signaling, on 127.0.0.1 only. Change it only to run two tides on one host; a recorder in tide's network namespace signals there. 1–65535, not the TCP media port.                              |
 | `TIDE_MEDIA_API_KEY`           | generated per start without recording  | Key the media server signs tokens and webhooks with. Required with recording (the recorder uses it too) or an external media server. Letters, digits, `-` and `_`.                                                            |
 | `TIDE_MEDIA_API_SECRET`        | generated per start without recording  | The secret for that key. Required with recording or an external media server, at least 32 characters.                                                                                                                         |
 | `TIDE_MEDIA_URL`               | empty: embedded                        | An external media server as tide reaches it. Set only to keep the pre-1.0 topology ([External media server](#external-media-server)).                                                                                         |

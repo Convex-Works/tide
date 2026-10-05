@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -152,6 +153,11 @@ func startMedia(ctx context.Context, cfg *config.Config, addr net.Addr) (*embedd
 	})
 	if err != nil {
 		running.close()
+		// LiveKit says "could not resolve external IP" when no STUN server
+		// answered; the operator's way out is to name the address.
+		if cfg.MediaNodeIP == "" && strings.Contains(err.Error(), "external IP") {
+			return nil, fmt.Errorf("start the media server: %w (set TIDE_MEDIA_NODE_IP to the address browsers reach this server at)", err)
+		}
 		return nil, fmt.Errorf("start the media server: %w", err)
 	}
 	running.server = server

@@ -12,7 +12,7 @@ func clearTideEnv(t *testing.T) {
 	for _, name := range []string{
 		"TIDE_ADDR", "TIDE_BASE_URL", "TIDE_SESSION_SECRET", "TIDE_DB_PATH",
 		"TIDE_MEDIA_URL", "TIDE_MEDIA_PUBLIC_URL", "TIDE_MEDIA_API_KEY",
-		"TIDE_MEDIA_API_SECRET", "TIDE_MEDIA_NODE_IP", "TIDE_MEDIA_TCP_PORT",
+		"TIDE_MEDIA_API_SECRET", "TIDE_MEDIA_NODE_IP", "TIDE_MEDIA_TCP_PORT", "TIDE_MEDIA_API_PORT",
 		"TIDE_MEDIA_UDP_PORT", "TIDE_OIDC_ISSUER", "TIDE_OIDC_CLIENT_ID",
 		"TIDE_OIDC_CLIENT_SECRET", "TIDE_USER_GROUPS", "TIDE_ADMIN_GROUPS",
 		"TIDE_S3_ENDPOINT", "TIDE_S3_PUBLIC_ENDPOINT",
@@ -187,9 +187,13 @@ func TestLoadSignalingFollowsTheBaseURL(t *testing.T) {
 func TestLoadMediaPortsAndNodeIP(t *testing.T) {
 	cfg := load(t, map[string]string{
 		"TIDE_MEDIA_TCP_PORT": "17881", "TIDE_MEDIA_UDP_PORT": "443", "TIDE_MEDIA_NODE_IP": "2001:db8::7",
+		"TIDE_MEDIA_API_PORT": "17880",
 	})
-	if cfg.MediaTCPPort != 17881 || cfg.MediaUDPPort != 443 || cfg.MediaNodeIP != "2001:db8::7" {
-		t.Fatalf("ports %d/%d, node IP %q", cfg.MediaTCPPort, cfg.MediaUDPPort, cfg.MediaNodeIP)
+	if cfg.MediaTCPPort != 17881 || cfg.MediaUDPPort != 443 || cfg.MediaNodeIP != "2001:db8::7" || cfg.MediaInternalPort != 17880 {
+		t.Fatalf("ports %d/%d/%d, node IP %q", cfg.MediaInternalPort, cfg.MediaTCPPort, cfg.MediaUDPPort, cfg.MediaNodeIP)
+	}
+	if defaults := load(t, nil); defaults.MediaInternalPort != 7880 || defaults.MediaTCPPort != 7881 || defaults.MediaUDPPort != 7882 {
+		t.Fatalf("default ports %d/%d/%d, want 7880/7881/7882", defaults.MediaInternalPort, defaults.MediaTCPPort, defaults.MediaUDPPort)
 	}
 }
 
@@ -303,6 +307,10 @@ func TestLoadRefusesContradictions(t *testing.T) {
 			[]string{`TIDE_MEDIA_TCP_PORT "0" is not a port`, `TIDE_MEDIA_UDP_PORT "70000" is not a port`}},
 		{"a port that isn't a number", map[string]string{"TIDE_MEDIA_UDP_PORT": "udp"},
 			[]string{`TIDE_MEDIA_UDP_PORT "udp" is not a port`}},
+		{"the API and media sharing a TCP port", map[string]string{"TIDE_MEDIA_API_PORT": "7881"},
+			[]string{"TIDE_MEDIA_API_PORT and TIDE_MEDIA_TCP_PORT are both 7881"}},
+		{"an API port out of range", map[string]string{"TIDE_MEDIA_API_PORT": "-1"},
+			[]string{`TIDE_MEDIA_API_PORT "-1" is not a port`}},
 		{"a Redis address without a port", merge(signedIn, storage, recorder, map[string]string{"TIDE_RECORDER_REDIS_ADDR": "10.0.0.5"}),
 			[]string{`TIDE_RECORDER_REDIS_ADDR "10.0.0.5" is not host:port`}},
 		{"a Redis address with a name", merge(signedIn, storage, recorder, map[string]string{"TIDE_RECORDER_REDIS_ADDR": "redis:6379"}),

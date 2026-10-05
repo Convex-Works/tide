@@ -103,6 +103,12 @@ export const envGroups: EnvGroup[] = [
         description: 'Media for networks that block UDP. Open it publicly.'
       },
       {
+        name: 'TIDE_MEDIA_API_PORT',
+        default: '7880',
+        description:
+          "The media server's own API, on 127.0.0.1 only. Change it only to run two servers on one host."
+      },
+      {
         name: 'TIDE_MEDIA_API_KEY',
         default: '',
         defaultText: 'generated per start',
