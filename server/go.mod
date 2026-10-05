@@ -110,12 +110,12 @@ require (
 	github.com/pion/sdp/v3 v3.0.19 // indirect
 	github.com/pion/srtp/v3 v3.0.12 // indirect
 	github.com/pion/stun/v3 v3.1.6 // indirect
-	github.com/pion/webrtc/v4 v4.2.16 // indirect
+	github.com/pion/webrtc/v4 v4.2.16
 	github.com/prometheus/client_golang v1.23.2 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/common v0.70.0 // indirect
 	github.com/prometheus/procfs v0.21.1 // indirect
-	github.com/redis/go-redis/v9 v9.21.0 // indirect
+	github.com/redis/go-redis/v9 v9.21.0
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/rs/xid v1.6.0 // indirect
 	github.com/tinylib/msgp v1.3.0 // indirect

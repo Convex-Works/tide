@@ -12,8 +12,15 @@ package media
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"net/http"
+	"strconv"
+	"sync"
+	"time"
+
+	"github.com/livekit/livekit-server/pkg/routing"
+	"github.com/livekit/livekit-server/pkg/service"
+	"github.com/livekit/livekit-server/pkg/telemetry/prometheus"
 )
 
 // SignalPath is where tide mounts SignalHandler. livekit-client appends it
@@ -52,55 +59,130 @@ type Options struct {
 	// recorder.
 	Bus *Bus
 
-	// Dev raises the SFU's log level from warn to info.
+	// Dev gives the SFU info logs and a 5 s departure timeout, as the media
+	// gate needs; otherwise it logs warnings and keeps LiveKit's 20 s. The
+	// log level is the first server's in a process (see setLogger).
 	Dev bool
 }
 
 // Server is a running embedded media server.
-type Server struct{}
+type Server struct {
+	lk     *service.LivekitServer
+	url    string
+	signal http.Handler
+	run    *run
 
-// ErrNotImplemented marks the contract stubs; the media track replaces them.
-var ErrNotImplemented = errors.New("media: not implemented")
+	closeOnce sync.Once
+	closeErr  error
+}
+
+// run is one call of LiveKit's blocking Start: done closes when it returns,
+// and err is what it returned.
+type run struct {
+	done chan struct{}
+	err  error
+}
+
+// startPoll is how often Start checks whether the server is up. LiveKit's
+// Start marks it running about 100ms after it begins serving.
+const startPoll = 10 * time.Millisecond
 
 // Start starts the media server and returns once it accepts API calls, or
 // with the error that kept it from starting (a port in use, say). ctx bounds
 // only the start.
+//
+// Discovering the node address over STUN (no NodeIP, not Loopback) happens
+// before anything listens and ignores ctx: LiveKit tries its STUN servers
+// three times and Start then fails with "could not resolve external IP".
 func Start(ctx context.Context, opts Options) (*Server, error) {
-	return nil, ErrNotImplemented
+	conf, err := livekitConfig(opts)
+	if err != nil {
+		return nil, err
+	}
+	node, err := routing.NewLocalNode(conf)
+	if err != nil {
+		return nil, fmt.Errorf("media: create node: %w", err)
+	}
+	// Init registers LiveKit's metrics once per process and ignores later
+	// calls, so a second server in one process keeps the first one's node ID
+	// in its metric labels. Nothing scrapes them.
+	if err := prometheus.Init(string(node.NodeID()), node.NodeType()); err != nil {
+		return nil, fmt.Errorf("media: metrics: %w", err)
+	}
+	lk, err := service.InitializeServer(conf, node)
+	if err != nil {
+		return nil, fmt.Errorf("media: start: %w", err)
+	}
+	r := &run{done: make(chan struct{})}
+	go func() {
+		defer close(r.done)
+		r.err = lk.Start()
+	}()
+
+	ticker := time.NewTicker(startPoll)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-r.done:
+			releaseFailed(lk)
+			return nil, fmt.Errorf("media: start: %w", r.err)
+		case <-ctx.Done():
+			go abandon(lk, r)
+			return nil, fmt.Errorf("media: start: %w", ctx.Err())
+		case <-ticker.C:
+			if lk.IsRunning() {
+				target := "http://127.0.0.1:" + strconv.Itoa(opts.InternalPort)
+				return &Server{lk: lk, url: target, signal: newSignalHandler(target), run: r}, nil
+			}
+		}
+	}
+}
+
+// releaseFailed closes the media sockets InitializeServer opened, which
+// LiveKit only closes when a started server stops: a Start that fails (its
+// HTTP port taken, say) would otherwise keep the UDP and TCP ports.
+func releaseFailed(lk *service.LivekitServer) {
+	lk.RoomManager().Stop()
+}
+
+// abandon stops a server whose start was given up on, once it either runs or
+// fails.
+func abandon(lk *service.LivekitServer, r *run) {
+	ticker := time.NewTicker(startPoll)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-r.done:
+			releaseFailed(lk)
+			return
+		case <-ticker.C:
+			if lk.IsRunning() {
+				lk.Stop(true)
+				<-r.done
+				return
+			}
+		}
+	}
 }
 
 // URL is the server's API and signaling URL for server-side SDK clients:
 // http://127.0.0.1:<InternalPort>.
-func (s *Server) URL() string { return "" }
+func (s *Server) URL() string { return s.url }
 
 // SignalHandler forwards browsers' signaling (SignalPath and everything under
 // it, WebSocket upgrades included) to the server. It clears the connection
 // deadlines tide's http.Server sets, since a signaling WebSocket lives as long
 // as the meeting.
-func (s *Server) SignalHandler() http.Handler { return http.NotFoundHandler() }
+func (s *Server) SignalHandler() http.Handler { return s.signal }
 
 // Close stops the server at once: every room ends and its participants are
 // disconnected, as a crash would, so their clients reconnect when tide is
 // back. It returns once the media ports are released.
-func (s *Server) Close() error { return ErrNotImplemented }
-
-// Bus is the Redis-protocol endpoint tide serves for the SFU and the
-// recorder, in memory. It requires password on every connection and expires
-// keys on the wall clock.
-type Bus struct{}
-
-// StartBus listens on addr (host:port; ":6379" means every interface) and
-// serves until Close.
-func StartBus(addr, password string) (*Bus, error) {
-	return nil, ErrNotImplemented
+func (s *Server) Close() error {
+	s.closeOnce.Do(func() {
+		s.lk.Stop(true)
+		<-s.run.done
+		s.closeErr = s.run.err
+	})
+	return s.closeErr
 }
-
-// Addr is the address the bus listens on, with the port it was given (or
-// chose, for port 0).
-func (b *Bus) Addr() string { return "" }
-
-// Password is the password every connection must AUTH with.
-func (b *Bus) Password() string { return "" }
-
-// Close stops serving and drops every key.
-func (b *Bus) Close() error { return ErrNotImplemented }
