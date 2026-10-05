@@ -873,7 +873,8 @@ tide on the host listens on 8080 (HTTP and `/rtc` signaling), 7881/tcp and
 (the recorder's Redis endpoint). Docker Desktop routes `host.docker.internal`
 to the host's loopback, so the recorder reaches it without tide listening on
 the LAN; Docker on Linux doesn't, and there `TIDE_RECORDER_REDIS_ADDR` must
-name the Docker bridge address (and `make dev`'s LAN detection, which uses
+name the host-gateway address `host.docker.internal` resolves to (usually
+`docker0`'s 172.17.0.1) (and `make dev`'s LAN detection, which uses
 macOS's `ipconfig`, needs `TIDE_MEDIA_NODE_IP` set by hand).
 
 `Makefile` targets: `dev` (compose up + Go server + Vite, concurrently),
