@@ -7,7 +7,12 @@
 dev:
 	# tide's media server must advertise an address reachable by host browsers
 	# AND the recorder container; use the LAN IP (falls back to loopback:
-	# host-only, and recordings can't connect).
+	# host-only, and recordings can't connect). The recorder reaches tide's
+	# Redis endpoint on its default 127.0.0.1:6379 because Docker Desktop
+	# routes host.docker.internal to the host's loopback. Docker on Linux
+	# doesn't, and has no ipconfig: put TIDE_MEDIA_NODE_IP and
+	# TIDE_RECORDER_REDIS_ADDR (the host-gateway address) in ./.env, which is
+	# loaded after deploy/.env.
 	@ip=$$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo 127.0.0.1); \
 		echo "TIDE_MEDIA_NODE_IP=$$ip" > deploy/.env
 	docker compose -f deploy/compose.yaml up -d
@@ -19,7 +24,6 @@ dev:
 			TIDE_S3_ENDPOINT=http://localhost:9000 \
 			TIDE_S3_PUBLIC_ENDPOINT=http://localhost:9000 \
 			TIDE_S3_RECORDER_ENDPOINT=http://minio:9000 \
-			TIDE_RECORDER_REDIS_ADDR=:6379 \
 			TIDE_TRANSCRIPTS=$${TIDE_TRANSCRIPTS:-true} \
 			TIDE_RECORDER_TEMPLATE_URL=http://host.docker.internal:5173/egress-template \
 			go run ./cmd/tide) & go_pid=$$!; \
