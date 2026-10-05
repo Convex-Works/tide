@@ -89,10 +89,12 @@
     {#each rtc.participants as participant (participant.identity)}
       <div class="participant-row" data-identity={participant.identity}>
         <div class="identity">
-          <div class="name-line">
-            <span class="participant-name">{participant.name}</span>
-            {#if participant.isLocal}<span class="you mono">You</span>{/if}
-            {#if rtc.isHostParticipant(participant)}<span class="host">Host</span>{/if}
+          <div class="who">
+            <div class="name-line">
+              <span class="participant-name">{participant.name}</span>
+              {#if participant.isLocal}<span class="you">(You)</span>{/if}
+            </div>
+            {#if rtc.isHostParticipant(participant)}<span class="role">Meeting host</span>{/if}
           </div>
           <div class="media-state">
             {#if participant.micMuted}
@@ -239,22 +241,20 @@
     white-space: nowrap;
   }
 
-  .you,
-  .host {
-    flex: none;
-    font-size: 10px;
+  .who {
+    display: grid;
+    min-width: 0;
   }
 
   .you {
+    flex: none;
     color: var(--text-2);
-    text-transform: uppercase;
   }
 
-  .host {
-    padding: 0 4px;
-    color: var(--accent-d);
-    border: 1px solid color-mix(in srgb, var(--accent-d) 45%, transparent);
-    border-radius: 999px;
+  .role {
+    color: var(--text-2);
+    font-size: 12px;
+    line-height: 16px;
   }
 
   .media-state {

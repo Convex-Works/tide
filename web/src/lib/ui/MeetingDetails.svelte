@@ -3,7 +3,7 @@
   import { Popover } from 'bits-ui';
   import { Check, Copy, Info } from 'phosphor-svelte';
 
-  let { name, url }: { name: string; url: string } = $props();
+  let { url }: { url: string } = $props();
 
   let open = $state(false);
   let copied = $state(false);
@@ -71,24 +71,17 @@
       {#if shown}
         <div {...wrapperProps}>
           <div {...props} class="details" role="dialog" aria-label="Meeting details">
-            <p class="details-name">{name}</p>
-            <div class="details-link">
-              <span class="link mono" bind:this={link}>{url}</span>
-              <button
-                type="button"
-                class="copy"
-                class:done={copied}
-                aria-label="Copy meeting link"
-                title="Copy meeting link"
-                onclick={() => void copy()}
-              >
-                {#if copied}
-                  <Check size={16} weight="regular" aria-hidden="true" />
-                {:else}
-                  <Copy size={16} weight="regular" aria-hidden="true" />
-                {/if}
-              </button>
-            </div>
+            <p class="details-label">Meeting link</p>
+            <span class="link" bind:this={link}>{url}</span>
+            <button type="button" class="copy" class:done={copied} onclick={() => void copy()}>
+              {#if copied}
+                <Check size={16} weight="regular" aria-hidden="true" />
+                Copied
+              {:else}
+                <Copy size={16} weight="regular" aria-hidden="true" />
+                Copy link
+              {/if}
+            </button>
             <span class="visually-hidden" role="status">{copied ? 'Link copied' : ''}</span>
             {#if copyFailed}
               <p class="details-error">Couldn't copy. The link is selected; copy it by hand.</p>
@@ -101,8 +94,7 @@
 </Popover.Root>
 
 <style>
-  .details-trigger,
-  .copy {
+  .details-trigger {
     display: grid;
     flex: none;
     width: var(--control-height);
@@ -120,11 +112,31 @@
   }
 
   .details-trigger:hover,
-  .details-trigger[aria-expanded='true'],
-  .copy:hover {
+  .details-trigger[aria-expanded='true'] {
     color: var(--text);
     background: var(--panel-2);
     border-color: var(--border-d);
+  }
+
+  .copy {
+    display: inline-flex;
+    justify-self: start;
+    align-items: center;
+    gap: 6px;
+    height: var(--control-height);
+    padding: 0 10px;
+    color: var(--text);
+    font: inherit;
+    background: var(--panel-2);
+    border: 1px solid var(--border-d);
+    border-radius: var(--radius-control);
+    transition:
+      background var(--motion-fast),
+      border-color var(--motion-fast);
+  }
+
+  .copy:hover {
+    border-color: var(--text-2);
   }
 
   .copy.done {
@@ -138,7 +150,7 @@
     z-index: 30;
     display: grid;
     gap: 8px;
-    width: min(320px, calc(100vw - 24px));
+    width: min(300px, calc(100vw - 24px));
     padding: 12px;
     color: var(--text);
     background: var(--panel);
@@ -151,30 +163,18 @@
     outline: none;
   }
 
-  .details-name {
+  .details-label {
     margin: 0;
-    overflow-wrap: anywhere;
-    font-weight: 550;
-  }
-
-  .details-link {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    padding-left: 8px;
-    background: var(--stage);
-    border: 1px solid var(--border-d);
-    border-radius: var(--radius-control);
-  }
-
-  .link {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    color: var(--text);
+    color: var(--text-2);
     font-size: 12px;
-    white-space: nowrap;
-    text-overflow: ellipsis;
+    line-height: 16px;
+  }
+
+  /* The whole link, wrapped where it must: a link cut off by an ellipsis
+     can't be read or checked before it is shared. */
+  .link {
+    color: var(--text);
+    overflow-wrap: anywhere;
     user-select: all;
   }
 

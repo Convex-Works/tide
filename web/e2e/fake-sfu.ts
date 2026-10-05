@@ -91,7 +91,11 @@ function addCandidateInPage(page: Page, candidateInit: string): Promise<void> {
   }, candidateInit);
 }
 
-export async function fakeSfu(page: Page): Promise<FakeSfu> {
+/**
+ * `metadata` is the local participant's, as the server puts it in the token:
+ * `{"role":"host"}` makes them the meeting's host.
+ */
+export async function fakeSfu(page: Page, { metadata = '' } = {}): Promise<FakeSfu> {
   const sockets = new Set<WebSocketRoute>();
   let roomMetadata = '';
   // livekit-client parses text frames as protobuf JSON; binary frames sent
@@ -147,6 +151,7 @@ export async function fakeSfu(page: Page): Promise<FakeSfu> {
           identity,
           name,
           state: 1, // JOINED
+          metadata,
           permission: { canSubscribe: true, canPublish: true, canPublishData: true }
         },
         serverVersion: '1.9.0',

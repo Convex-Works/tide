@@ -31,7 +31,7 @@
 </script>
 
 <time
-  class="clock mono"
+  class="clock"
   data-testid="stage-clock"
   datetime={`${pad(now.getHours())}:${pad(now.getMinutes())}`}>{format.format(now)}</time
 >

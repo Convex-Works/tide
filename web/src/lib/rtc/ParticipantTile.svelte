@@ -94,8 +94,8 @@
     {/if}
 
     <div class="name-label">
-      <span>{participant.name}</span>
-      {#if participant.isLocal}<span class="you mono">You</span>{/if}
+      <span class="name">{participant.name}</span>
+      {#if participant.isLocal}<span class="you">(You)</span>{/if}
       {#if participant.micMuted}
         <MicrophoneSlash size={16} weight="regular" aria-label="Microphone muted" />
       {/if}
@@ -226,9 +226,8 @@
   }
 
   .you {
+    flex: none;
     color: var(--text-2);
-    font-size: 10px;
-    text-transform: uppercase;
   }
 
   @media (max-width: 720px) {

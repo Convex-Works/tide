@@ -160,7 +160,7 @@
       <WallClock />
       <span class="divider" aria-hidden="true"></span>
       <h1 class="room-name" title={roomName}>{roomName}</h1>
-      <MeetingDetails name={roomName} url={meetingURL} />
+      <MeetingDetails url={meetingURL} />
       {#if rtc.isRecording}<span class="rec-chip mono" data-testid="recording-chip">REC</span>{/if}
     </div>
     <!-- Autoplay policy blocks playback until a gesture. Without this the

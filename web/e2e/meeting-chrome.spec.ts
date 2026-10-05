@@ -147,10 +147,16 @@ test('the stage names the room, and its details give the meeting link to copy', 
   await trigger.click();
   const details = page.getByRole('dialog', { name: 'Meeting details' });
   await expect(details).toBeVisible();
-  await expect(details).toContainText(roomName);
-  await expect(details).toContainText(url);
+  // It gives the link, whole: not the name again, and not cut off.
+  await expect(details).not.toContainText(roomName);
+  const link = details.getByText(url, { exact: true });
+  await expect(link).toBeVisible();
+  expect(await link.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true);
+  const box = await details.boundingBox();
+  const linkBox = await link.boundingBox();
+  expect(linkBox!.x + linkBox!.width).toBeLessThanOrEqual(box!.x + box!.width);
   // Focus moves into the popover, onto its one control.
-  const copy = details.getByRole('button', { name: 'Copy meeting link' });
+  const copy = details.getByRole('button', { name: 'Copy link' });
   await expect(copy).toBeFocused();
 
   // A click anywhere else closes it. bits-ui ignores outside clicks for a few
@@ -164,6 +170,7 @@ test('the stage names the room, and its details give the meeting link to copy', 
   await trigger.click();
   await copy.click();
   await expect(details.getByRole('status')).toHaveText('Link copied');
+  await expect(details.getByRole('button', { name: 'Copied' })).toBeVisible();
   expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(url);
 
   // Escape closes it and hands focus back to (i).
@@ -313,4 +320,32 @@ test('on a phone the confirm steps and device menus open on screen', async ({ pa
     await expectInside(page.getByRole('menu', { name: `Choose ${kind}` }));
     await page.keyboard.press('Escape');
   }
+});
+
+test('names and the clock are in Inter, and roles are words, not badges', async ({ page }) => {
+  await mockApi(page, state());
+  await fakeSfu(page, { metadata: '{"role":"host"}' });
+  await enter(page);
+
+  const inter = (locator: Locator) =>
+    locator.evaluate((element) => getComputedStyle(element).fontFamily.split(',')[0].trim());
+  expect(await inter(page.getByTestId('stage-clock'))).toMatch(/Inter/);
+
+  const tile = page.locator('[data-testid="participant-tile"]').first();
+  await expect(tile).toContainText('Ada Host (You)');
+  expect(await inter(tile.getByText('(You)'))).toMatch(/Inter/);
+  await expect(tile).not.toContainText('YOU');
+
+  await page.getByRole('button', { name: /people/i }).click();
+  const row = page.locator('.participant-row').first();
+  await expect(row).toContainText('Ada Host (You)');
+  const role = row.getByText('Meeting host', { exact: true });
+  await expect(role).toBeVisible();
+  // Secondary text, with no pill around it.
+  expect(
+    await role.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return style.borderStyle === 'none' && style.borderRadius === '0px';
+    })
+  ).toBe(true);
 });

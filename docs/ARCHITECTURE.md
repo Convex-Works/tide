@@ -451,10 +451,11 @@ arrives after them.
 Meeting chrome:
 
 - **Top left** of the stage: the wall clock (`HH:MM` in the viewer's locale,
-  Geist Mono, updating on the minute), a 1px divider, the room's human name
-  (ellipsized), and an (i) button. The (i) opens a small popover, meeting
-  details: the room name, the meeting URL and a copy button. It is the only
-  place in the meeting the link appears. The REC chip and the autoplay
+  Inter with tabular numerals, updating on the minute), a 1px divider, the
+  room's human name (ellipsized), and an (i) button. The (i) opens a small
+  popover with the meeting link, shown whole and wrapped rather than cut
+  off, and a **Copy link** button; it doesn't repeat the name beside it. It
+  is the only place in the meeting the link appears. The REC chip and the autoplay
   unlock join this cluster; the connection state stays on the right.
 - **Control bar**, left to right: microphone and camera side by side (each
   with its device caret), screen share, record (hosts only), then view,
@@ -571,8 +572,14 @@ Tokens:
 
 Typography: **Inter** (variable) for all UI — base 13px/20px, weights 450/550,
 scale 11 / 12.5 / 13 / 15 / 18, with 24px reserved for the pre-join room name.
-**Geist Mono** for anything machine-flavored: room slugs, timers, participant
-counts, keyboard shortcuts. The human room name is shown during join and lobby
+**Geist Mono** for anything machine-flavored: room slugs being edited,
+participant counts, keyboard shortcuts. Words people read in the meeting —
+the clock, names, "(You)" — stay in Inter.
+
+**Roles are words, not badges.** No pills or outlined chips for roles: the
+local participant is "Name (You)" and the host carries a secondary line,
+"Meeting host", in `--text-2` (Meet's pattern). The pre-join account line
+says "· Host" in secondary ink. The human room name is shown during join and lobby
 transitions and in the stage's top-left cluster (§9); room slugs are kept out
 of the meeting UI except inside the meeting URL in its details popover.
 

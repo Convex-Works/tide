@@ -270,7 +270,7 @@
   {#if currentUser}
     <div class="account">
       <span class="account-name" title={currentUser.email}>{currentUser.name}</span>
-      {#if canManage}<span class="host-badge">Host</span>{/if}
+      {#if canManage}<span class="account-role">· Host</span>{/if}
       <button
         class="account-action"
         type="button"
@@ -457,15 +457,9 @@
     white-space: nowrap;
   }
 
-  .host-badge {
+  .account-role {
     flex-shrink: 0;
-    padding: 0 6px;
-    color: var(--accent);
-    font-size: 11px;
-    line-height: 18px;
-    font-weight: 550;
-    border: 1px solid var(--border);
-    border-radius: 999px;
+    color: var(--ink-2);
   }
 
   .account-action {
