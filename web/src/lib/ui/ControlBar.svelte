@@ -26,6 +26,7 @@
     chatOpen = false,
     unreadChat = 0,
     canManage = false,
+    canRecord = false,
     roomSlug = '',
     view = 'grid',
     ontogglepeople = () => undefined,
@@ -38,6 +39,8 @@
     chatOpen?: boolean;
     unreadChat?: number;
     canManage?: boolean;
+    /** Shows record: a host, on a deployment that records (ARCHITECTURE.md §8). */
+    canRecord?: boolean;
     roomSlug?: string;
     view?: 'grid' | 'speaker';
     ontogglepeople?: () => void;
@@ -264,7 +267,7 @@
     <Screencast size={16} weight="regular" aria-hidden="true" />
   </button>
 
-  {#if canManage}
+  {#if canRecord}
     <!-- The stopPropagation shield keeps the window click-away handler from
          collapsing the confirm state; interaction lives on the controls. -->
     <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->

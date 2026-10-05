@@ -20,6 +20,9 @@
     errorMessage,
     listRecordings,
     listRooms,
+    me,
+    rateLimited,
+    rateLimitedMessage,
     recordingDownloadURL,
     requestTranscript,
     transcriptDownloadURL,
@@ -33,6 +36,7 @@
     TranscriptFormatVTT,
     TranscriptRunning,
     TranscriptWaiting,
+    type Me,
     type RecordingInfo,
     type RoomInfo,
     type TranscriptInfo
@@ -68,6 +72,10 @@
   };
 
   let loadState = $state<LoadState>('loading');
+  let currentUser = $state<Me>();
+  // Recordings exist only where the deployment records (ARCHITECTURE.md §8):
+  // without it there's no list to load, and nothing is said about them.
+  const recordingOn = $derived(currentUser?.recording === true);
   let room = $state<RoomInfo>();
   let recordings = $state<RecordingInfo[]>([]);
   let recordingsLoading = $state(false);
@@ -108,6 +116,7 @@
     loadState = 'loading';
     error = '';
     try {
+      currentUser = await me();
       const owned = await listRooms();
       const found = owned.find((item) => item.slug === slug);
       if (!found) {
@@ -117,16 +126,15 @@
       room = found;
       slugDraft = found.slug;
       loadState = 'ready';
-      await loadRecordings();
+      if (recordingOn) await loadRecordings();
     } catch (cause) {
       if (cause instanceof AuthRequiredError) {
         loadState = 'signed-out';
         return;
       }
-      error = errorMessage(
-        cause,
-        'Could not load the room. Check your connection, then try again.'
-      );
+      error = rateLimited(cause)
+        ? rateLimitedMessage
+        : errorMessage(cause, 'Could not load the room. Check your connection, then try again.');
       loadState = 'error';
     }
   }
@@ -168,7 +176,7 @@
    * failure; a background poll keeps what's shown and tries again later.
    */
   async function loadRecordings(background = false): Promise<void> {
-    if (destroyed || !room) return;
+    if (destroyed || !room || !recordingOn) return;
     const generation = recordingsGeneration;
     recordingsLoading = true;
     try {
@@ -489,7 +497,13 @@
     <p class="text-[12px] text-ink-2" aria-live="polite">Loading…</p>
   {:else if loadState === 'signed-out'}
     <p class="text-[13px] text-ink-2">
-      Sign in from the <a class="text-accent" href="/">dashboard</a> to manage this room.
+      {#if currentUser?.anonymous}
+        <!-- Its session ended (tide restarted): no sign-in brings it back. -->
+        This browser can no longer manage this room.
+        <a class="text-accent" href="/">Back to rooms</a>
+      {:else}
+        Sign in from the <a class="text-accent" href="/">dashboard</a> to manage this room.
+      {/if}
     </p>
   {:else if loadState === 'not-found'}
     <div class="rounded-card border border-border bg-surface px-4 py-8 text-center">
@@ -521,134 +535,136 @@
 
     {#if error}<p class="mt-4 text-[12px] text-rec" role="alert">{error}</p>{/if}
 
-    <section class="mt-8">
-      <h2 id="recordings-heading" tabindex="-1" class="text-[13px] font-[550] text-ink">
-        Recordings
-      </h2>
+    {#if recordingOn}
+      <section class="mt-8">
+        <h2 id="recordings-heading" tabindex="-1" class="text-[13px] font-[550] text-ink">
+          Recordings
+        </h2>
 
-      {#if recordingsLoading && recordings.length === 0}
-        <p
-          class="mt-2 rounded-card border border-border bg-surface px-3 py-6 text-center text-[12px] text-ink-2"
-        >
-          Loading recordings…
-        </p>
-      {:else if recordingsError && recordings.length === 0}
-        <div class="mt-2 rounded-card border border-border bg-surface px-3 py-6 text-center">
-          <p class="m-0 text-[12px] text-rec" role="alert">{recordingsError}</p>
-          <button
-            class="mt-2 border-0 bg-transparent p-0 text-[12px] text-accent"
-            type="button"
-            onclick={() => void loadRecordings()}
+        {#if recordingsLoading && recordings.length === 0}
+          <p
+            class="mt-2 rounded-card border border-border bg-surface px-3 py-6 text-center text-[12px] text-ink-2"
           >
-            Try again
-          </button>
-        </div>
-      {:else if recordings.length === 0}
-        <p
-          class="mt-2 rounded-card border border-border bg-surface px-3 py-6 text-center text-[12px] text-ink-2"
-        >
-          No recordings yet. They'll appear here after a meeting is recorded.
-        </p>
-      {:else}
-        <div class="mt-2 overflow-hidden rounded-card border border-border bg-surface">
-          {#each recordings as recording (recording.id)}
-            {@const when = dateTimeLabel(recording.started_at)}
-            {@const note = transcriptNote(recording.transcript)}
-            <!-- DOM order is the narrow layout's reading order: the actions end
+            Loading recordings…
+          </p>
+        {:else if recordingsError && recordings.length === 0}
+          <div class="mt-2 rounded-card border border-border bg-surface px-3 py-6 text-center">
+            <p class="m-0 text-[12px] text-rec" role="alert">{recordingsError}</p>
+            <button
+              class="mt-2 border-0 bg-transparent p-0 text-[12px] text-accent"
+              type="button"
+              onclick={() => void loadRecordings()}
+            >
+              Try again
+            </button>
+          </div>
+        {:else if recordings.length === 0}
+          <p
+            class="mt-2 rounded-card border border-border bg-surface px-3 py-6 text-center text-[12px] text-ink-2"
+          >
+            No recordings yet. They'll appear here after a meeting is recorded.
+          </p>
+        {:else}
+          <div class="mt-2 overflow-hidden rounded-card border border-border bg-surface">
+            {#each recordings as recording (recording.id)}
+              {@const when = dateTimeLabel(recording.started_at)}
+              {@const note = transcriptNote(recording.transcript)}
+              <!-- DOM order is the narrow layout's reading order: the actions end
                  the first line and the transcript gets lines of its own. At lg
                  the actions move to the last column, and reading-flow keeps
                  Tab order visual where browsers support it. -->
-            <div
-              class="grid {rowGrid} items-center gap-x-3 gap-y-1.5 border-b border-border px-3 py-2.5 [reading-flow:grid-rows] last:border-b-0"
-              data-recording-id={recording.id}
-            >
-              <span class="flex w-max items-center gap-1">
-                {#if recording.status !== 'completed'}
-                  <span class="{pill} {statusTone(recording.status)}">
-                    {recordingStatusWords[recording.status] ?? recording.status}
-                  </span>
-                {/if}
-                <span class="{pill} border-border text-ink-2">
-                  {recording.audio_only ? 'Audio' : 'Video'}
-                </span>
-              </span>
-              <time
-                class="min-w-0 truncate text-[11px] text-ink-2"
-                datetime={new Date(recording.started_at * 1000).toISOString()}
+              <div
+                class="grid {rowGrid} items-center gap-x-3 gap-y-1.5 border-b border-border px-3 py-2.5 [reading-flow:grid-rows] last:border-b-0"
+                data-recording-id={recording.id}
               >
-                {relativeDate(recording.started_at)}
-              </time>
-              <span class="hidden text-[11px] text-ink-2 sm:block">
-                {durationLabel(recording.duration_s)}
-              </span>
-              <span class="hidden text-[11px] text-ink-2 sm:block">
-                {sizeLabel(recording.size_bytes)}
-              </span>
-              <div class="flex justify-end gap-1 lg:col-[-2/-1] lg:row-start-1">
-                {#if recording.status === 'completed'}
-                  <a
-                    class={rowButton}
-                    href={recordingDownloadURL(recording.id)}
-                    target="_blank"
-                    rel="noreferrer"
-                    aria-label="Download the recording from {when}"
-                  >
-                    <DownloadSimple size={16} weight="regular" aria-hidden="true" />
-                    <span class="hidden sm:inline">Download</span>
-                  </a>
-                {/if}
-                <button
-                  type="button"
-                  disabled={busy || pendingStatuses.includes(recording.status)}
-                  class="{rowControl} {deleteRecordingID === recording.id
-                    ? 'border-rec bg-rec text-white'
-                    : 'border-border bg-paper text-ink-2 hover:bg-surface-2 hover:text-ink'}"
-                  aria-label={deleteRecordingID === recording.id
-                    ? `Confirm delete the recording from ${when}`
-                    : `Delete the recording from ${when}`}
-                  onclick={() => void removeRecording(recording.id)}
-                >
-                  {#if deleteRecordingID === recording.id}
-                    Delete?
-                  {:else}
-                    <Trash size={16} weight="regular" aria-hidden="true" />
+                <span class="flex w-max items-center gap-1">
+                  {#if recording.status !== 'completed'}
+                    <span class="{pill} {statusTone(recording.status)}">
+                      {recordingStatusWords[recording.status] ?? recording.status}
+                    </span>
                   {/if}
-                </button>
-              </div>
-              <!-- Its own column when there's room; its own line when there isn't.
+                  <span class="{pill} border-border text-ink-2">
+                    {recording.audio_only ? 'Audio' : 'Video'}
+                  </span>
+                </span>
+                <time
+                  class="min-w-0 truncate text-[11px] text-ink-2"
+                  datetime={new Date(recording.started_at * 1000).toISOString()}
+                >
+                  {relativeDate(recording.started_at)}
+                </time>
+                <span class="hidden text-[11px] text-ink-2 sm:block">
+                  {durationLabel(recording.duration_s)}
+                </span>
+                <span class="hidden text-[11px] text-ink-2 sm:block">
+                  {sizeLabel(recording.size_bytes)}
+                </span>
+                <div class="flex justify-end gap-1 lg:col-[-2/-1] lg:row-start-1">
+                  {#if recording.status === 'completed'}
+                    <a
+                      class={rowButton}
+                      href={recordingDownloadURL(recording.id)}
+                      target="_blank"
+                      rel="noreferrer"
+                      aria-label="Download the recording from {when}"
+                    >
+                      <DownloadSimple size={16} weight="regular" aria-hidden="true" />
+                      <span class="hidden sm:inline">Download</span>
+                    </a>
+                  {/if}
+                  <button
+                    type="button"
+                    disabled={busy || pendingStatuses.includes(recording.status)}
+                    class="{rowControl} {deleteRecordingID === recording.id
+                      ? 'border-rec bg-rec text-white'
+                      : 'border-border bg-paper text-ink-2 hover:bg-surface-2 hover:text-ink'}"
+                    aria-label={deleteRecordingID === recording.id
+                      ? `Confirm delete the recording from ${when}`
+                      : `Delete the recording from ${when}`}
+                    onclick={() => void removeRecording(recording.id)}
+                  >
+                    {#if deleteRecordingID === recording.id}
+                      Delete?
+                    {:else}
+                      <Trash size={16} weight="regular" aria-hidden="true" />
+                    {/if}
+                  </button>
+                </div>
+                <!-- Its own column when there's room; its own line when there isn't.
                    The inner box takes focus when its button goes: a focusable
                    grid item would take its buttons out of the reading flow. -->
-              <div
-                class="col-span-full min-w-0 lg:col-span-1 {recording.transcript ? '' : 'hidden'}"
-              >
                 <div
-                  class="flex w-fit max-w-full flex-wrap items-center gap-1.5 rounded-control"
-                  tabindex="-1"
-                  data-transcript
-                  data-testid="transcript"
-                  data-status={recording.transcript?.status}
+                  class="col-span-full min-w-0 lg:col-span-1 {recording.transcript ? '' : 'hidden'}"
                 >
-                  {#if recording.transcript}
-                    {@render transcriptCell(recording.id, recording.transcript, when)}
-                  {/if}
+                  <div
+                    class="flex w-fit max-w-full flex-wrap items-center gap-1.5 rounded-control"
+                    tabindex="-1"
+                    data-transcript
+                    data-testid="transcript"
+                    data-status={recording.transcript?.status}
+                  >
+                    {#if recording.transcript}
+                      {@render transcriptCell(recording.id, recording.transcript, when)}
+                    {/if}
+                  </div>
                 </div>
+                {#if note}
+                  <p
+                    class="col-span-full m-0 text-[11px] leading-4 text-ink [contain:inline-size] lg:col-[5/-1]"
+                    data-testid="transcript-note"
+                  >
+                    {note}
+                  </p>
+                {/if}
+                <span class="sr-only" aria-live="polite" data-testid="transcript-live">
+                  {transcriptWords(recording.transcript, when)}
+                </span>
               </div>
-              {#if note}
-                <p
-                  class="col-span-full m-0 text-[11px] leading-4 text-ink [contain:inline-size] lg:col-[5/-1]"
-                  data-testid="transcript-note"
-                >
-                  {note}
-                </p>
-              {/if}
-              <span class="sr-only" aria-live="polite" data-testid="transcript-live">
-                {transcriptWords(recording.transcript, when)}
-              </span>
-            </div>
-          {/each}
-        </div>
-      {/if}
-    </section>
+            {/each}
+          </div>
+        {/if}
+      </section>
+    {/if}
 
     <section class="mt-8">
       <h2 class="text-[13px] font-[550] text-ink">Settings</h2>
@@ -715,7 +731,9 @@
                 : 'text-ink-2'}"
             >
               {#if room.active || room.recording}
-                The link can be changed after the meeting and recording stop.
+                {recordingOn
+                  ? 'The link can be changed after the meeting and recording stop.'
+                  : 'The link can be changed after the meeting ends.'}
               {:else if slugInvalid}
                 Use 3–64 lowercase letters, numbers, and single hyphens.
               {:else}
@@ -743,7 +761,9 @@
           <div class="min-w-0">
             <div class="text-[13px] text-ink">Delete room</div>
             <div class="text-[12px] text-ink-2">
-              Removes the room, its link, and every recording. This can't be undone.
+              {recordingOn
+                ? "Removes the room, its link, and every recording. This can't be undone."
+                : "Removes the room and its link. This can't be undone."}
             </div>
           </div>
           <button
