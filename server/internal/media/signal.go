@@ -6,12 +6,20 @@ import (
 	"net/url"
 	"path"
 	"strings"
-	"time"
 )
 
 // newSignalHandler forwards SignalPath and the paths under it to target, the
 // media server's loopback HTTP address. Everything else answers 404, so the
 // media server's API (/twirp/...) is never reachable through tide.
+//
+// Only GET requests without a body go through (ARCHITECTURE.md §15): every
+// signaling request is a GET (the WebSocket and its validate endpoints), and
+// a body nobody means to send would otherwise hold a connection open.
+//
+// tide's read and write deadlines stand until the media server switches the
+// connection to a WebSocket. They need no clearing here: the proxy hijacks
+// the connection on a 101, and hijacking clears both deadlines (Go 1.26,
+// net/http/server.go:325, conn.hijackLocked: rwc.SetDeadline(time.Time{})).
 func newSignalHandler(target string) http.Handler {
 	upstream, err := url.Parse(target)
 	if err != nil {
@@ -31,35 +39,26 @@ func newSignalHandler(target string) http.Handler {
 			http.NotFound(w, r)
 			return
 		}
-		if isUpgrade(r) {
-			// tide's server gives every request read and write deadlines,
-			// and a signaling WebSocket lives as long as the meeting. Go's
-			// server drops them when the proxy hijacks the connection;
-			// dropping them now also covers the wait for the media server
-			// to accept the upgrade, during which an expired read deadline
-			// would cancel the request.
-			rc := http.NewResponseController(w)
-			_ = rc.SetReadDeadline(time.Time{})
-			_ = rc.SetWriteDeadline(time.Time{})
+		if r.Method != http.MethodGet {
+			w.Header().Set("Allow", http.MethodGet)
+			refuse(w, http.StatusMethodNotAllowed)
+			return
+		}
+		if r.ContentLength != 0 || len(r.TransferEncoding) > 0 {
+			refuse(w, http.StatusBadRequest)
+			return
 		}
 		r = r.Clone(r.Context())
+		r.Body = http.NoBody
 		r.URL.Path = cleaned
 		r.URL.RawPath = ""
 		proxy.ServeHTTP(w, r)
 	})
 }
 
-// isUpgrade reports whether r asks to switch protocols, as a WebSocket does.
-func isUpgrade(r *http.Request) bool {
-	if r.Header.Get("Upgrade") == "" {
-		return false
-	}
-	for _, value := range r.Header.Values("Connection") {
-		for _, token := range strings.Split(value, ",") {
-			if strings.EqualFold(strings.TrimSpace(token), "upgrade") {
-				return true
-			}
-		}
-	}
-	return false
+// refuse answers a request the media server never sees and closes its
+// connection, without waiting for a body the client may never send.
+func refuse(w http.ResponseWriter, status int) {
+	w.Header().Set("Connection", "close")
+	http.Error(w, http.StatusText(status), status)
 }
