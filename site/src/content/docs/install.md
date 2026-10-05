@@ -47,7 +47,7 @@ kubectl -n tide create secret generic s3-secrets \
   --from-literal=secret-key="$S3_SECRET_KEY"
 ```
 
-For an anonymous installation, `tide-secrets` still has to exist: give `session-secret` any random value and `oidc-client-secret` the word `unused`.
+For an anonymous installation, `tide-secrets` still has to exist. tide checks `session-secret` in every mode, so it is `SESSION_SECRET` as for sign-in (32 characters or more); `oidc-client-secret` is unread, so give it the word `unused`.
 
 Also create `tide-tls`, a TLS secret for `APP_HOST`, with cert-manager or `kubectl create secret tls`.
 
@@ -76,7 +76,7 @@ patches:
   # and media-host.yaml or media-tcp.yaml here for MEDIA_OPTION host or tcp
 ```
 
-`tide.yaml`. Leave out the `TIDE_S3_*` lines without recording. For an anonymous installation, set `TIDE_OIDC_ISSUER` to `""` and leave out the other OIDC lines; the volume then goes unused.
+`tide.yaml`. Leave out the `TIDE_S3_*` lines without recording, and the `TIDE_MEDIA_NODE_IP` lines unless `MEDIA_OPTION` is `lb`. For an anonymous installation, set `TIDE_OIDC_ISSUER` to `""` and leave out the other OIDC lines. Keep the volume patch in every mode: the base always mounts it, an anonymous tide just writes nothing there.
 
 ```yaml
 apiVersion: apps/v1
@@ -91,7 +91,7 @@ spec:
           env:
             - name: TIDE_BASE_URL
               value: https://<APP_HOST>
-            - name: TIDE_MEDIA_NODE_IP
+            - name: TIDE_MEDIA_NODE_IP # only for MEDIA_OPTION lb
               value: <NODE_IP>
             - name: TIDE_OIDC_ISSUER
               value: <OIDC_ISSUER>
@@ -124,7 +124,7 @@ Then add exactly one file for your `MEDIA_OPTION`, and list it in `kustomization
 | `host`         | `media-host.yaml` | `patches`     |
 | `tcp`          | `media-tcp.yaml`  | `patches`     |
 
-`media-lb.yaml`: a UDP load balancer. Add your provider's annotation for a static address; that address is `NODE_IP`. Clients that block UDP cannot connect with this option alone.
+`media-lb.yaml`: a UDP load balancer. Add your provider's annotation for a static address; that address is `NODE_IP`. Clients that block UDP cannot connect with this option alone. With recording, the recorder beside tide reaches media only through `NODE_IP`, so the cluster must route the load balancer's address back to the pod: check 5 of [Verify](/docs/verify) proves it.
 
 ```yaml
 apiVersion: v1
@@ -144,7 +144,7 @@ spec:
       protocol: UDP
 ```
 
-`media-host.yaml`: tide's media ports on the public node. First run `kubectl label node <NODE_NAME> tide/media=public`.
+`media-host.yaml`: tide's media ports on the public node. First run `kubectl label node <NODE_NAME> tide/media=public`. tide finds the node's public address itself and also offers the pod's own, which the recorder uses.
 
 ```yaml
 apiVersion: apps/v1
@@ -187,7 +187,7 @@ spec:
               protocol: TCP
 ```
 
-`ingress.yaml`, for ingress-nginx. Signaling is a WebSocket on the same host, so keep the long timeouts.
+`ingress.yaml`, for ingress-nginx. Signaling is a WebSocket (a GET with `Upgrade`) on `/rtc` of the same host, so keep the long timeouts.
 
 ```yaml
 apiVersion: networking.k8s.io/v1
@@ -220,7 +220,7 @@ Keep the recorder's pinned image: it is released and tested with tide's media se
 
 ```sh
 # Must print nothing. Each line it prints is a value still missing.
-kubectl kustomize deploy/overlays/production | grep -nE '<[A-Z_]+>|example\.com|replace-with'
+kubectl kustomize deploy/overlays/production | grep -nE '<[A-Z_]+>|example\.com'
 
 kubectl apply -k deploy/overlays/production
 kubectl -n tide rollout status deploy/tide --timeout=5m

@@ -39,7 +39,7 @@ You bring: one DNS name with TLS, and a way for browsers to reach tide over UDP.
 ## Rules
 
 - Run exactly one tide replica with the `Recreate` strategy. Its database, lobby and meetings cannot be shared.
-- Restarting tide ends every live meeting. Upgrade when none is running.
+- Restarting tide ends every live meeting: people choose Rejoin, guests through the lobby again. Upgrade when none is running.
 - Never set `TIDE_DEV_MODE` in production.
 - With recording, put tide in a namespace of its own: the recorder needs the `SYS_ADMIN` capability and an unconfined seccomp profile.
 

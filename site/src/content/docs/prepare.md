@@ -50,18 +50,18 @@ Audio and video do not pass through the ingress. Browsers connect straight to ti
 | `7882/udp` | all media, multiplexed               |
 | `7881/tcp` | fallback for networks that block UDP |
 
-Pick the first option the cluster supports and record it as `MEDIA_OPTION`, with the public IPv4 address as `NODE_IP`:
+Pick the first option the cluster supports and record it as `MEDIA_OPTION`:
 
-1. `lb`: the cluster can create a `LoadBalancer` Service for UDP with a stable public IPv4 address.
+1. `lb`: the cluster can create a `LoadBalancer` Service for UDP with a stable public IPv4 address. Record that address as `NODE_IP`.
 2. `host`: one schedulable node has a stable public IPv4 address. Open `7882/udp` and `7881/tcp` in its firewall.
 3. `tcp`: neither. Expose `7881/tcp` on a public node. Calls lose quality on lossy networks; tell the user.
 
-A DNS name is not a substitute for `NODE_IP`.
+For `host` and `tcp`, tide finds the node's public address itself. Record a `NODE_IP` for them only if the cluster's outbound traffic leaves through another address (a NAT gateway). A DNS name is not a substitute for `NODE_IP`.
 
 ## 5. Secrets
 
 ```sh
-openssl rand -base64 48   # SESSION_SECRET, with sign-in
+openssl rand -base64 48   # SESSION_SECRET, always
 openssl rand -hex 8       # MEDIA_API_KEY, with recording
 openssl rand -hex 32      # MEDIA_API_SECRET, with recording
 openssl rand -hex 32      # RECORDER_PASSWORD, with recording
@@ -72,9 +72,9 @@ tide refuses to start if the session secret, media secret or recorder password i
 ## Done when
 
 - [ ] `APP_HOST` resolves to the ingress, with a certificate
-- [ ] `REGISTRY`, `VERSION`, and with sign-in a durable `STORAGE_CLASS`
-- [ ] `MEDIA_OPTION`, `NODE_IP`, and for `host` or `tcp` the node's name `NODE_NAME`
-- [ ] with sign-in: `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`, `SESSION_SECRET`
+- [ ] `REGISTRY`, `VERSION`, `SESSION_SECRET`, and a durable `STORAGE_CLASS` (the volume is mounted in every mode)
+- [ ] `MEDIA_OPTION`; for `lb` its `NODE_IP`; for `host` or `tcp` the node's name `NODE_NAME`
+- [ ] with sign-in: `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`
 - [ ] with recording: `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_ENDPOINT`, `S3_PUBLIC_ENDPOINT`, `S3_RECORDER_ENDPOINT`, `MEDIA_API_KEY`, `MEDIA_API_SECRET`, `RECORDER_PASSWORD`
 
 Next: [Install](/docs/install).
