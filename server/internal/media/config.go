@@ -52,6 +52,11 @@ func livekitConfig(opts Options) (*config.Config, error) {
 	line("  udp_port: %d", opts.UDPPort)
 	switch {
 	case opts.NodeIP != "":
+		// A configured address replaces the interface addresses in every
+		// candidate (LiveKit rewrites them all to node_ip, with no way to
+		// keep the internal ones as well), so a recorder in tide's network
+		// namespace must reach this address, hairpinning where it isn't
+		// local.
 		ip := net.ParseIP(opts.NodeIP)
 		if ip == nil {
 			return nil, fmt.Errorf("media: the node IP %q is not an IP address", opts.NodeIP)
@@ -66,10 +71,11 @@ func livekitConfig(opts Options) (*config.Config, error) {
 		line("  use_external_ip: false")
 		loopbackMedia(line)
 	default:
-		// Production's settings: the public address from STUN, the internal
-		// address advertised too (a recorder in tide's network namespace
-		// connects to it), and no self-check of the public address, which
-		// fails wherever the network doesn't hairpin (Kubernetes hostPort).
+		// Production's settings: the public address from STUN, advertised
+		// alongside the interface addresses rather than in place of them (a
+		// recorder in tide's network namespace connects to those), and no
+		// self-check of the public address, which fails wherever the network
+		// doesn't hairpin (Kubernetes hostPort).
 		line("  use_external_ip: true")
 		line("  advertise_internal_ip: true")
 		line("  skip_external_ip_validation: true")

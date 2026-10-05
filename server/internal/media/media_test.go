@@ -414,7 +414,11 @@ func TestCloseReleasesThePorts(t *testing.T) {
 
 func TestFailedStartReleasesTheMediaPorts(t *testing.T) {
 	opts := testOptions(t)
-	// Take the API port, so the start fails after the media ports opened.
+	// Take the API port and let the start past tide's own check of it, so it
+	// fails where LiveKit listens, after the media ports opened.
+	check := apiPortFree
+	apiPortFree = func(int) error { return nil }
+	t.Cleanup(func() { apiPortFree = check })
 	blocker, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(opts.InternalPort))
 	if err != nil {
 		t.Fatal(err)
@@ -433,6 +437,62 @@ func TestFailedStartReleasesTheMediaPorts(t *testing.T) {
 		t.Fatalf("start after a failed start: the media ports stayed taken: %v", err)
 	}
 	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A start refused for a taken API port starts nothing: once started,
+// LiveKit's router publishes a keepalive on the bus every 2 s, and a failed
+// LiveKit Start can't stop it.
+func TestFailedStartLeavesTheBusAlone(t *testing.T) {
+	bus := startBus(t, "127.0.0.1:0")
+	opts := testOptions(t)
+	opts.Bus = bus
+	blocker, err := net.Listen("tcp", "127.0.0.1:"+strconv.Itoa(opts.InternalPort))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer blocker.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if s, err := Start(ctx, opts); err == nil {
+		_ = s.Close()
+		t.Fatal("the media server started on a taken API port")
+	} else if !strings.Contains(err.Error(), "address already in use") {
+		t.Fatalf("start error %q doesn't say the port is taken", err)
+	}
+	time.Sleep(500 * time.Millisecond)
+	before := bus.kv.CommandCount()
+	time.Sleep(5 * time.Second)
+	if after := bus.kv.CommandCount(); after != before {
+		t.Fatalf("%d commands reached the bus in the 5 s after a failed start", after-before)
+	}
+}
+
+// A start given up on (its context ended) stops the server once it is up,
+// and the ports come free.
+func TestAbandonedStartReleasesThePorts(t *testing.T) {
+	opts := testOptions(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if s, err := Start(ctx, opts); err == nil {
+		_ = s.Close()
+		t.Fatal("a start with its context already ended returned a server")
+	} else if !errors.Is(err, context.Canceled) {
+		t.Fatalf("start error %v, want context.Canceled", err)
+	}
+	var again *Server
+	eventually(t, 15*time.Second, "the abandoned server's ports to come free", func() bool {
+		start, cancelStart := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancelStart()
+		s, err := Start(start, opts)
+		if err != nil {
+			return false
+		}
+		again = s
+		return true
+	})
+	if err := again.Close(); err != nil {
 		t.Fatal(err)
 	}
 }

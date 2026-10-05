@@ -199,3 +199,27 @@ func TestBusCloseIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A process that stalls (a long GC, a paused VM) misses ticks; when it
+// resumes, the bus moves TTLs on by the time that actually passed, as Redis
+// would, rather than by one tick.
+func TestBusTTLsCountAStall(t *testing.T) {
+	bus := startBus(t, "127.0.0.1:0")
+	client := busClient(t, bus, testBusPassword)
+	ctx := context.Background()
+	if err := client.Set(ctx, "claim", "1", 10*time.Second).Err(); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Set(ctx, "node", "up", 30*time.Second).Err(); err != nil {
+		t.Fatal(err)
+	}
+	// The first tick after an 11-second stall.
+	bus.advance(time.Now().Add(11 * time.Second))
+	if client.Exists(ctx, "claim").Val() != 0 {
+		t.Fatal("a 10s key outlived an 11s stall")
+	}
+	left := client.PTTL(ctx, "node").Val()
+	if left < 17*time.Second || left > 20*time.Second {
+		t.Fatalf("a 30s key has %s left after 11s, want about 19s", left)
+	}
+}
