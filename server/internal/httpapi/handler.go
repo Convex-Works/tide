@@ -27,6 +27,10 @@ import (
 	"tide/internal/store"
 )
 
+// anonymousRoomCap is rooms.AnonymousRoomCap, a variable so that tests can
+// reach the ceiling.
+var anonymousRoomCap = rooms.AnonymousRoomCap
+
 type Handler struct {
 	web         fs.FS
 	sessions    *auth.Sessions
@@ -94,6 +98,9 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 		return nil, nil, errors.New("recording is on in anonymous mode: recording needs sign-in")
 	}
 	sessions := auth.NewSessions(cfg.SessionSecret, cfg.BaseURL, roomStore)
+	if cfg.Anonymous {
+		sessions = auth.NewAnonymousSessions(cfg.SessionSecret, cfg.BaseURL, roomStore)
+	}
 	minter := tidelivekit.NewMinter(cfg)
 	registry := lobby.NewRegistry(lobby.DefaultRequestTTL)
 	ips := newClientIPResolver(cfg.TrustedProxies)
@@ -146,7 +153,12 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 		}
 	})
 	liveRooms := rooms.NewLiveKitSource(cfg)
+	meetings := rooms.NewLiveKitMeetingEnder(cfg)
 	roomsHandler := rooms.NewHandler(roomStore, roomObjects, liveRooms, registry)
+	roomsHandler.SetMeetingEnder(meetings)
+	if cfg.Anonymous {
+		roomsHandler.SetRoomCap(anonymousRoomCap)
+	}
 	transcriptsOn.attach(recordingHandler, roomsHandler)
 	handler := &Handler{
 		web:         web,
@@ -271,7 +283,7 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 		background.recording = recordingHandler
 	}
 	if cfg.Anonymous {
-		background.sweeper = rooms.NewSweeper(roomStore, liveRooms, rooms.AnonymousRoomIdle)
+		background.sweeper = rooms.NewSweeper(roomStore, liveRooms, meetings, rooms.AnonymousRoomIdle)
 	}
 	return securityHeaders(handler.withSession(mux)), background, nil
 }

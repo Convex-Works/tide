@@ -103,3 +103,47 @@ func TestIdleRoomsCountsTheLaterOfCreationAndLastJoin(t *testing.T) {
 		t.Fatalf("IdleRooms(100) = %q, want the two unused since before 100, oldest first", slugs)
 	}
 }
+
+// DeleteIdleRoom checks idleness as it deletes: a room used since the cutoff
+// stays, with nothing of its recordings queued, and one still idle goes.
+func TestDeleteIdleRoomChecksAgainAsItDeletes(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	room := Room{ID: "room", Slug: "room", Name: "Room", OwnerSub: "anon:owner", CreatedAt: 10}
+	if err := db.CreateRoom(ctx, room); err != nil {
+		t.Fatal(err)
+	}
+	key := "recordings/room/rec/old.ogg"
+	if err := db.InsertRecording(ctx, Recording{
+		ID: "rec", RoomID: room.ID, RoomSlug: room.Slug, EgressID: "egress", Status: "completed",
+		StartedBy: "anon:owner", StartedAt: 10, S3Key: &key,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.TouchRoomActive(ctx, room.Slug, 200); err != nil {
+		t.Fatal(err)
+	}
+	if count, err := db.CountRooms(ctx); err != nil || count != 1 {
+		t.Fatalf("CountRooms = %d, %v", count, err)
+	}
+	if _, err := db.DeleteIdleRoom(ctx, room.ID, 100, 300); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("deleting a room used since the cutoff = %v, want sql.ErrNoRows", err)
+	}
+	if due, err := db.DueRemovals(ctx, 1<<40, 10); err != nil || len(due) != 0 {
+		t.Fatalf("a room that stayed queued %q (%v)", due, err)
+	}
+	keys, err := db.DeleteIdleRoom(ctx, room.ID, 250, 300)
+	if err != nil || len(keys) == 0 {
+		t.Fatalf("deleting a room idle since the cutoff = %q, %v", keys, err)
+	}
+	if count, err := db.CountRooms(ctx); err != nil || count != 0 {
+		t.Fatalf("CountRooms after = %d, %v", count, err)
+	}
+	if _, err := db.DeleteIdleRoom(ctx, room.ID, 0, 300); err == nil {
+		t.Fatal("DeleteIdleRoom without a cutoff deleted unconditionally")
+	}
+}

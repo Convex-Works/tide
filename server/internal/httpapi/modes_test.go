@@ -413,3 +413,137 @@ func TestNewRefusesWhatTheModesForbid(t *testing.T) {
 		}
 	}
 }
+
+// A session belongs to the mode that issued it (ARCHITECTURE.md §4.1), even
+// when an operator switches modes keeping the session secret: an anonymous
+// cookie is no host in a deployment with sign-in, and a host's (or an
+// administrator's) cookie is nobody in an anonymous one.
+func TestSessionsDontCrossModes(t *testing.T) {
+	anonymous := startTide(t, anonymousMode(100))
+	owner := anonymous.browser("192.0.2.10")
+	owner.me()
+	var room api.RoomInfo
+	owner.want(http.MethodPost, api.RoomsPath, `{"name":"Mine"}`, http.StatusCreated, &room)
+
+	// An administrator's cookie, signed with the same secret by a deployment
+	// with sign-in, gets a new anonymous session here, and no room.
+	admin := &browser{k: anonymous, from: "192.0.2.11",
+		cookie: makeSessionCookie(t, anonymous.cfg, auth.Session{Sub: "root", Name: "Root", IsAdmin: true})}
+	if me := admin.me(); !me.Anonymous || me.Sub == "root" || !strings.HasPrefix(me.Sub, auth.AnonymousSubPrefix) {
+		t.Fatalf("an administrator's cookie in an anonymous deployment = %+v", me)
+	}
+	var lookup api.PublicRoomInfo
+	admin.want(http.MethodGet, fill(api.RoomPath, room.Slug), "", http.StatusOK, &lookup)
+	if lookup.CanManage {
+		t.Fatal("an administrator's cookie manages an anonymous owner's room")
+	}
+	admin.want(http.MethodDelete, fill(api.RoomPath, room.Slug), "", http.StatusForbidden, nil)
+
+	// The anonymous owner's cookie, in a deployment with sign-in and the same
+	// secret, is no session at all.
+	signedIn := startTide(t, func(cfg *config.Config, _ *http.Server) {
+		cfg.Recording, cfg.Transcripts = false, false
+		cfg.SessionSecret = anonymous.cfg.SessionSecret
+	})
+	stranger := &browser{k: signedIn, cookie: owner.cookie}
+	for _, route := range []struct{ method, path string }{
+		{http.MethodGet, api.MePath}, {http.MethodGet, api.RoomsPath}, {http.MethodPost, api.RoomsPath},
+	} {
+		if status, _, body := stranger.send(route.method, route.path, `{"name":"Smuggled"}`); status != http.StatusUnauthorized {
+			t.Errorf("%s %s with an anonymous cookie = %d %s, want 401", route.method, route.path, status, body)
+		}
+	}
+}
+
+// An anonymous deployment stops creating rooms at its ceiling (§4.1); a
+// deployment with sign-in has none.
+func TestOnlyAnonymousRoomsHaveACeiling(t *testing.T) {
+	saved := anonymousRoomCap
+	anonymousRoomCap = 2
+	t.Cleanup(func() { anonymousRoomCap = saved })
+
+	k := startTide(t, anonymousMode(100))
+	creator := k.browser("192.0.2.20")
+	creator.me()
+	creator.want(http.MethodPost, api.RoomsPath, `{"name":"One"}`, http.StatusCreated, nil)
+	other := k.browser("192.0.2.21")
+	other.me()
+	other.want(http.MethodPost, api.RoomsPath, `{"name":"Two"}`, http.StatusCreated, nil)
+	var refused api.ErrorResponse
+	other.want(http.MethodPost, api.RoomsPath, `{"name":"Three"}`, http.StatusServiceUnavailable, &refused)
+	if refused.Error != "This server has too many rooms. Try again later." {
+		t.Fatalf("503 says %q", refused.Error)
+	}
+
+	signedIn := startTide(t, func(cfg *config.Config, _ *http.Server) { cfg.Recording, cfg.Transcripts = false, false })
+	alice := signedIn.signIn(auth.Session{Sub: "alice", Name: "Alice"})
+	for _, name := range []string{"One", "Two", "Three"} {
+		alice.createRoom(name)
+	}
+}
+
+// Every token tide mints for a room marks the room active before it leaves
+// (§5), so the anonymous sweep, which deletes only rooms still idle, never
+// deletes one a meeting is starting in, though the media server's webhook
+// hasn't arrived (here it never does).
+func TestTokensMarkTheirRoomActive(t *testing.T) {
+	k := startTide(t, anonymousMode(100))
+	owner := k.browser("192.0.2.30")
+	owner.me()
+	var room api.RoomInfo
+	owner.want(http.MethodPost, api.RoomsPath, `{"name":"Fresh"}`, http.StatusCreated, &room)
+	lastActive := func() *int64 {
+		t.Helper()
+		stored, err := k.db.RoomBySlug(context.Background(), room.Slug)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return stored.LastActiveAt
+	}
+	if lastActive() != nil {
+		t.Fatal("a room nobody joined is active")
+	}
+	if joined := owner.join(room.Slug, "Owner"); joined.Token == "" {
+		t.Fatalf("owner's join = %+v", joined)
+	}
+	if lastActive() == nil {
+		t.Fatal("the owner's token left without marking the room active")
+	}
+	// The lobby's admission does too: clear the mark, and admit a guest.
+	if _, err := k.db.DeleteRoom(context.Background(), room.ID, time.Now().Unix()); err != nil {
+		t.Fatal(err)
+	}
+	owner.want(http.MethodPost, api.RoomsPath, `{"name":"Again","slug":"`+room.Slug+`"}`, http.StatusCreated, &room)
+	guest := k.browser("192.0.2.31")
+	waiting := guest.join(room.Slug, "Guest")
+	if waiting.RequestID == "" {
+		t.Fatalf("guest's join = %+v, want the lobby", waiting)
+	}
+	if lastActive() != nil {
+		t.Fatal("a lobby request marked the room active before anyone was admitted")
+	}
+	owner.want(http.MethodPost, fill(api.LobbyApprovePath, waiting.RequestID), "", http.StatusNoContent, nil)
+	if lastActive() == nil {
+		t.Fatal("the admitted guest's token left without marking the room active")
+	}
+}
+
+// The sweep is an anonymous deployment's alone: a deployment with sign-in
+// keeps its rooms however long they go unused.
+func TestOnlyAnAnonymousDeploymentSweeps(t *testing.T) {
+	db, _ := openStore(t)
+	for _, anonymous := range []bool{false, true} {
+		cfg := config.Config{
+			BaseURL: "http://127.0.0.1", SessionSecret: "test-session-secret-long-enough-for-tide",
+			LiveKitURL: "ws://livekit.example", LiveKitAPIKey: "devkey",
+			LiveKitAPISecret: "test-livekit-secret-with-enough-bytes", Anonymous: anonymous,
+		}
+		_, background, err := New(cfg, nil, db, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if (background.sweeper != nil) != anonymous {
+			t.Errorf("anonymous=%v: sweeper %v", anonymous, background.sweeper)
+		}
+	}
+}

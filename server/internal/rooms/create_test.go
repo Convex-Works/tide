@@ -2,9 +2,12 @@ package rooms
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -118,5 +121,68 @@ func TestCreateRoomRefusesAnotherOwnersSlug(t *testing.T) {
 	}
 	if room, err := db.RoomBySlug(context.Background(), "all-hands"); err != nil || room.OwnerSub != "someone-else" {
 		t.Fatalf("all-hands = %+v, %v", room, err)
+	}
+}
+
+// An anonymous deployment caps how many rooms it keeps (ARCHITECTURE.md
+// §4.1): at the ceiling creating one answers 503 until a room goes.
+func TestCreateRoomStopsAtTheCap(t *testing.T) {
+	handler, _, db, existing := deleteTestHandler(t)
+	handler.SetRoomCap(3)
+	for _, name := range []string{"Second", "Third"} {
+		if status, _, body := create(t, handler, `{"name":"`+name+`"}`); status != http.StatusCreated {
+			t.Fatalf("create %s = %d %s", name, status, body)
+		}
+	}
+	status, _, body := create(t, handler, `{"name":"Fourth"}`)
+	if status != http.StatusServiceUnavailable || !strings.Contains(body, "This server has too many rooms. Try again later.") {
+		t.Fatalf("create past the cap = %d %s, want 503", status, body)
+	}
+	if count, err := db.CountRooms(context.Background()); err != nil || count != 3 {
+		t.Fatalf("rooms = %d, %v; want 3", count, err)
+	}
+	// A room going makes room for one.
+	response := httptest.NewRecorder()
+	handler.Delete(response, deleteRequest(existing.Slug, "owner"))
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("delete = %d", response.Code)
+	}
+	if status, _, body := create(t, handler, `{"name":"Fourth"}`); status != http.StatusCreated {
+		t.Fatalf("create after a delete = %d %s", status, body)
+	}
+	// Without a cap (a deployment with sign-in) there is none.
+	handler.SetRoomCap(0)
+	if status, _, body := create(t, handler, `{"name":"Fifth"}`); status != http.StatusCreated {
+		t.Fatalf("create without a cap = %d %s", status, body)
+	}
+}
+
+// Deleting a room ends the meeting in it (ARCHITECTURE.md §5), so that
+// nobody stays on under a slug someone else can now create; a media server
+// that can't be reached doesn't stop the delete.
+func TestDeleteEndsTheMeetingInTheRoom(t *testing.T) {
+	handler, _, db, room := deleteTestHandler(t)
+	ender := &fakeEnder{err: errors.New("media server unavailable")}
+	handler.SetMeetingEnder(ender)
+	response := httptest.NewRecorder()
+	handler.Delete(response, deleteRequest(room.Slug, "owner"))
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("delete = %d %s", response.Code, response.Body)
+	}
+	if want := []string{room.Slug}; !slices.Equal(ender.ended, want) {
+		t.Fatalf("ended meetings in %q, want %q", ender.ended, want)
+	}
+	if _, err := db.RoomBySlug(context.Background(), room.Slug); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("room lookup after delete = %v", err)
+	}
+	// A refused delete ends nothing.
+	other := store.Room{ID: "room-2", Slug: "other-room", Name: "Other", OwnerSub: "owner", CreatedAt: 1}
+	if err := db.CreateRoom(context.Background(), other); err != nil {
+		t.Fatal(err)
+	}
+	response = httptest.NewRecorder()
+	handler.Delete(response, deleteRequest(other.Slug, "stranger"))
+	if response.Code != http.StatusForbidden || len(ender.ended) != 1 {
+		t.Fatalf("a stranger's delete = %d, ended %q", response.Code, ender.ended)
 	}
 }

@@ -362,6 +362,30 @@ func (s *Store) UpdateRoom(ctx context.Context, room Room) error {
 // transcripts, and queues every file of those recordings for removal from
 // storage by now, all in one transaction. It returns the keys it queued.
 func (s *Store) DeleteRoom(ctx context.Context, id string, now int64) ([]string, error) {
+	return s.deleteRoom(ctx, id, now, 0)
+}
+
+// DeleteIdleRoom deletes a room as DeleteRoom does, but only if nobody has
+// used it since before (Unix seconds), as IdleRooms says, checked in the
+// same statement that deletes it: a room touched since it was listed idle
+// stays. sql.ErrNoRows says it wasn't deleted.
+func (s *Store) DeleteIdleRoom(ctx context.Context, id string, before, now int64) ([]string, error) {
+	if before <= 0 {
+		return nil, errors.New("store: an idle cutoff is required")
+	}
+	return s.deleteRoom(ctx, id, now, before)
+}
+
+// CountRooms counts every room.
+func (s *Store) CountRooms(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM rooms`).Scan(&count)
+	return count, err
+}
+
+// deleteRoom deletes room id; with idleBefore set, only if it is idle since
+// then.
+func (s *Store) deleteRoom(ctx context.Context, id string, now, idleBefore int64) ([]string, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -391,7 +415,12 @@ func (s *Store) DeleteRoom(ctx context.Context, id string, now int64) ([]string,
 	}
 	// Recording and transcript rows go with the room via ON DELETE CASCADE
 	// (foreign_keys=ON).
-	result, err := tx.ExecContext(ctx, "DELETE FROM rooms WHERE id = ?", id)
+	statement, args := "DELETE FROM rooms WHERE id = ?", []any{id}
+	if idleBefore > 0 {
+		statement += " AND MAX(created_at, COALESCE(last_active_at, created_at)) < ?"
+		args = append(args, idleBefore)
+	}
+	result, err := tx.ExecContext(ctx, statement, args...)
 	if err != nil {
 		return nil, err
 	}

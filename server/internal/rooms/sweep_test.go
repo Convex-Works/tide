@@ -69,7 +69,7 @@ func TestSweepDeletesRoomsUnusedForADayUnlessLive(t *testing.T) {
 		// An empty room the media server still holds is not a meeting.
 		"unused-for-two-days": {NumParticipants: 0},
 	}}
-	sweeper := NewSweeper(db, live, AnonymousRoomIdle)
+	sweeper := NewSweeper(db, live, nil, AnonymousRoomIdle)
 	sweeper.SetClock(func() time.Time { return now })
 
 	deleted, err := sweeper.Sweep(context.Background())
@@ -108,7 +108,7 @@ func TestSweepDeletesRoomsUnusedForADayUnlessLive(t *testing.T) {
 func TestSweepDeletesNothingWhenLiveRoomsAreUnknown(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	db := sweepStore(t, now)
-	sweeper := NewSweeper(db, &fakeLiveSource{err: errors.New("media server unavailable")}, AnonymousRoomIdle)
+	sweeper := NewSweeper(db, &fakeLiveSource{err: errors.New("media server unavailable")}, nil, AnonymousRoomIdle)
 	sweeper.SetClock(func() time.Time { return now })
 	before := remaining(t, db)
 	if deleted, err := sweeper.Sweep(context.Background()); err == nil || len(deleted) != 0 {
@@ -122,7 +122,7 @@ func TestSweepDeletesNothingWhenLiveRoomsAreUnknown(t *testing.T) {
 func TestSweeperRunsAtOnceAndStopsWithItsContext(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)
 	db := sweepStore(t, now)
-	sweeper := NewSweeper(db, &fakeLiveSource{}, AnonymousRoomIdle)
+	sweeper := NewSweeper(db, &fakeLiveSource{}, nil, AnonymousRoomIdle)
 	sweeper.SetClock(func() time.Time { return now })
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -142,5 +142,56 @@ func TestSweeperRunsAtOnceAndStopsWithItsContext(t *testing.T) {
 	case <-done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("Run didn't stop with its context")
+	}
+}
+
+// touchingLiveSource is a live source that, as the sweep asks it which
+// rooms are live, lets someone join a room: the moment between the sweep
+// listing a room idle and deleting it.
+type touchingLiveSource struct {
+	db   *store.Store
+	slug string
+	at   int64
+}
+
+func (s *touchingLiveSource) ActiveRooms(ctx context.Context) (map[string]LiveRoom, error) {
+	return nil, s.db.TouchRoomActive(ctx, s.slug, s.at)
+}
+
+// fakeEnder records the meetings it ends.
+type fakeEnder struct {
+	ended []string
+	err   error
+}
+
+func (f *fakeEnder) EndMeeting(_ context.Context, slug string) error {
+	f.ended = append(f.ended, slug)
+	return f.err
+}
+
+// A room joined after the sweep listed it idle stays: the delete checks
+// again (ARCHITECTURE.md §5). The meetings in the rooms it does delete are
+// ended, even when ending one fails.
+func TestSweepSparesARoomJoinedAsItSweeps(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	db := sweepStore(t, now)
+	ender := &fakeEnder{err: errors.New("media server unavailable")}
+	sweeper := NewSweeper(db, &touchingLiveSource{db: db, slug: "unused-for-two-days", at: now.Unix()}, ender, AnonymousRoomIdle)
+	sweeper.SetClock(func() time.Time { return now })
+
+	deleted, err := sweeper.Sweep(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(deleted)
+	if want := []string{"joined-two-days-ago", "live-since-yesterday"}; !slices.Equal(deleted, want) {
+		t.Fatalf("deleted %q, want %q", deleted, want)
+	}
+	if _, err := db.RoomBySlug(context.Background(), "unused-for-two-days"); err != nil {
+		t.Fatalf("the room joined during the sweep: %v", err)
+	}
+	slices.Sort(ender.ended)
+	if !slices.Equal(ender.ended, deleted) {
+		t.Fatalf("ended meetings in %q, want in every deleted room %q", ender.ended, deleted)
 	}
 }
