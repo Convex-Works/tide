@@ -99,7 +99,7 @@ services:
       timeout: 3s
       retries: 30
     # The recorder shares tide's network namespace: it signals at
-    # localhost:7880 (the media server itself), reaches the Redis endpoint on
+    # 127.0.0.1:7880 (the media server itself), reaches the Redis endpoint on
     # tide's loopback, and the media server's advertised address (the .4
     # address below) is the correct candidate for its Chrome too.
     network_mode: "service:tide"

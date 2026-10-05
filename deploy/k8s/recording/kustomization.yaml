@@ -1,0 +1,15 @@
+# Recording: object storage for tide, and the recorder as a sidecar in tide's
+# pod, where it shares tide's network namespace. Use it from an overlay with
+#
+#   components:
+#     - ../../k8s/recording
+#
+# The recorder needs SYS_ADMIN and an unconfined seccomp profile for headless
+# Chrome, so tide's pod then violates Pod Security `baseline`. Run tide in a
+# namespace of its own with an explicit exception; do not weaken the policy
+# for unrelated workloads. See docs/DEPLOYMENT.md.
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  - path: recording.yaml

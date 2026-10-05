@@ -1,3 +1,8 @@
+# tide, with its media server inside it. Browsers signal through tide's own
+# origin (/rtc), so there is one Service and one ingress route; audio and video
+# go straight to the pod on 7882/udp (and 7881/tcp as the fallback), which this
+# base deliberately does not expose. An overlay must select one media path:
+# read docs/DEPLOYMENT.md#choose-the-media-path.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -19,6 +24,9 @@ spec:
         app.kubernetes.io/name: tide
         app.kubernetes.io/component: app
     spec:
+      # OVERLAY: For media path (b), pin the pod to the public-IP node, e.g.
+      # nodeSelector:
+      #   tide/media: public
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
@@ -41,6 +49,16 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
+            - name: media-tcp
+              containerPort: 7881
+              # OVERLAY: Media path (b) or (c): uncomment hostPort: 7881.
+              # hostPort: 7881
+              protocol: TCP
+            - name: media-udp
+              containerPort: 7882
+              # OVERLAY: Media path (b): uncomment hostPort: 7882.
+              # hostPort: 7882
+              protocol: UDP
           env:
             - name: TIDE_ADDR
               value: :8080
@@ -53,20 +71,8 @@ spec:
                   key: session-secret
             - name: TIDE_DB_PATH
               value: /data/tide.db
-            - name: TIDE_MEDIA_URL
-              value: ws://media:7880
-            - name: TIDE_MEDIA_PUBLIC_URL
-              value: wss://media.example.com # OVERLAY: Set the browser-facing signaling URL.
-            - name: TIDE_MEDIA_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: media-secrets
-                  key: api-key
-            - name: TIDE_MEDIA_API_SECRET
-              valueFrom:
-                secretKeyRef:
-                  name: media-secrets
-                  key: api-secret
+            - name: TIDE_MEDIA_NODE_IP
+              value: replace-with-public-ipv4 # OVERLAY: Set the public IPv4 address browsers send media to.
             - name: TIDE_OIDC_ISSUER
               value: https://id.example.com # OVERLAY: Set the external OIDC issuer URL exactly as published.
             - name: TIDE_OIDC_CLIENT_ID
@@ -80,41 +86,20 @@ spec:
               value: "" # OVERLAY: Optional comma-separated OIDC groups allowed to sign in.
             - name: TIDE_ADMIN_GROUPS
               value: "" # OVERLAY: Optional comma-separated OIDC groups that administer every room.
-            - name: TIDE_S3_ENDPOINT
-              value: http://s3.storage.svc.cluster.local:9000 # OVERLAY: Set the tide-server view of S3.
-            - name: TIDE_S3_PUBLIC_ENDPOINT
-              value: https://recordings.example.com # OVERLAY: Set the browser-reachable S3 origin used in presigned URLs.
-            - name: TIDE_S3_RECORDER_ENDPOINT
-              value: http://s3.storage.svc.cluster.local:9000 # OVERLAY: Set the recorder view of S3.
-            - name: TIDE_S3_BUCKET
-              value: tide-recordings # OVERLAY: Set the existing recording bucket.
-            - name: TIDE_S3_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: s3-secrets
-                  key: access-key
-            - name: TIDE_S3_SECRET_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: s3-secrets
-                  key: secret-key
-            - name: TIDE_S3_REGION
-              value: us-east-1 # OVERLAY: Set the S3 signing region.
-            - name: TIDE_RECORDER_TEMPLATE_URL
-              value: http://tide:8080/egress-template
             - name: TIDE_TRUSTED_PROXIES
               value: "" # OVERLAY: Set ingress proxy IPs or CIDRs, comma-separated, if forwarded client IPs are needed.
             - name: TIDE_DEV_MODE
               value: "false"
             - name: TIDE_TRANSCRIPTS
-              value: "false" # OVERLAY: Set "true" to run transcripts through moil (alpha); see docs/DEPLOYMENT.md.
+              value: "false" # OVERLAY: With the recording component, "true" runs transcripts through moil (alpha); see docs/DEPLOYMENT.md.
+          # Every meeting's media passes through this container.
           resources:
             requests:
-              cpu: 100m
-              memory: 128Mi
-            limits:
-              cpu: "1"
+              cpu: 500m
               memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
           readinessProbe:
             httpGet:
               path: /healthz
@@ -134,10 +119,15 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
+            - name: tmp
+              mountPath: /tmp
       volumes:
         - name: data
           persistentVolumeClaim:
             claimName: tide-data
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
 ---
 apiVersion: v1
 kind: Service
@@ -170,3 +160,25 @@ spec:
   resources:
     requests:
       storage: 5Gi # OVERLAY: Size for SQLite state; recordings do not live here.
+
+# OVERLAY: Media path (a). Copy this resource into an overlay and patch the
+# provider-specific static address annotation. Its IPv4 address is
+# TIDE_MEDIA_NODE_IP.
+# ---
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: tide-media
+#   annotations:
+#     example.com/static-address: replace-me # OVERLAY: Use the provider's static-address annotation.
+# spec:
+#   type: LoadBalancer
+#   externalTrafficPolicy: Local
+#   selector:
+#     app.kubernetes.io/name: tide
+#     app.kubernetes.io/component: app
+#   ports:
+#     - name: media-udp
+#       port: 7882
+#       targetPort: media-udp
+#       protocol: UDP
