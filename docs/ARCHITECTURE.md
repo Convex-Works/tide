@@ -218,15 +218,16 @@ the browser that created it owns it. Nothing else about authorization changes:
 ownership is still a session's `sub` matched against `rooms.owner_sub`, checked
 on the server, and capabilities still travel only in tokens tide mints.
 
-- **Anonymous sessions.** `GET /api/auth/login?next=…` doesn't redirect to an
-  identity provider: it issues a session whose `sub` is `anon:` followed by
-  26 base32 characters (128 bits from `crypto/rand`), with no email, no name
-  and no administrator capability, and redirects to `next`. It is the same
-  signed cookie under the same login rate limit, so the SPA's sign-in flow is
-  unchanged: a dashboard without a session sends the browser there and it
-  comes straight back. An anonymous session lasts 30 days rather than one,
-  because it is the only key to the rooms this browser created and grants
-  nothing else.
+- **Anonymous sessions.** A session whose `sub` is `anon:` followed by 26
+  lowercase base32 characters (128 bits from `crypto/rand`), with no email, no
+  name and no administrator capability, in the same signed cookie. `GET
+  /api/me` without a valid session issues one and answers with it, rather
+  than 401, so the SPA never shows a sign-in screen; `GET
+  /api/auth/login?next=…` issues one and redirects to `next` instead of to an
+  identity provider. Issuing one counts against the login rate limit (a
+  refused one answers 429), and the callback route doesn't exist. An
+  anonymous session lasts 30 days rather than one, because it is the only key
+  to the rooms this browser created and grants nothing else.
 - **Owners are owners.** Everything §6 and §7 say about a room's owner holds
   for the anonymous one: they join without the lobby, admit and deny guests,
   remove, mute, and end the meeting. Every other session, anonymous or not, is
