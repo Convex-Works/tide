@@ -17,4 +17,4 @@ keys:
 webhook:
   api_key: devkey
   urls:
-    - http://host.docker.internal:8080/api/webhooks/livekit
+    - http://host.docker.internal:8080/api/webhooks/media

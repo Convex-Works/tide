@@ -32,7 +32,7 @@ kubectl -n tide create secret generic tide-secrets \
   --from-literal=session-secret="$SESSION_SECRET" \
   --from-literal=oidc-client-secret="$OIDC_CLIENT_SECRET"
 
-kubectl -n tide create secret generic livekit-secrets \
+kubectl -n tide create secret generic media-secrets \
   --from-literal=api-key="$MEDIA_API_KEY" \
   --from-literal=api-secret="$MEDIA_API_SECRET" \
   --from-literal=keys="$MEDIA_API_KEY: $MEDIA_API_SECRET"
@@ -83,7 +83,7 @@ spec:
           env:
             - name: TIDE_BASE_URL
               value: https://<APP_HOST>
-            - name: TIDE_LIVEKIT_PUBLIC_URL
+            - name: TIDE_MEDIA_PUBLIC_URL
               value: wss://<MEDIA_HOST>
             - name: TIDE_OIDC_ISSUER
               value: <OIDC_ISSUER>
@@ -93,8 +93,8 @@ spec:
               value: <S3_ENDPOINT>
             - name: TIDE_S3_PUBLIC_ENDPOINT
               value: <S3_PUBLIC_ENDPOINT>
-            - name: TIDE_S3_EGRESS_ENDPOINT
-              value: <S3_EGRESS_ENDPOINT>
+            - name: TIDE_S3_RECORDER_ENDPOINT
+              value: <S3_RECORDER_ENDPOINT>
             - name: TIDE_S3_BUCKET
               value: <S3_BUCKET>
             - name: TIDE_S3_REGION
@@ -114,16 +114,16 @@ spec:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: egress-config
+  name: recorder-config
 data:
-  egress.yaml: |
-    ws_url: ws://livekit:7880
+  config.yaml: |
+    ws_url: ws://media:7880
     redis:
       address: redis:6379
     health_port: 8081
     s3:
       region: <S3_REGION>
-      endpoint: <S3_EGRESS_ENDPOINT>
+      endpoint: <S3_RECORDER_ENDPOINT>
       bucket: <S3_BUCKET>
       force_path_style: true
 ```
@@ -134,9 +134,9 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: livekit-config
+  name: media-config
 data:
-  livekit.yaml: |
+  config.yaml: |
     port: 7880
     rtc:
       tcp_port: 7881
@@ -147,18 +147,18 @@ data:
     webhook:
       api_key: <MEDIA_API_KEY>
       urls:
-        - http://tide:8080/api/webhooks/livekit
+        - http://tide:8080/api/webhooks/media
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: livekit
+  name: media
 spec:
   template:
     spec:
       containers:
-        - name: livekit
-          args: ['--config', '/etc/livekit/livekit.yaml', '--node-ip', '<NODE_IP>']
+        - name: media
+          args: ['--config', '/etc/media/config.yaml', '--node-ip', '<NODE_IP>']
 ```
 
 Then add exactly one file for your `MEDIA_OPTION`, and list it in `kustomization.yaml` where the table says:
@@ -175,12 +175,12 @@ Then add exactly one file for your `MEDIA_OPTION`, and list it in `kustomization
 apiVersion: v1
 kind: Service
 metadata:
-  name: livekit-media
+  name: media-udp
 spec:
   type: LoadBalancer
   externalTrafficPolicy: Local
   selector:
-    app.kubernetes.io/name: livekit
+    app.kubernetes.io/name: media
     app.kubernetes.io/component: media
   ports:
     - name: ice-udp
@@ -195,7 +195,7 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: livekit
+  name: media
 spec:
   template:
     spec:
@@ -211,14 +211,14 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: livekit
+  name: media
 spec:
   template:
     spec:
       nodeSelector:
         tide/media: public
       containers:
-        - name: livekit
+        - name: media
           ports:
             - containerPort: 7881
               hostPort: 7881
@@ -256,7 +256,7 @@ spec:
           - path: /
             pathType: Prefix
             backend:
-              service: { name: livekit, port: { number: 7880 } }
+              service: { name: media, port: { number: 7880 } }
 ```
 
 Keep the pinned media server, recorder and redis images: they are released and tested together.
@@ -268,7 +268,7 @@ Keep the pinned media server, recorder and redis images: they are released and t
 kubectl kustomize deploy/overlays/production | grep -nE '<[A-Z_]+>|example\.com|replace-with'
 
 kubectl apply -k deploy/overlays/production
-for d in redis livekit egress tide; do kubectl -n tide rollout status deploy/$d --timeout=5m; done
+for d in redis media recorder tide; do kubectl -n tide rollout status deploy/$d --timeout=5m; done
 ```
 
 ## 6. Rate limits behind the ingress

@@ -53,19 +53,19 @@ spec:
                   key: session-secret
             - name: TIDE_DB_PATH
               value: /data/tide.db
-            - name: TIDE_LIVEKIT_URL
-              value: ws://livekit:7880
-            - name: TIDE_LIVEKIT_PUBLIC_URL
-              value: wss://livekit.example.com # OVERLAY: Set the browser-facing signaling URL.
-            - name: TIDE_LIVEKIT_API_KEY
+            - name: TIDE_MEDIA_URL
+              value: ws://media:7880
+            - name: TIDE_MEDIA_PUBLIC_URL
+              value: wss://media.example.com # OVERLAY: Set the browser-facing signaling URL.
+            - name: TIDE_MEDIA_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: livekit-secrets
+                  name: media-secrets
                   key: api-key
-            - name: TIDE_LIVEKIT_API_SECRET
+            - name: TIDE_MEDIA_API_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: livekit-secrets
+                  name: media-secrets
                   key: api-secret
             - name: TIDE_OIDC_ISSUER
               value: https://id.example.com # OVERLAY: Set the external OIDC issuer URL exactly as published.
@@ -84,8 +84,8 @@ spec:
               value: http://s3.storage.svc.cluster.local:9000 # OVERLAY: Set the tide-server view of S3.
             - name: TIDE_S3_PUBLIC_ENDPOINT
               value: https://recordings.example.com # OVERLAY: Set the browser-reachable S3 origin used in presigned URLs.
-            - name: TIDE_S3_EGRESS_ENDPOINT
-              value: http://s3.storage.svc.cluster.local:9000 # OVERLAY: Set the egress-worker view of S3.
+            - name: TIDE_S3_RECORDER_ENDPOINT
+              value: http://s3.storage.svc.cluster.local:9000 # OVERLAY: Set the recorder view of S3.
             - name: TIDE_S3_BUCKET
               value: tide-recordings # OVERLAY: Set the existing recording bucket.
             - name: TIDE_S3_ACCESS_KEY
@@ -100,7 +100,7 @@ spec:
                   key: secret-key
             - name: TIDE_S3_REGION
               value: us-east-1 # OVERLAY: Set the S3 signing region.
-            - name: TIDE_EGRESS_TEMPLATE_URL
+            - name: TIDE_RECORDER_TEMPLATE_URL
               value: http://tide:8080/egress-template
             - name: TIDE_TRUSTED_PROXIES
               value: "" # OVERLAY: Set ingress proxy IPs or CIDRs, comma-separated, if forwarded client IPs are needed.

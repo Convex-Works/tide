@@ -215,7 +215,7 @@ to the egress job, not to any participant's tab.
    our **layout URL**. Audio-only recordings use OGG; video composites use MP4.
    The S3 destination and identifying recording metadata travel in every egress
    request; its worker-visible endpoint is configured by
-   `TIDE_S3_EGRESS_ENDPOINT`.
+   `TIDE_S3_RECORDER_ENDPOINT`.
 2. The layout is a route of our own SPA (`/egress-template`) implementing
    LiveKit's egress template contract (it receives `url`, `token`, `layout`
    query params and joins as a hidden subscriber). Recordings therefore use
@@ -223,7 +223,7 @@ to the egress job, not to any participant's tab.
    Egress loads the route through Vite at `host.docker.internal`; Vite admits
    that hostname through `server.allowedHosts`.
 3. Egress lifecycle webhooks (`egress_started/updated/ended`) hit
-   `POST /api/webhooks/livekit` (signature-verified) and drive the
+   `POST /api/webhooks/media` (signature-verified) and drive the
    `recordings` table: `id, room_id, egress_id, status, started_by, started_at,
 ended_at, duration_s, s3_key, size_bytes`.
 4. Management: `GET /api/rooms/:slug/recordings`, `DELETE /api/recordings/:id`,
@@ -625,13 +625,13 @@ All server config via `TIDE_*` env vars (12-factor, `.env` in dev):
 ```
 TIDE_ADDR=:8080                 TIDE_BASE_URL=http://localhost:8080
 TIDE_SESSION_SECRET=…           TIDE_DB_PATH=./data/tide.db
-TIDE_LIVEKIT_URL=ws://…:7880    TIDE_LIVEKIT_PUBLIC_URL=wss://…
-TIDE_LIVEKIT_API_KEY=…          TIDE_LIVEKIT_API_SECRET=…
+TIDE_MEDIA_URL=ws://…:7880    TIDE_MEDIA_PUBLIC_URL=wss://…
+TIDE_MEDIA_API_KEY=…          TIDE_MEDIA_API_SECRET=…
 TIDE_OIDC_ISSUER=…              TIDE_OIDC_CLIENT_ID / _CLIENT_SECRET
 TIDE_USER_GROUPS=…              TIDE_ADMIN_GROUPS=…
 TIDE_S3_ENDPOINT=…              TIDE_S3_PUBLIC_ENDPOINT=…
-TIDE_S3_EGRESS_ENDPOINT=…       TIDE_S3_BUCKET / _ACCESS_KEY / _SECRET_KEY
-TIDE_S3_REGION=…                TIDE_EGRESS_TEMPLATE_URL=…
+TIDE_S3_RECORDER_ENDPOINT=…       TIDE_S3_BUCKET / _ACCESS_KEY / _SECRET_KEY
+TIDE_S3_REGION=…                TIDE_RECORDER_TEMPLATE_URL=…
 TIDE_TRUSTED_PROXIES=…          TIDE_DEV_MODE=false
 TIDE_JOIN_RATE_LIMIT=10         TIDE_WAIT_RATE_LIMIT=20
 TIDE_LOGIN_RATE_LIMIT=10        TIDE_PAIR_RATE_LIMIT=10

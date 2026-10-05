@@ -3,9 +3,9 @@ kind: Kustomization
 
 resources:
   - tide.yaml
-  - livekit.yaml
+  - media.yaml
   - redis.yaml
-  - egress.yaml
+  - recorder.yaml
 
 labels:
   - pairs:

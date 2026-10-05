@@ -1,17 +1,18 @@
-# Egress needs SYS_ADMIN and an unconfined seccomp profile for headless Chrome.
+# The recorder needs SYS_ADMIN and an unconfined seccomp profile for headless
+# Chrome.
 # Put it in a namespace with an explicit Pod Security exception; do not weaken
 # the policy for unrelated workloads. See docs/DEPLOYMENT.md.
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: egress-config
+  name: recorder-config
   labels:
-    app.kubernetes.io/name: egress
+    app.kubernetes.io/name: recorder
     app.kubernetes.io/component: recording
 data:
-  egress.yaml: |
-    # LIVEKIT_API_KEY and LIVEKIT_API_SECRET come from livekit-secrets.
-    ws_url: ws://livekit:7880
+  config.yaml: |
+    # LIVEKIT_API_KEY and LIVEKIT_API_SECRET come from media-secrets.
+    ws_url: ws://media:7880
 
     redis:
       address: redis:6379
@@ -22,16 +23,16 @@ data:
     # so these defaults are only for diagnostics or direct operator jobs.
     s3:
       region: us-east-1 # OVERLAY: Set the S3 signing region.
-      endpoint: http://s3.storage.svc.cluster.local:9000 # OVERLAY: Set the egress-worker view of S3.
+      endpoint: http://s3.storage.svc.cluster.local:9000 # OVERLAY: Set the recorder view of S3.
       bucket: tide-recordings # OVERLAY: Set the existing recording bucket.
       force_path_style: true
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: egress
+  name: recorder
   labels:
-    app.kubernetes.io/name: egress
+    app.kubernetes.io/name: recorder
     app.kubernetes.io/component: recording
 spec:
   replicas: 1
@@ -39,12 +40,12 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      app.kubernetes.io/name: egress
+      app.kubernetes.io/name: recorder
       app.kubernetes.io/component: recording
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: egress
+        app.kubernetes.io/name: recorder
         app.kubernetes.io/component: recording
     spec:
       automountServiceAccountToken: false
@@ -55,21 +56,21 @@ spec:
         fsGroup: 1000
         fsGroupChangePolicy: OnRootMismatch
       containers:
-        - name: egress
-          image: livekit/egress:v1.13.0 # OVERLAY: Pin a release compatible with LiveKit server.
+        - name: recorder
+          image: livekit/egress:v1.13.0 # OVERLAY: Pin a release tested with the media server.
           imagePullPolicy: IfNotPresent
           env:
             - name: EGRESS_CONFIG_FILE
-              value: /etc/egress.yaml
+              value: /etc/recorder/config.yaml
             - name: LIVEKIT_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: livekit-secrets
+                  name: media-secrets
                   key: api-key
             - name: LIVEKIT_API_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: livekit-secrets
+                  name: media-secrets
                   key: api-secret
             - name: AWS_ACCESS_KEY_ID
               valueFrom:
@@ -117,8 +118,8 @@ spec:
             failureThreshold: 4
           volumeMounts:
             - name: config
-              mountPath: /etc/egress.yaml
-              subPath: egress.yaml
+              mountPath: /etc/recorder/config.yaml
+              subPath: config.yaml
               readOnly: true
             - name: shm
               mountPath: /dev/shm
@@ -129,7 +130,7 @@ spec:
       volumes:
         - name: config
           configMap:
-            name: egress-config
+            name: recorder-config
         - name: shm
           emptyDir:
             medium: Memory

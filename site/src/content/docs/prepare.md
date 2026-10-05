@@ -36,11 +36,11 @@ Create a bucket and an access key that can `GetObject`, `PutObject` and `DeleteO
 
 Record `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` (16 characters or more), and the store's URL as each caller reaches it:
 
-| Record as            | Caller   | Requirement                                                      |
-| -------------------- | -------- | ---------------------------------------------------------------- |
-| `S3_ENDPOINT`        | tide     | reachable from the tide pod                                      |
-| `S3_PUBLIC_ENDPOINT` | browsers | public HTTPS with a matching certificate; download links name it |
-| `S3_EGRESS_ENDPOINT` | recorder | reachable from the recorder pod                                  |
+| Record as              | Caller   | Requirement                                                      |
+| ---------------------- | -------- | ---------------------------------------------------------------- |
+| `S3_ENDPOINT`          | tide     | reachable from the tide pod                                      |
+| `S3_PUBLIC_ENDPOINT`   | browsers | public HTTPS with a matching certificate; download links name it |
+| `S3_RECORDER_ENDPOINT` | recorder | reachable from the recorder pod                                  |
 
 With a public store such as AWS S3, all three are the same HTTPS URL. tide uses path-style addressing.
 
@@ -76,7 +76,7 @@ tide refuses to start if the session or media secret is shorter than 32 characte
 - [ ] `APP_HOST` and `MEDIA_HOST` resolve to the ingress, with certificates
 - [ ] `REGISTRY`, `VERSION` and a durable `STORAGE_CLASS`
 - [ ] `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`
-- [ ] `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_ENDPOINT`, `S3_PUBLIC_ENDPOINT`, `S3_EGRESS_ENDPOINT`
+- [ ] `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_ENDPOINT`, `S3_PUBLIC_ENDPOINT`, `S3_RECORDER_ENDPOINT`
 - [ ] `MEDIA_OPTION`, `NODE_IP`, and for `host` or `tcp` the node's name `NODE_NAME`
 - [ ] `SESSION_SECRET`, `MEDIA_API_KEY`, `MEDIA_API_SECRET`
 

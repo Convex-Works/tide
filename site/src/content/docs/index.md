@@ -16,8 +16,8 @@ Agents: the whole runbook is one file at [/llms-full.txt](/llms-full.txt). Every
 | Component    | Source                              | Replicas  | Keeps state                     |
 | ------------ | ----------------------------------- | --------- | ------------------------------- |
 | tide         | `Dockerfile` in the repository root | exactly 1 | SQLite on a persistent volume   |
-| media server | `deploy/k8s/livekit.yaml`           | 1         | no                              |
-| recorder     | `deploy/k8s/egress.yaml`            | 1         | no; recordings go to the bucket |
+| media server | `deploy/k8s/media.yaml`             | 1         | no                              |
+| recorder     | `deploy/k8s/recorder.yaml`          | 1         | no; recordings go to the bucket |
 | redis        | `deploy/k8s/redis.yaml`             | 1         | no; never persist or back it up |
 
 tide serves the web app and API, signs hosts in, decides who may join, and starts and stops recordings. Browsers send audio and video to the media server directly. The recorder joins a meeting as a hidden participant and writes the file to your bucket.

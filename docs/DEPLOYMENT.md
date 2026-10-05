@@ -84,18 +84,18 @@ Create these Secrets in the workload namespace:
 | Secret            | Keys                                   | Used by                |
 | ----------------- | -------------------------------------- | ---------------------- |
 | `tide-secrets`   | `session-secret`, `oidc-client-secret` | tide                  |
-| `livekit-secrets` | `api-key`, `api-secret`, `keys`        | tide, LiveKit, Egress |
+| `media-secrets` | `api-key`, `api-secret`, `keys`        | tide, LiveKit, Egress |
 | `s3-secrets`      | `access-key`, `secret-key`             | tide, Egress          |
 
-Set `livekit-secrets/keys` to the LiveKit `key: secret` mapping accepted by
-`LIVEKIT_KEYS`. Set the `webhook.api_key` marker in `livekit-config` to the same
+Set `media-secrets/keys` to the LiveKit `key: secret` mapping accepted by
+`LIVEKIT_KEYS`. Set the `webhook.api_key` marker in `media-config` to the same
 API key identifier. Never put the API secret in a ConfigMap.
 
 An installation overlay must patch every line marked `# OVERLAY:`. At minimum,
 patch the image, public origins, OIDC values, all three S3 views, bucket and
 region, storage class, LiveKit webhook key identifier, and one media path. Add
 TLS-enabled ingress routes for tide and LiveKit signaling. Keep the internal
-server URLs (`http://tide:8080` and `ws://livekit:7880`) inside the cluster.
+server URLs (`http://tide:8080` and `ws://media:7880`) inside the cluster.
 
 Render and check an overlay before applying it:
 
@@ -116,10 +116,10 @@ secret values and refuses weak or shipped development secrets.
 | `TIDE_BASE_URL`            | `http://localhost:8080`            | Public tide origin. Set an HTTPS origin. It controls redirects, the OIDC callback, secure cookies, and the default Egress template URL.                                          |
 | `TIDE_SESSION_SECRET`      | none in production                 | HMAC key for session and OIDC state cookies. Required; use at least 32 characters of random data.                                                                                 |
 | `TIDE_DB_PATH`             | `./data/tide.db`                  | SQLite file. In the image this defaults to `/data/tide.db`; point it at the mounted durable volume.                                                                              |
-| `TIDE_LIVEKIT_URL`         | `ws://localhost:7880`              | Server-side LiveKit WebSocket URL used by SDK clients. Use the cluster Service URL.                                                                                               |
-| `TIDE_LIVEKIT_PUBLIC_URL`  | `ws://localhost:7880`              | Browser-facing signaling URL returned with meeting tokens. Use the WSS ingress origin.                                                                                            |
-| `TIDE_LIVEKIT_API_KEY`     | none in production                 | LiveKit key identifier shared by tide, LiveKit, Egress, and webhook signing. Required.                                                                                           |
-| `TIDE_LIVEKIT_API_SECRET`  | none in production                 | LiveKit signing secret. Required; use at least 32 characters.                                                                                                                     |
+| `TIDE_MEDIA_URL`         | `ws://localhost:7880`              | Server-side LiveKit WebSocket URL used by SDK clients. Use the cluster Service URL.                                                                                               |
+| `TIDE_MEDIA_PUBLIC_URL`  | `ws://localhost:7880`              | Browser-facing signaling URL returned with meeting tokens. Use the WSS ingress origin.                                                                                            |
+| `TIDE_MEDIA_API_KEY`     | none in production                 | LiveKit key identifier shared by tide, LiveKit, Egress, and webhook signing. Required.                                                                                           |
+| `TIDE_MEDIA_API_SECRET`  | none in production                 | LiveKit signing secret. Required; use at least 32 characters.                                                                                                                     |
 | `TIDE_OIDC_ISSUER`         | `http://localhost:5556/dex`        | Exact issuer URL used for discovery and ID token verification. Set the external production issuer.                                                                                |
 | `TIDE_OIDC_CLIENT_ID`      | `tide`                            | Registered OIDC client ID.                                                                                                                                                        |
 | `TIDE_OIDC_CLIENT_SECRET`  | none in production                 | Registered OIDC client secret. Required; use at least 16 characters.                                                                                                              |
@@ -127,12 +127,12 @@ secret values and refuses weak or shipped development secrets.
 | `TIDE_ADMIN_GROUPS`        | empty                              | Comma-separated, case-sensitive OIDC groups whose members can administer every room. Empty grants no global administration.                                                       |
 | `TIDE_S3_ENDPOINT`         | `http://localhost:9000`            | S3 endpoint as seen by tide for deletes and object management.                                                                                                                   |
 | `TIDE_S3_PUBLIC_ENDPOINT`  | `http://localhost:9000`            | Browser-reachable S3 endpoint used to sign five-minute download URLs, and the URLs hosts' machines use to fetch recordings and upload transcripts. The hostname in the signature must be the hostname the caller uses. With `TIDE_TRANSCRIPTS=true`, use HTTPS: moil machines refuse plain HTTP unless tide itself is on loopback. |
-| `TIDE_S3_EGRESS_ENDPOINT`  | `http://minio:9000`                | S3 endpoint as seen by Egress. tide sends it with every recording request.                                                                                                       |
+| `TIDE_S3_RECORDER_ENDPOINT`  | `http://minio:9000`                | S3 endpoint as seen by Egress. tide sends it with every recording request.                                                                                                       |
 | `TIDE_S3_BUCKET`           | `tide-recordings`                 | Existing bucket for timestamped OGG audio and MP4 video objects under `recordings/<room>/<recording-id>/`.                                                                         |
 | `TIDE_S3_ACCESS_KEY`       | none in production                 | S3 access key sent to the server-side client and Egress request. Required.                                                                                                        |
 | `TIDE_S3_SECRET_KEY`       | none in production                 | S3 secret key. Required; use at least 16 characters.                                                                                                                              |
 | `TIDE_S3_REGION`           | `us-east-1`                        | S3 signing region. It must match the store.                                                                                                                                       |
-| `TIDE_EGRESS_TEMPLATE_URL` | `<TIDE_BASE_URL>/egress-template` | URL Egress Chrome loads for the room composite. Use the internal tide Service URL when Egress can reach it.                                                                      |
+| `TIDE_RECORDER_TEMPLATE_URL` | `<TIDE_BASE_URL>/egress-template` | URL Egress Chrome loads for the room composite. Use the internal tide Service URL when Egress can reach it.                                                                      |
 | `TIDE_TRUSTED_PROXIES`     | empty                              | Comma-separated proxy IPs or CIDRs whose `X-Forwarded-For` value tide may trust. Leave empty unless rate limits must use forwarded client IPs. Restrict it to ingress addresses. |
 | `TIDE_DEV_MODE`            | `false`                            | Enables shipped development secrets and the unauthenticated development token route. Never enable it in production.                                                               |
 | `TIDE_JOIN_RATE_LIMIT`     | `10`                               | Guest joins per client IP per minute. The same value limits, in a separate bucket, how often a room may be looked up (`GET /api/rooms/{slug}`, found or not): per client IP for guests, per account for signed-in hosts. |
@@ -171,8 +171,8 @@ to reach the same advertised candidate.
 ### Option a: dedicated UDP LoadBalancer
 
 Use this when the Kubernetes provider supports UDP LoadBalancer Services and a
-stable public IPv4 address. Copy the commented `livekit-media` Service from
-`deploy/k8s/livekit.yaml` into the overlay. Keep it separate from the signaling
+stable public IPv4 address. Copy the commented `media-udp` Service from
+`deploy/k8s/media.yaml` into the overlay. Keep it separate from the signaling
 Service. Expose UDP 7882, preserve local traffic where the provider requires it,
 and pass the allocated address to LiveKit with `--node-ip`.
 
@@ -228,7 +228,7 @@ There are three endpoint views because the caller and the signer matter:
 | ------- | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | Server  | `TIDE_S3_ENDPOINT`        | tide deletes and manages objects. Use a private Service endpoint when available.                                                        |
 | Browser | `TIDE_S3_PUBLIC_ENDPOINT` | tide signs a URL containing this origin, then redirects the browser to it. It must resolve publicly and its TLS certificate must match. |
-| Egress  | `TIDE_S3_EGRESS_ENDPOINT` | Egress uploads OGG audio or MP4 video. Use the endpoint reachable from the Egress namespace.                                             |
+| Egress  | `TIDE_S3_RECORDER_ENDPOINT` | Egress uploads OGG audio or MP4 video. Use the endpoint reachable from the Egress namespace.                                             |
 
 With an in-cluster MinIO service, the server and Egress views usually share an
 internal endpoint while the browser view uses a public object-storage ingress.

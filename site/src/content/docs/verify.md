@@ -42,7 +42,7 @@ Ask the person to record 30 seconds of that call, stop, and download it from the
 aws s3 ls "s3://<S3_BUCKET>/recordings/" --recursive --endpoint-url "<S3_ENDPOINT>"
 ```
 
-Expect one `.mp4` (or `.ogg` for audio only) with a non-zero size. If the recording shows as failed, read `kubectl -n tide logs deploy/egress`. If it never leaves "starting", the recorder cannot reach the media server or tide. If the download fails, `S3_PUBLIC_ENDPOINT` is not reachable from browsers.
+Expect one `.mp4` (or `.ogg` for audio only) with a non-zero size. If the recording shows as failed, read `kubectl -n tide logs deploy/recorder`. If it never leaves "starting", the recorder cannot reach the media server or tide. If the download fails, `S3_PUBLIC_ENDPOINT` is not reachable from browsers.
 
 ## Done when
 

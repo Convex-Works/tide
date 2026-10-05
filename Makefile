@@ -10,7 +10,7 @@ dev:
 		if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
 		(cd server && TIDE_DEV_MODE=true TIDE_BASE_URL=http://localhost:5173 \
 			TIDE_TRANSCRIPTS=$${TIDE_TRANSCRIPTS:-true} \
-			TIDE_EGRESS_TEMPLATE_URL=http://host.docker.internal:5173/egress-template \
+			TIDE_RECORDER_TEMPLATE_URL=http://host.docker.internal:5173/egress-template \
 			go run ./cmd/tide) & go_pid=$$!; \
 		(cd web && npm run dev) & web_pid=$$!; \
 		trap 'kill $$go_pid $$web_pid 2>/dev/null || true' INT TERM EXIT; \

@@ -11,12 +11,12 @@ func clearTideEnv(t *testing.T) {
 	t.Helper()
 	for _, name := range []string{
 		"TIDE_ADDR", "TIDE_BASE_URL", "TIDE_SESSION_SECRET", "TIDE_DB_PATH",
-		"TIDE_LIVEKIT_URL", "TIDE_LIVEKIT_PUBLIC_URL", "TIDE_LIVEKIT_API_KEY",
-		"TIDE_LIVEKIT_API_SECRET", "TIDE_OIDC_ISSUER", "TIDE_OIDC_CLIENT_ID",
+		"TIDE_MEDIA_URL", "TIDE_MEDIA_PUBLIC_URL", "TIDE_MEDIA_API_KEY",
+		"TIDE_MEDIA_API_SECRET", "TIDE_OIDC_ISSUER", "TIDE_OIDC_CLIENT_ID",
 		"TIDE_OIDC_CLIENT_SECRET", "TIDE_USER_GROUPS", "TIDE_ADMIN_GROUPS",
 		"TIDE_S3_ENDPOINT", "TIDE_S3_PUBLIC_ENDPOINT",
-		"TIDE_S3_EGRESS_ENDPOINT", "TIDE_S3_BUCKET", "TIDE_S3_ACCESS_KEY",
-		"TIDE_S3_SECRET_KEY", "TIDE_S3_REGION", "TIDE_EGRESS_TEMPLATE_URL",
+		"TIDE_S3_RECORDER_ENDPOINT", "TIDE_S3_BUCKET", "TIDE_S3_ACCESS_KEY",
+		"TIDE_S3_SECRET_KEY", "TIDE_S3_REGION", "TIDE_RECORDER_TEMPLATE_URL",
 		"TIDE_DEV_MODE", "TIDE_JOIN_RATE_LIMIT", "TIDE_WAIT_RATE_LIMIT",
 		"TIDE_LOGIN_RATE_LIMIT", "TIDE_PAIR_RATE_LIMIT", "TIDE_TRANSCRIPTS",
 	} {
@@ -35,7 +35,7 @@ func TestLoadRefusesToStartWithoutSecrets(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected Load to fail closed with no env set")
 	}
-	for _, want := range []string{"TIDE_SESSION_SECRET", "TIDE_LIVEKIT_API_SECRET", "TIDE_OIDC_CLIENT_SECRET", "TIDE_S3_SECRET_KEY"} {
+	for _, want := range []string{"TIDE_SESSION_SECRET", "TIDE_MEDIA_API_SECRET", "TIDE_OIDC_CLIENT_SECRET", "TIDE_S3_SECRET_KEY"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error should name %s, got: %v", want, err)
 		}
@@ -45,8 +45,8 @@ func TestLoadRefusesToStartWithoutSecrets(t *testing.T) {
 func TestLoadRejectsDevDefaultsInProduction(t *testing.T) {
 	clearTideEnv(t)
 	t.Setenv("TIDE_SESSION_SECRET", devSessionSecret)
-	t.Setenv("TIDE_LIVEKIT_API_KEY", "prodkey")
-	t.Setenv("TIDE_LIVEKIT_API_SECRET", strings.Repeat("a", 40))
+	t.Setenv("TIDE_MEDIA_API_KEY", "prodkey")
+	t.Setenv("TIDE_MEDIA_API_SECRET", strings.Repeat("a", 40))
 	t.Setenv("TIDE_OIDC_CLIENT_SECRET", strings.Repeat("b", 20))
 	t.Setenv("TIDE_S3_ACCESS_KEY", "prod-access")
 	t.Setenv("TIDE_S3_SECRET_KEY", strings.Repeat("c", 20))
@@ -59,8 +59,8 @@ func TestLoadRejectsDevDefaultsInProduction(t *testing.T) {
 func TestLoadRejectsShortSecrets(t *testing.T) {
 	clearTideEnv(t)
 	t.Setenv("TIDE_SESSION_SECRET", "short")
-	t.Setenv("TIDE_LIVEKIT_API_KEY", "prodkey")
-	t.Setenv("TIDE_LIVEKIT_API_SECRET", strings.Repeat("a", 40))
+	t.Setenv("TIDE_MEDIA_API_KEY", "prodkey")
+	t.Setenv("TIDE_MEDIA_API_SECRET", strings.Repeat("a", 40))
 	t.Setenv("TIDE_OIDC_CLIENT_SECRET", strings.Repeat("b", 20))
 	t.Setenv("TIDE_S3_ACCESS_KEY", "prod-access")
 	t.Setenv("TIDE_S3_SECRET_KEY", strings.Repeat("c", 20))
@@ -73,8 +73,8 @@ func TestLoadRejectsShortSecrets(t *testing.T) {
 func TestLoadAcceptsStrongProductionSecrets(t *testing.T) {
 	clearTideEnv(t)
 	t.Setenv("TIDE_SESSION_SECRET", strings.Repeat("s", 40))
-	t.Setenv("TIDE_LIVEKIT_API_KEY", "prodkey")
-	t.Setenv("TIDE_LIVEKIT_API_SECRET", strings.Repeat("a", 40))
+	t.Setenv("TIDE_MEDIA_API_KEY", "prodkey")
+	t.Setenv("TIDE_MEDIA_API_SECRET", strings.Repeat("a", 40))
 	t.Setenv("TIDE_OIDC_CLIENT_SECRET", strings.Repeat("b", 20))
 	t.Setenv("TIDE_S3_ACCESS_KEY", "prod-access")
 	t.Setenv("TIDE_S3_SECRET_KEY", strings.Repeat("c", 20))

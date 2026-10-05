@@ -90,10 +90,10 @@ func Load() (Config, error) {
 		BaseURL:           baseURL,
 		SessionSecret:     secret("TIDE_SESSION_SECRET", devSessionSecret),
 		DBPath:            env("TIDE_DB_PATH", "./data/tide.db"),
-		LiveKitURL:        env("TIDE_LIVEKIT_URL", "ws://localhost:7880"),
-		LiveKitPublicURL:  env("TIDE_LIVEKIT_PUBLIC_URL", "ws://localhost:7880"),
-		LiveKitAPIKey:     secret("TIDE_LIVEKIT_API_KEY", devLiveKitAPIKey),
-		LiveKitAPISecret:  secret("TIDE_LIVEKIT_API_SECRET", devLiveKitSecret),
+		LiveKitURL:        env("TIDE_MEDIA_URL", "ws://localhost:7880"),
+		LiveKitPublicURL:  env("TIDE_MEDIA_PUBLIC_URL", "ws://localhost:7880"),
+		LiveKitAPIKey:     secret("TIDE_MEDIA_API_KEY", devLiveKitAPIKey),
+		LiveKitAPISecret:  secret("TIDE_MEDIA_API_SECRET", devLiveKitSecret),
 		OIDCIssuer:        env("TIDE_OIDC_ISSUER", "http://localhost:5556/dex"),
 		OIDCClientID:      env("TIDE_OIDC_CLIENT_ID", "tide"),
 		OIDCClientSecret:  secret("TIDE_OIDC_CLIENT_SECRET", devOIDCSecret),
@@ -101,12 +101,12 @@ func Load() (Config, error) {
 		AdminGroups:       parseList(env("TIDE_ADMIN_GROUPS", "")),
 		S3Endpoint:        env("TIDE_S3_ENDPOINT", "http://localhost:9000"),
 		S3PublicEndpoint:  env("TIDE_S3_PUBLIC_ENDPOINT", "http://localhost:9000"),
-		S3EgressEndpoint:  env("TIDE_S3_EGRESS_ENDPOINT", "http://minio:9000"),
+		S3EgressEndpoint:  env("TIDE_S3_RECORDER_ENDPOINT", "http://minio:9000"),
 		S3Bucket:          env("TIDE_S3_BUCKET", "tide-recordings"),
 		S3AccessKey:       secret("TIDE_S3_ACCESS_KEY", devS3AccessKey),
 		S3SecretKey:       secret("TIDE_S3_SECRET_KEY", devS3SecretKey),
 		S3Region:          env("TIDE_S3_REGION", "us-east-1"),
-		EgressTemplateURL: env("TIDE_EGRESS_TEMPLATE_URL", baseURL+"/egress-template"),
+		EgressTemplateURL: env("TIDE_RECORDER_TEMPLATE_URL", baseURL+"/egress-template"),
 		DevMode:           dev,
 		JoinRateLimit:     envPositiveInt("TIDE_JOIN_RATE_LIMIT", DefaultJoinRateLimit),
 		WaitRateLimit:     envPositiveInt("TIDE_WAIT_RATE_LIMIT", DefaultWaitRateLimit),
@@ -166,8 +166,8 @@ func (c Config) validateProduction() error {
 		}
 	}
 	check("TIDE_SESSION_SECRET", c.SessionSecret, 32)
-	check("TIDE_LIVEKIT_API_KEY", c.LiveKitAPIKey, 1)
-	check("TIDE_LIVEKIT_API_SECRET", c.LiveKitAPISecret, 32)
+	check("TIDE_MEDIA_API_KEY", c.LiveKitAPIKey, 1)
+	check("TIDE_MEDIA_API_SECRET", c.LiveKitAPISecret, 32)
 	check("TIDE_OIDC_CLIENT_SECRET", c.OIDCClientSecret, 16)
 	check("TIDE_S3_ACCESS_KEY", c.S3AccessKey, 1)
 	check("TIDE_S3_SECRET_KEY", c.S3SecretKey, 16)

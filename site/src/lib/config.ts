@@ -51,24 +51,24 @@ export const envGroups: EnvGroup[] = [
     title: 'Media server',
     vars: [
       {
-        name: 'TIDE_LIVEKIT_URL',
+        name: 'TIDE_MEDIA_URL',
         default: 'ws://localhost:7880',
         description: 'The media server as tide reaches it, inside the cluster.'
       },
       {
-        name: 'TIDE_LIVEKIT_PUBLIC_URL',
+        name: 'TIDE_MEDIA_PUBLIC_URL',
         default: 'ws://localhost:7880',
         description: 'The media server as browsers reach it: `wss://MEDIA_HOST`.'
       },
       {
-        name: 'TIDE_LIVEKIT_API_KEY',
+        name: 'TIDE_MEDIA_API_KEY',
         default: '',
         required: true,
         description:
           'Key ID shared by tide, the media server and the recorder. Letters, digits, `-` and `_`.'
       },
       {
-        name: 'TIDE_LIVEKIT_API_SECRET',
+        name: 'TIDE_MEDIA_API_SECRET',
         default: '',
         required: true,
         minLength: 32,
@@ -120,7 +120,7 @@ export const envGroups: EnvGroup[] = [
         description: 'The store as browsers reach it. Public HTTPS; download links name this host.'
       },
       {
-        name: 'TIDE_S3_EGRESS_ENDPOINT',
+        name: 'TIDE_S3_RECORDER_ENDPOINT',
         default: 'http://minio:9000',
         description: 'The store as the recorder reaches it.'
       },
@@ -144,7 +144,7 @@ export const envGroups: EnvGroup[] = [
     title: 'Recording',
     vars: [
       {
-        name: 'TIDE_EGRESS_TEMPLATE_URL',
+        name: 'TIDE_RECORDER_TEMPLATE_URL',
         default: 'TIDE_BASE_URL + /egress-template',
         description:
           'The page the recorder loads to draw a meeting. In Kubernetes: `http://tide:8080/egress-template`.'

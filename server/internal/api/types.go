@@ -16,7 +16,7 @@ const (
 	LobbyWaitPath         = "/api/lobby/{id}/wait"
 	LobbyApprovePath      = "/api/lobby/{id}/approve"
 	LobbyDenyPath         = "/api/lobby/{id}/deny"
-	LiveKitWebhookPath    = "/api/webhooks/livekit"
+	LiveKitWebhookPath    = "/api/webhooks/media"
 	RecordingStartPath    = "/api/rooms/{slug}/recording/start"
 	RecordingStopPath     = "/api/rooms/{slug}/recording/stop"
 	RoomRecordingsPath    = "/api/rooms/{slug}/recordings"

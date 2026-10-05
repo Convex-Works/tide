@@ -392,7 +392,7 @@ func (k *tide) startRecordingOf(room api.RoomInfo, by string, data []byte) *reco
 // uploaded the recording.
 func (r *recording) ended() *livekit.WebhookEvent {
 	ended := time.Now()
-	// Where egress uploaded it, at TIDE_S3_EGRESS_ENDPOINT.
+	// Where egress uploaded it, at TIDE_S3_RECORDER_ENDPOINT.
 	location, err := url.JoinPath(objects.endpoint, objects.bucket, r.key)
 	if err != nil {
 		panic(err)

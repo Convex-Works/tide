@@ -26,4 +26,4 @@ keys:
 webhook:
   api_key: devkey
   urls:
-    - http://tide:8080/api/webhooks/livekit
+    - http://tide:8080/api/webhooks/media
