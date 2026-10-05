@@ -6,11 +6,14 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
+	"github.com/livekit/protocol/livekit"
 	lksdk "github.com/livekit/server-sdk-go/v2"
 	"github.com/pion/webrtc/v4"
 	pionmedia "github.com/pion/webrtc/v4/pkg/media"
@@ -115,13 +118,71 @@ func TestOneBinaryHoldsAMeeting(t *testing.T) {
 		return rooms[0].Active && rooms[0].NumParticipants == 2 && rooms[0].LastActiveAt != nil
 	})
 
-	// Stopping tide ends the meeting with it.
+	// Stopping tide ends the meeting with it, by stopping the media server,
+	// which tells everyone it is shutting down: a process that merely died
+	// couldn't say so.
 	k.stop()
 	select {
 	case <-disconnected:
 	case <-time.After(15 * time.Second):
 		t.Fatal("the guest stayed connected after tide stopped")
 	}
+	if reason := grace.DisconnectReason(); reason != livekit.DisconnectReason_SERVER_SHUTDOWN {
+		t.Fatalf("the guest was disconnected with %v, want the media server's shutdown", reason)
+	}
+}
+
+// A signal while the media server is still starting (STUN discovery can
+// take a minute) stops tide as the operator asked: at once, and not as a
+// failure.
+func TestASignalWhileTheMediaServerStartsStopsTide(t *testing.T) {
+	k := launchMain(t, "TIDE_TEST_MEDIA_STARTS_SLOWLY=1")
+	k.waitForLog("test: the media server is starting")
+	k.signal(syscall.SIGTERM)
+	if state := k.wait(10 * time.Second); !state.Success() {
+		t.Fatalf("tide stopped while starting with %v; it logged %q", state, k.history)
+	}
+	k.waitForLog("tide: stopped while starting")
+}
+
+// The embedded mode stops in order and lets go of everything: with
+// recording on, a SIGTERM stops tide cleanly within its grace, and the
+// media ports, the media server's API port and the recorder's Redis
+// endpoint are all free again.
+func TestEmbeddedTideReleasesItsPortsWhenItStops(t *testing.T) {
+	tcp, udp := freePorts(t, 4)
+	k := startMainWith(t,
+		"TIDE_OIDC_ISSUER=http://127.0.0.1:1/dex", "TIDE_OIDC_CLIENT_SECRET="+strings.Repeat("o", 20),
+		"TIDE_SESSION_SECRET="+testSessionSecret, "TIDE_DB_PATH="+filepath.Join(t.TempDir(), "tide.db"),
+		"TIDE_S3_ENDPOINT=http://127.0.0.1:1", "TIDE_S3_ACCESS_KEY=test-access",
+		"TIDE_S3_SECRET_KEY="+strings.Repeat("k", 20),
+		"TIDE_MEDIA_API_KEY=test-key", "TIDE_MEDIA_API_SECRET="+strings.Repeat("m", 40),
+		"TIDE_RECORDER_REDIS_PASSWORD="+strings.Repeat("r", 40),
+		fmt.Sprintf("TIDE_RECORDER_REDIS_ADDR=127.0.0.1:%d", tcp[0]),
+		fmt.Sprintf("TIDE_MEDIA_API_PORT=%d", tcp[1]),
+		fmt.Sprintf("TIDE_MEDIA_TCP_PORT=%d", tcp[2]),
+		fmt.Sprintf("TIDE_MEDIA_UDP_PORT=%d", udp[0]))
+	if !k.logged("media server embedded") || !k.logged("recording on") {
+		t.Fatalf("tide didn't start signed in with recording and its media server embedded: %q", k.history)
+	}
+	// While tide runs, they are taken.
+	if l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", tcp[0])); err == nil {
+		_ = l.Close()
+		t.Fatal("the recorder's Redis endpoint isn't listening")
+	}
+	k.stop()
+	for _, port := range tcp[:3] {
+		l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		if err != nil {
+			t.Fatalf("TCP port %d is still taken after tide stopped: %v", port, err)
+		}
+		_ = l.Close()
+	}
+	c, err := net.ListenPacket("udp", fmt.Sprintf(":%d", udp[0]))
+	if err != nil {
+		t.Fatalf("UDP port %d is still taken after tide stopped: %v", udp[0], err)
+	}
+	_ = c.Close()
 }
 
 // anonymousSession is a new browser's first visit: /api/me hands it a

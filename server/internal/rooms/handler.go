@@ -37,9 +37,30 @@ type Handler struct {
 	objects      objectStore
 	live         LiveRoomSource
 	pendingLobby pendingLobbySource
+	// ender ends the meeting in a room as it is deleted; nil in focused
+	// tests.
+	ender MeetingEnder
+	// roomCap is how many rooms may exist before Create refuses another; 0
+	// means no cap. Only an anonymous deployment has one (§4.1).
+	roomCap int
 	// onRoomDeleted is called after a room and its recordings are deleted,
 	// so that the transcripts reconciler can stop their jobs at once.
 	onRoomDeleted func()
+}
+
+// AnonymousRoomCap is how many rooms an anonymous deployment keeps in
+// memory before creating another answers 503 (ARCHITECTURE.md §4.1): with
+// addresses cheap, only a ceiling bounds memory.
+const AnonymousRoomCap = 10_000
+
+// SetMeetingEnder sets what ends the meeting in a room as it is deleted.
+func (h *Handler) SetMeetingEnder(ender MeetingEnder) {
+	h.ender = ender
+}
+
+// SetRoomCap caps how many rooms may exist; 0 removes the cap.
+func (h *Handler) SetRoomCap(n int) {
+	h.roomCap = n
 }
 
 // SetRoomDeletedHook registers a callback invoked after a room is deleted,
@@ -89,6 +110,20 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 	if slug != "" {
 		if err := validateSlug(slug); err != nil {
 			httpx.WriteError(w, http.StatusBadRequest, err.Error()+".")
+			return
+		}
+	}
+	if h.roomCap > 0 {
+		// The count and the insert aren't one statement, so creates racing
+		// at the ceiling may pass it by a few: a bound on memory, not a
+		// quota.
+		count, err := h.store.CountRooms(r.Context())
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "Could not create the room. Try again.")
+			return
+		}
+		if count >= h.roomCap {
+			httpx.WriteError(w, http.StatusServiceUnavailable, "This server has too many rooms. Try again later.")
 			return
 		}
 	}
@@ -294,6 +329,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	if h.onRoomDeleted != nil {
 		h.onRoomDeleted()
 	}
+	endMeeting(r.Context(), h.ender, room.Slug)
 	// Without recording there is no storage to remove them from: the keys
 	// stay queued until storage is configured again (ARCHITECTURE.md §8).
 	if h.objects != nil {

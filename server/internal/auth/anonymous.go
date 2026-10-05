@@ -3,6 +3,7 @@ package auth
 import (
 	"crypto/rand"
 	"encoding/base32"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -31,8 +32,16 @@ func IsAnonymous(session Session) bool {
 	return strings.HasPrefix(session.Sub, AnonymousSubPrefix)
 }
 
-// IssueAnonymous sets a new anonymous session on w, and returns it.
+// errNotAnonymous refuses an anonymous session from a deployment with
+// sign-in, whose Read would refuse it anyway.
+var errNotAnonymous = errors.New("auth: anonymous sessions exist only without sign-in")
+
+// IssueAnonymous sets a new anonymous session on w, and returns it. Only
+// sessions from NewAnonymousSessions issue them.
 func (s *Sessions) IssueAnonymous(w http.ResponseWriter) (Session, error) {
+	if !s.anonymous {
+		return Session{}, errNotAnonymous
+	}
 	random := make([]byte, 16)
 	if _, err := rand.Read(random); err != nil {
 		return Session{}, err

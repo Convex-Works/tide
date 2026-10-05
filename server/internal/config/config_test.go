@@ -137,13 +137,57 @@ func TestLoadEmptyEnvironmentIsAnonymousAndEmbedded(t *testing.T) {
 }
 
 // Empty values mean unset, so a Compose file can leave a variable blank.
+// A variable set to the empty string (or spaces) is unset, for every
+// variable (ARCHITECTURE.md §12): it takes its default, in both modes.
 func TestLoadEmptyValuesAreUnset(t *testing.T) {
-	cfg := load(t, map[string]string{
-		"TIDE_OIDC_ISSUER": " ", "TIDE_MEDIA_URL": "", "TIDE_S3_ENDPOINT": "",
-		"TIDE_SESSION_SECRET": "", "TIDE_MEDIA_API_SECRET": "",
-	})
+	empty := map[string]string{}
+	for _, name := range []string{
+		"TIDE_ADDR", "TIDE_BASE_URL", "TIDE_DB_PATH", "TIDE_OIDC_CLIENT_ID",
+		"TIDE_USER_GROUPS", "TIDE_ADMIN_GROUPS", "TIDE_MEDIA_URL", "TIDE_MEDIA_PUBLIC_URL",
+		"TIDE_MEDIA_NODE_IP", "TIDE_MEDIA_TCP_PORT", "TIDE_MEDIA_UDP_PORT", "TIDE_MEDIA_API_PORT",
+		"TIDE_S3_PUBLIC_ENDPOINT", "TIDE_S3_RECORDER_ENDPOINT", "TIDE_S3_BUCKET", "TIDE_S3_REGION",
+		"TIDE_RECORDER_TEMPLATE_URL", "TIDE_RECORDER_REDIS_ADDR", "TIDE_TRUSTED_PROXIES",
+		"TIDE_JOIN_RATE_LIMIT", "TIDE_WAIT_RATE_LIMIT", "TIDE_LOGIN_RATE_LIMIT", "TIDE_PAIR_RATE_LIMIT",
+		"TIDE_TRANSCRIPTS", "TIDE_DEV_MODE",
+	} {
+		empty[name] = " "
+	}
+
+	cfg := load(t, merge(empty, map[string]string{
+		"TIDE_OIDC_ISSUER": " ", "TIDE_S3_ENDPOINT": "", "TIDE_SESSION_SECRET": "", "TIDE_MEDIA_API_SECRET": "",
+	}))
 	if !cfg.Anonymous || !cfg.MediaEmbedded || cfg.Recording || len(cfg.SessionSecret) < 32 || len(cfg.LiveKitAPISecret) < 32 {
-		t.Fatalf("cfg = %+v", cfg)
+		t.Fatalf("anonymous cfg = %+v", cfg)
+	}
+	if cfg.Addr != ":8080" || cfg.BaseURL != "http://localhost:8080" || cfg.LiveKitPublicURL != "ws://localhost:8080" ||
+		cfg.MediaNodeIP != "" || cfg.MediaInternalPort != 7880 || cfg.MediaTCPPort != 7881 || cfg.MediaUDPPort != 7882 ||
+		len(cfg.TrustedProxies) != 0 || cfg.JoinRateLimit != DefaultJoinRateLimit || cfg.DevMode || cfg.Transcripts {
+		t.Fatalf("anonymous defaults = %+v", cfg)
+	}
+
+	cfg = load(t, merge(empty, signedIn, storage, recorder))
+	if cfg.Anonymous || !cfg.Recording {
+		t.Fatalf("signed-in cfg = %+v", cfg)
+	}
+	if cfg.DBPath != "./data/tide.db" || cfg.OIDCClientID != "tide" || cfg.S3Bucket != "tide-recordings" ||
+		cfg.S3Region != "us-east-1" || cfg.EgressTemplateURL != "http://localhost:8080/egress-template" ||
+		cfg.S3PublicEndpoint != storage["TIDE_S3_ENDPOINT"] || cfg.S3EgressEndpoint != storage["TIDE_S3_ENDPOINT"] ||
+		cfg.RecorderRedisAddr != DefaultRecorderRedisAddr || len(cfg.UserGroups) != 0 || len(cfg.AdminGroups) != 0 {
+		t.Fatalf("signed-in defaults = %+v", cfg)
+	}
+}
+
+// Groups say the operator meant to restrict who hosts: without an issuer
+// tide refuses to start rather than run open (ARCHITECTURE.md §12).
+func TestLoadRefusesGroupsWithoutSignIn(t *testing.T) {
+	for _, name := range []string{"TIDE_USER_GROUPS", "TIDE_ADMIN_GROUPS"} {
+		if problem := loadErr(t, map[string]string{name: "staff"}); !strings.Contains(problem, "groups need TIDE_OIDC_ISSUER") {
+			t.Errorf("%s without an issuer: %q", name, problem)
+		}
+		cfg := load(t, merge(signedIn, map[string]string{name: "staff"}))
+		if cfg.Anonymous {
+			t.Errorf("%s with an issuer: anonymous", name)
+		}
 	}
 }
 
@@ -429,6 +473,7 @@ func TestLoadDevModeSuppliesSecretsOnly(t *testing.T) {
 func TestLoadParsesOIDCGroups(t *testing.T) {
 	cfg := load(t, map[string]string{
 		"TIDE_DEV_MODE":     "true",
+		"TIDE_OIDC_ISSUER":  "https://id.example.com",
 		"TIDE_USER_GROUPS":  " tide-users,staff,tide-users ",
 		"TIDE_ADMIN_GROUPS": "admins, tide-admins",
 	})

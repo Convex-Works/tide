@@ -21,6 +21,7 @@ import (
 
 	"tide/internal/api"
 	"tide/internal/auth"
+	"tide/internal/media"
 	"tide/internal/store"
 )
 
@@ -29,6 +30,15 @@ import (
 
 func TestMain(m *testing.M) {
 	if os.Getenv("TIDE_TEST_MAIN") == "1" {
+		if os.Getenv("TIDE_TEST_MEDIA_STARTS_SLOWLY") == "1" {
+			// A media server whose start lasts until it is given up on, as
+			// discovering the node address over STUN can take a minute.
+			startMediaServer = func(ctx context.Context, _ media.Options) (*media.Server, error) {
+				fmt.Fprintln(os.Stderr, "test: the media server is starting")
+				<-ctx.Done()
+				return nil, fmt.Errorf("media: start: %w", ctx.Err())
+			}
+		}
 		main()
 		os.Exit(0)
 	}
@@ -124,6 +134,16 @@ func startMain(t *testing.T) *tideProcess {
 // as its only TIDE_ variables besides, and waits until it listens.
 func startMainWith(t *testing.T, env ...string) *tideProcess {
 	t.Helper()
+	k := launchMain(t, env...)
+	listening := k.waitForLog("tide listening on ")
+	k.addr = strings.TrimPrefix(listening[strings.Index(listening, "tide listening on "):], "tide listening on ")
+	return k
+}
+
+// launchMain starts main in a new process as startMainWith does, and
+// waits for nothing.
+func launchMain(t *testing.T, env ...string) *tideProcess {
+	t.Helper()
 	k := &tideProcess{t: t, logs: make(chan string, 1000), exited: make(chan struct{})}
 	k.cmd = exec.Command(os.Args[0], "-test.run=^$")
 	for _, variable := range os.Environ() {
@@ -156,8 +176,6 @@ func startMainWith(t *testing.T, env ...string) *tideProcess {
 		_ = k.cmd.Wait()
 		close(k.exited)
 	}()
-	listening := k.waitForLog("tide listening on ")
-	k.addr = strings.TrimPrefix(listening[strings.Index(listening, "tide listening on "):], "tide listening on ")
 	return k
 }
 
@@ -173,6 +191,19 @@ func (k *tideProcess) waitForLog(text string) string {
 				return line
 			}
 		case <-k.exited:
+			// Every line it logged is buffered by now: read them first.
+			for {
+				select {
+				case line := <-k.logs:
+					k.history = append(k.history, line)
+					if strings.Contains(line, text) {
+						return line
+					}
+					continue
+				default:
+				}
+				break
+			}
 			k.t.Fatalf("tide exited before logging %q", text)
 		case <-timeout:
 			k.t.Fatalf("tide never logged %q", text)

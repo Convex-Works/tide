@@ -28,8 +28,15 @@ import (
 const shutdownGrace = 10 * time.Second
 
 // mediaStartTimeout bounds how long tide waits for its media server to
-// accept API calls before giving up on starting.
-const mediaStartTimeout = 30 * time.Second
+// accept API calls before giving up on starting. It is long because
+// discovering the node address over STUN comes first and LiveKit bounds it
+// on its own: three tries of its STUN servers, each allowed about 10
+// seconds, can take a minute and more before Start learns the answer.
+const mediaStartTimeout = 3 * time.Minute
+
+// startMediaServer starts the embedded media server; a variable so that
+// main's process tests can hold a start open.
+var startMediaServer = media.Start
 
 func main() {
 	cfg, err := config.Load()
@@ -46,6 +53,12 @@ func main() {
 		log.Print("tide: stopping; a second signal stops it at once")
 	}()
 	if err := run(ctx, cfg); err != nil {
+		// A signal that came while tide was still starting stopped the start:
+		// that is a stop the operator asked for, not a failure.
+		if ctx.Err() != nil {
+			log.Printf("tide: stopped while starting: %v", err)
+			return
+		}
 		log.Fatal(err)
 	}
 }
@@ -139,7 +152,7 @@ func startMedia(ctx context.Context, cfg *config.Config, addr net.Addr) (*embedd
 	}
 	startCtx, cancel := context.WithTimeout(ctx, mediaStartTimeout)
 	defer cancel()
-	server, err := media.Start(startCtx, media.Options{
+	server, err := startMediaServer(startCtx, media.Options{
 		APIKey:       cfg.LiveKitAPIKey,
 		APISecret:    cfg.LiveKitAPISecret,
 		NodeIP:       cfg.MediaNodeIP,

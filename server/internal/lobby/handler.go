@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"sort"
 	"strings"
@@ -126,7 +127,7 @@ func (h *Handler) Join(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteError(w, http.StatusInternalServerError, "Could not join the room. Try again.")
 			return
 		}
-		h.writeAdmission(w, "host:"+session.Sub+":"+nonce, hostName, room.Slug, true)
+		h.writeAdmission(w, r, "host:"+session.Sub+":"+nonce, hostName, room.Slug, true)
 		return
 	}
 	if !room.LobbyEnabled {
@@ -135,7 +136,7 @@ func (h *Handler) Join(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteError(w, http.StatusInternalServerError, "Could not join the room. Try again.")
 			return
 		}
-		h.writeAdmission(w, identity, name, room.Slug, false)
+		h.writeAdmission(w, r, identity, name, room.Slug, false)
 		return
 	}
 	pending, err := h.registry.Add(room.Slug, name)
@@ -246,6 +247,10 @@ func (h *Handler) Approve(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not admit the guest. Try again.")
 		return
 	}
+	if err := h.markActive(r, request.RoomSlug); err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not admit the guest. Try again.")
+		return
+	}
 	token, err := h.minter.MintToken(identity, request.Name, request.RoomSlug, false, TokenTTL)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not admit the guest. Try again.")
@@ -292,7 +297,23 @@ func (h *Handler) requireManager(w http.ResponseWriter, r *http.Request, slug st
 	return room, true
 }
 
-func (h *Handler) writeAdmission(w http.ResponseWriter, identity, name, room string, host bool) {
+// markActive marks room in use before a token for it leaves tide, so that
+// the anonymous sweep (ARCHITECTURE.md §5), which deletes a room only if it
+// is still idle, never deletes one somebody is about to meet in. The media
+// server's participant_joined webhook marks it again, later.
+func (h *Handler) markActive(r *http.Request, room string) error {
+	if err := h.store.TouchRoomActive(r.Context(), room, time.Now().Unix()); err != nil {
+		log.Printf("lobby: mark %q active: %v", room, err)
+		return err
+	}
+	return nil
+}
+
+func (h *Handler) writeAdmission(w http.ResponseWriter, r *http.Request, identity, name, room string, host bool) {
+	if err := h.markActive(r, room); err != nil {
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not join the room. Try again.")
+		return
+	}
 	token, err := h.minter.MintToken(identity, name, room, host, TokenTTL)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not join the room. Try again.")

@@ -175,6 +175,12 @@ func Load() (Config, error) {
 
 	// Sign-in, or anonymous mode with its rooms in memory (§4.1).
 	cfg.Anonymous = cfg.OIDCIssuer == ""
+	if cfg.Anonymous && (len(cfg.UserGroups) > 0 || len(cfg.AdminGroups) > 0) {
+		// Groups mean the operator meant to restrict who hosts: a missing
+		// issuer must not quietly make the deployment open instead.
+		problems = append(problems,
+			"TIDE_USER_GROUPS or TIDE_ADMIN_GROUPS is set but sign-in is off: groups need TIDE_OIDC_ISSUER")
+	}
 	if cfg.Anonymous {
 		cfg.DBPath = ":memory:"
 		if cfg.SessionSecret == "" {
@@ -193,8 +199,8 @@ func Load() (Config, error) {
 				"TIDE_S3_ENDPOINT is set but sign-in is off: recording needs TIDE_OIDC_ISSUER")
 		} else {
 			cfg.Recording = true
-			cfg.S3PublicEndpoint = envNonEmpty("TIDE_S3_PUBLIC_ENDPOINT", cfg.S3Endpoint)
-			cfg.S3EgressEndpoint = envNonEmpty("TIDE_S3_RECORDER_ENDPOINT", cfg.S3Endpoint)
+			cfg.S3PublicEndpoint = env("TIDE_S3_PUBLIC_ENDPOINT", cfg.S3Endpoint)
+			cfg.S3EgressEndpoint = env("TIDE_S3_RECORDER_ENDPOINT", cfg.S3Endpoint)
 			cfg.S3AccessKey = secret("TIDE_S3_ACCESS_KEY", devS3AccessKey)
 			cfg.S3SecretKey = secret("TIDE_S3_SECRET_KEY", devS3SecretKey)
 		}
@@ -256,7 +262,7 @@ func (c *Config) loadEmbeddedMedia(secret func(name, devFallback string) string)
 		// The recorder joins rooms with the key and secret, and coordinates
 		// with the media server over tide's Redis endpoint, so all three are
 		// configured, and checked as secrets.
-		c.RecorderRedisAddr = envNonEmpty("TIDE_RECORDER_REDIS_ADDR", DefaultRecorderRedisAddr)
+		c.RecorderRedisAddr = env("TIDE_RECORDER_REDIS_ADDR", DefaultRecorderRedisAddr)
 		problems = appendProblem(problems, checkHostPort("TIDE_RECORDER_REDIS_ADDR", c.RecorderRedisAddr))
 		c.RecorderRedisPassword = secret("TIDE_RECORDER_REDIS_PASSWORD", devRecorderRedisPassword)
 		return problems
@@ -418,15 +424,9 @@ func parseTrustedProxies(raw string) ([]*net.IPNet, error) {
 	return networks, nil
 }
 
+// env reads a variable, trimmed; an empty value means unset, for every
+// variable (ARCHITECTURE.md §12), so it takes fallback.
 func env(name, fallback string) string {
-	if value, ok := os.LookupEnv(name); ok {
-		return value
-	}
-	return fallback
-}
-
-// envNonEmpty reads a variable whose empty value means unset.
-func envNonEmpty(name, fallback string) string {
 	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
 		return value
 	}
