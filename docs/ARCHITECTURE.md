@@ -875,9 +875,13 @@ media suite: dex, minio, egress, tide and a Playwright `runner`, on a private
 `10.253.0.0/24` with **no published host ports**. tide runs its media server
 embedded, as production does, advertising its own address on that network;
 the recorder shares tide's network namespace, so it signals at
-`ws://localhost:7880` (the media server itself), uses the Redis endpoint at
-`localhost:6379`, loads the layout from `http://localhost:8080`, and gets the
-same media candidates as the browsers. The browser under test runs inside
+`ws://127.0.0.1:7880` (the media server itself), uses the Redis endpoint at
+`127.0.0.1:6379` (both listen on IPv4 loopback only, and `localhost` may
+resolve to `::1` first), loads the layout from `http://localhost:8080`, and
+gets the same media candidates as the browsers. It waits for tide's
+`/healthz`, which answers only once the media server and the Redis endpoint
+are up, because the recorder checks Redis once at startup and exits without
+it. The browser under test runs inside
 `runner`, so services are reachable only by compose DNS name. Configuration is
 baked into images (`*.Dockerfile`) rather than bind-mounted, because CI drives
 compose from inside a container where host bind mounts do not resolve on the
