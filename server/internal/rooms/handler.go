@@ -50,6 +50,8 @@ func (h *Handler) SetRoomDeletedHook(hook func()) {
 
 // NewHandler builds the rooms handler. live and pendingLobby may be nil in
 // focused tests. Without live state the list reports every room as inactive.
+// objects is nil when recording is off: deleting a room then leaves its
+// recordings' files queued for removal.
 func NewHandler(
 	roomStore *store.Store,
 	objects objectStore,
@@ -292,7 +294,11 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	if h.onRoomDeleted != nil {
 		h.onRoomDeleted()
 	}
-	recording.RemoveDeleted(r.Context(), h.objects, h.store, keys, now)
+	// Without recording there is no storage to remove them from: the keys
+	// stay queued until storage is configured again (ARCHITECTURE.md §8).
+	if h.objects != nil {
+		recording.RemoveDeleted(r.Context(), h.objects, h.store, keys, now)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

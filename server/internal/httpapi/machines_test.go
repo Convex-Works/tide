@@ -397,12 +397,13 @@ func startTideOn(t *testing.T, db *store.Store, dbPath string, configure func(*c
 		t.Fatal(err)
 	}
 	url := "http://" + listener.Addr().String()
-	// Transcripts are on unless configure turns them off: most of these
-	// tests are about them.
+	// Transcripts, and the recording they need, are on unless configure
+	// turns them off: most of these tests are about them.
 	cfg := config.Config{
 		BaseURL: url, SessionSecret: "test-session-secret",
 		LiveKitURL: "ws://livekit.example", LiveKitAPIKey: "devkey",
 		LiveKitAPISecret: "test-livekit-secret-with-enough-bytes",
+		Recording:        true,
 		Transcripts:      true,
 	}
 	server := &http.Server{
@@ -413,7 +414,7 @@ func startTideOn(t *testing.T, db *store.Store, dbPath string, configure func(*c
 	if configure != nil {
 		configure(&cfg, server)
 	}
-	handler, background, err := New(cfg, nil, db, transcribeBundle(t))
+	handler, background, err := New(cfg, nil, db, transcribeBundle(t), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

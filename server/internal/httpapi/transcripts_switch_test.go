@@ -118,7 +118,7 @@ func TestTranscriptsOffMoilPathsAreNotTheSPA(t *testing.T) {
 		BaseURL: "http://localhost:8080", SessionSecret: "test-session-secret",
 		LiveKitURL: "ws://livekit.example", LiveKitAPIKey: "devkey",
 		LiveKitAPISecret: "test-livekit-secret-with-enough-bytes",
-	}, web, db, nil)
+	}, web, db, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

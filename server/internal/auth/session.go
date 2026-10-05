@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -59,28 +60,35 @@ func NewSessions(secret, baseURL string, revocations RevocationStore) *Sessions 
 }
 
 func (s *Sessions) Set(w http.ResponseWriter, session Session) error {
-	expires := s.now().Add(sessionLifetime)
+	_, err := s.setFor(w, session, sessionLifetime)
+	return err
+}
+
+// setFor sets session on w, to last for lifetime, and returns it as the
+// cookie carries it: with its expiry and ID.
+func (s *Sessions) setFor(w http.ResponseWriter, session Session, lifetime time.Duration) (Session, error) {
+	expires := s.now().Add(lifetime)
 	session.Exp = expires.Unix()
 	sid, err := randomSID()
 	if err != nil {
-		return err
+		return Session{}, err
 	}
 	session.SID = sid
 	value, err := s.sign(session)
 	if err != nil {
-		return err
+		return Session{}, err
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookieName,
 		Value:    value,
 		Path:     "/",
 		Expires:  expires,
-		MaxAge:   int(sessionLifetime / time.Second),
+		MaxAge:   int(lifetime / time.Second),
 		HttpOnly: true,
 		Secure:   s.secure,
 		SameSite: http.SameSiteLaxMode,
 	})
-	return nil
+	return session, nil
 }
 
 func (s *Sessions) Read(r *http.Request) (Session, error) {
@@ -119,6 +127,20 @@ func (s *Sessions) Revoke(ctx context.Context, session Session) error {
 		return nil
 	}
 	return s.revocations.RevokeSession(ctx, session.SID, session.Exp)
+}
+
+// Logout signs this session out: it revokes it server-side, then clears
+// the cookie, and answers 204.
+func (s *Sessions) Logout(w http.ResponseWriter, r *http.Request) {
+	// Revoke server-side first: clearing the cookie only helps this browser,
+	// while a copied cookie would otherwise stay valid until it expires.
+	if session, ok := SessionFromContext(r.Context()); ok {
+		if err := s.Revoke(r.Context(), session); err != nil {
+			log.Printf("auth: could not revoke session: %v", err)
+		}
+	}
+	s.Clear(w)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Sessions) Clear(w http.ResponseWriter) {

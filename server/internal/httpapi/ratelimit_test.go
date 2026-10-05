@@ -37,7 +37,7 @@ func TestRoomLookupLimitsGuestsPerAddressAndHostsPerSub(t *testing.T) {
 		LiveKitAPIKey: "devkey", LiveKitAPISecret: "test-livekit-secret-with-enough-bytes",
 		LiveKitPublicURL: "ws://public.example", JoinRateLimit: limit,
 	}
-	handler, background, err := New(cfg, nil, db, nil)
+	handler, background, err := New(cfg, nil, db, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

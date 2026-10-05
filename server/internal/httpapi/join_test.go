@@ -35,7 +35,7 @@ func TestJoinPolicyMatrix(t *testing.T) {
 		LiveKitAPIKey: "devkey", LiveKitAPISecret: "test-livekit-secret-with-enough-bytes",
 		LiveKitPublicURL: "ws://public.example", DevMode: true,
 	}
-	handler, background, err := New(cfg, nil, db, transcribeBundle(t))
+	handler, background, err := New(cfg, nil, db, transcribeBundle(t), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
