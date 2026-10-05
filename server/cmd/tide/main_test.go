@@ -83,26 +83,56 @@ type tideProcess struct {
 	cookie *http.Cookie
 	logs   chan string
 	exited chan struct{}
+	// history is every line waitForLog has read so far.
+	history []string
 }
 
-// startMain starts main in a new process, configured as in development
-// except for its address and database, and waits until it listens.
+// logged reports whether tide has logged a line containing text, among
+// those waitForLog has read.
+func (k *tideProcess) logged(text string) bool {
+	for _, line := range k.history {
+		if strings.Contains(line, text) {
+			return true
+		}
+	}
+	return false
+}
+
+const testSessionSecret, testBaseURL = "test-session-secret-long-enough-for-tide", "http://127.0.0.1"
+
+// startMain starts main in a new process, signed in as in development,
+// with its own address and database, and waits until it listens. No
+// identity provider or media server runs: these tests reach neither.
 func startMain(t *testing.T) *tideProcess {
 	t.Helper()
-	const secret, baseURL = "test-session-secret-long-enough-for-tide", "http://127.0.0.1"
-	k := &tideProcess{
-		t: t, dbPath: filepath.Join(t.TempDir(), "tide.db"),
-		logs: make(chan string, 1000), exited: make(chan struct{}),
+	dbPath := filepath.Join(t.TempDir(), "tide.db")
+	k := startMainWith(t,
+		"TIDE_DEV_MODE=true", "TIDE_DB_PATH="+dbPath, "TIDE_SESSION_SECRET="+testSessionSecret,
+		"TIDE_OIDC_ISSUER=http://127.0.0.1:1/dex",
+		"TIDE_MEDIA_URL=ws://127.0.0.1:1", "TIDE_MEDIA_PUBLIC_URL=ws://127.0.0.1:1")
+	k.dbPath = dbPath
+	sessions := auth.NewSessions(testSessionSecret, testBaseURL, nil)
+	recorder := httptest.NewRecorder()
+	if err := sessions.Set(recorder, auth.Session{Sub: "alice", Name: "Alice"}); err != nil {
+		t.Fatal(err)
 	}
+	k.cookie = recorder.Result().Cookies()[0]
+	return k
+}
+
+// startMainWith starts main in a new process on its own address, with env
+// as its only TIDE_ variables besides, and waits until it listens.
+func startMainWith(t *testing.T, env ...string) *tideProcess {
+	t.Helper()
+	k := &tideProcess{t: t, logs: make(chan string, 1000), exited: make(chan struct{})}
 	k.cmd = exec.Command(os.Args[0], "-test.run=^$")
 	for _, variable := range os.Environ() {
 		if !strings.HasPrefix(variable, "TIDE_") {
 			k.cmd.Env = append(k.cmd.Env, variable)
 		}
 	}
-	k.cmd.Env = append(k.cmd.Env,
-		"TIDE_TEST_MAIN=1", "TIDE_DEV_MODE=true", "TIDE_ADDR=127.0.0.1:0",
-		"TIDE_DB_PATH="+k.dbPath, "TIDE_BASE_URL="+baseURL, "TIDE_SESSION_SECRET="+secret)
+	k.cmd.Env = append(k.cmd.Env, "TIDE_TEST_MAIN=1", "TIDE_ADDR=127.0.0.1:0", "TIDE_BASE_URL="+testBaseURL)
+	k.cmd.Env = append(k.cmd.Env, env...)
 	stderr, err := k.cmd.StderrPipe()
 	if err != nil {
 		t.Fatal(err)
@@ -128,13 +158,6 @@ func startMain(t *testing.T) *tideProcess {
 	}()
 	listening := k.waitForLog("tide listening on ")
 	k.addr = strings.TrimPrefix(listening[strings.Index(listening, "tide listening on "):], "tide listening on ")
-
-	sessions := auth.NewSessions(secret, baseURL, nil)
-	recorder := httptest.NewRecorder()
-	if err := sessions.Set(recorder, auth.Session{Sub: "alice", Name: "Alice"}); err != nil {
-		t.Fatal(err)
-	}
-	k.cookie = recorder.Result().Cookies()[0]
 	return k
 }
 
@@ -145,6 +168,7 @@ func (k *tideProcess) waitForLog(text string) string {
 	for {
 		select {
 		case line := <-k.logs:
+			k.history = append(k.history, line)
 			if strings.Contains(line, text) {
 				return line
 			}

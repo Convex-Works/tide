@@ -22,13 +22,19 @@ import (
 )
 
 // New makes the recording handler for tide's LiveKit, with recordings kept
-// in objects.
+// in objects. objects is nil when recording is off (ARCHITECTURE.md §8):
+// the handler then only receives webhooks, and its routes and reconciler,
+// which need storage, must not run.
 func New(cfg config.Config, recordings *store.Store, objects *MinIOStore) *Handler {
 	egress := lksdk.NewEgressClient(cfg.LiveKitURL, cfg.LiveKitAPIKey, cfg.LiveKitAPISecret)
 	rooms := lksdk.NewRoomServiceClient(liveKitHTTPURL(cfg.LiveKitURL), cfg.LiveKitAPIKey, cfg.LiveKitAPISecret)
 	provider := protocolauth.NewSimpleKeyProvider(cfg.LiveKitAPIKey, cfg.LiveKitAPISecret)
+	var storage ObjectStore // nil, not a nil *MinIOStore, without storage
+	if objects != nil {
+		storage = objects
+	}
 	handler := NewHandler(
-		recordings, egress, rooms, objects, cfg.EgressTemplateURL,
+		recordings, egress, rooms, storage, cfg.EgressTemplateURL,
 		ReceiverFromAuthProvider(provider),
 	)
 	// The destination travels with each egress request; egress needs no global

@@ -298,6 +298,29 @@ func (s *Store) Rooms(ctx context.Context) ([]Room, error) {
 	return rooms, rows.Err()
 }
 
+// IdleRooms lists the rooms nobody has used since before (Unix seconds):
+// those created before it and not joined since, oldest first.
+func (s *Store) IdleRooms(ctx context.Context, before int64) ([]Room, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT `+roomColumns+` FROM rooms
+		 WHERE MAX(created_at, COALESCE(last_active_at, created_at)) < ?
+		 ORDER BY created_at, slug`, before)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	rooms := make([]Room, 0)
+	for rows.Next() {
+		room, err := scanRoom(rows)
+		if err != nil {
+			return nil, err
+		}
+		rooms = append(rooms, room)
+	}
+	return rooms, rows.Err()
+}
+
 // TouchRoomActive records that a room saw activity at ts (Unix seconds),
 // advancing last_active_at monotonically so out-of-order webhook delivery can
 // never move the timestamp backwards.

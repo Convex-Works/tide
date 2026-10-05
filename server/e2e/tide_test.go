@@ -87,7 +87,9 @@ func startTideWith(t *testing.T, bundle *moil.Bundle) *tide {
 			S3AccessKey:      objects.accessKey,
 			S3SecretKey:      objects.secretKey,
 			S3Region:         objects.region,
-			// What these tests are about (TIDE_TRANSCRIPTS).
+			// What these tests are about (TIDE_TRANSCRIPTS), and the
+			// recording transcripts need.
+			Recording:   true,
 			Transcripts: true,
 		},
 		bundle: bundle,
@@ -132,7 +134,7 @@ func (k *tide) start(listener net.Listener) {
 	if err != nil {
 		k.t.Fatal(err)
 	}
-	handler, background, err := httpapi.New(k.cfg, nil, db, k.bundle)
+	handler, background, err := httpapi.New(k.cfg, nil, db, k.bundle, nil)
 	if err != nil {
 		k.t.Fatal(err)
 	}

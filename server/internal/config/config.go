@@ -1,9 +1,13 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -19,6 +23,9 @@ const (
 	devOIDCSecret    = "tide-dev-oidc-secret"
 	devS3AccessKey   = "tide"
 	devS3SecretKey   = "tide-dev-minio"
+	// devRecorderRedisPassword is the recorder's Redis endpoint password in
+	// the dev and media gate stacks, whose recorder configs carry it too.
+	devRecorderRedisPassword = "tide-dev-recorder-redis-password-please-change"
 )
 
 type Config struct {
@@ -104,40 +111,51 @@ const (
 	DefaultPairRateLimit  = 10
 )
 
-// Load reads configuration from the environment. Dev mode is opt-in
-// (TIDE_DEV_MODE=true); outside it, secrets have no defaults and Load
-// refuses to produce a config that is missing, weak, or equal to a
-// publicly-known dev value — the server must fail closed, not open.
+// The embedded media server's ports and the recorder's Redis endpoint
+// (ARCHITECTURE.md §2.1).
+const (
+	DefaultMediaInternalPort = 7880
+	DefaultMediaTCPPort      = 7881
+	DefaultMediaUDPPort      = 7882
+	DefaultRecorderRedisAddr = "127.0.0.1:6379"
+)
+
+// Load reads configuration from the environment (ARCHITECTURE.md §12).
+// Every variable is optional: an empty environment is an anonymous
+// deployment with its media server embedded. Each group of variables turns
+// something on and is then checked as a whole. Load reports every problem
+// at once, and refuses a configuration that contradicts itself or whose
+// secrets are missing, weak, or equal to a publicly-known dev value — the
+// server must fail closed, not open. Dev mode (TIDE_DEV_MODE=true) supplies
+// the dev value of any secret left unset, and turns nothing else on.
 func Load() (Config, error) {
 	dev := envBool("TIDE_DEV_MODE", false)
-	// Secrets fall back to the dev profile only in dev mode.
+	// A secret set to the empty string counts as unset. It falls back to the
+	// dev profile only in dev mode.
 	secret := func(name, devFallback string) string {
-		if dev {
-			return env(name, devFallback)
+		if value := os.Getenv(name); value != "" {
+			return value
 		}
-		return env(name, "")
+		if dev {
+			return devFallback
+		}
+		return ""
 	}
 	baseURL := env("TIDE_BASE_URL", "http://localhost:8080")
 	cfg := Config{
 		Addr:              env("TIDE_ADDR", ":8080"),
 		BaseURL:           baseURL,
 		SessionSecret:     secret("TIDE_SESSION_SECRET", devSessionSecret),
-		DBPath:            env("TIDE_DB_PATH", "./data/tide.db"),
-		LiveKitURL:        env("TIDE_MEDIA_URL", "ws://localhost:7880"),
-		LiveKitPublicURL:  env("TIDE_MEDIA_PUBLIC_URL", "ws://localhost:7880"),
+		LiveKitURL:        strings.TrimSpace(os.Getenv("TIDE_MEDIA_URL")),
+		LiveKitPublicURL:  strings.TrimSpace(os.Getenv("TIDE_MEDIA_PUBLIC_URL")),
 		LiveKitAPIKey:     secret("TIDE_MEDIA_API_KEY", devLiveKitAPIKey),
 		LiveKitAPISecret:  secret("TIDE_MEDIA_API_SECRET", devLiveKitSecret),
-		OIDCIssuer:        env("TIDE_OIDC_ISSUER", "http://localhost:5556/dex"),
+		OIDCIssuer:        strings.TrimSpace(os.Getenv("TIDE_OIDC_ISSUER")),
 		OIDCClientID:      env("TIDE_OIDC_CLIENT_ID", "tide"),
-		OIDCClientSecret:  secret("TIDE_OIDC_CLIENT_SECRET", devOIDCSecret),
 		UserGroups:        parseList(env("TIDE_USER_GROUPS", "")),
 		AdminGroups:       parseList(env("TIDE_ADMIN_GROUPS", "")),
-		S3Endpoint:        env("TIDE_S3_ENDPOINT", "http://localhost:9000"),
-		S3PublicEndpoint:  env("TIDE_S3_PUBLIC_ENDPOINT", "http://localhost:9000"),
-		S3EgressEndpoint:  env("TIDE_S3_RECORDER_ENDPOINT", "http://minio:9000"),
+		S3Endpoint:        strings.TrimSpace(os.Getenv("TIDE_S3_ENDPOINT")),
 		S3Bucket:          env("TIDE_S3_BUCKET", "tide-recordings"),
-		S3AccessKey:       secret("TIDE_S3_ACCESS_KEY", devS3AccessKey),
-		S3SecretKey:       secret("TIDE_S3_SECRET_KEY", devS3SecretKey),
 		S3Region:          env("TIDE_S3_REGION", "us-east-1"),
 		EgressTemplateURL: env("TIDE_RECORDER_TEMPLATE_URL", baseURL+"/egress-template"),
 		DevMode:           dev,
@@ -147,17 +165,166 @@ func Load() (Config, error) {
 		PairRateLimit:     envPositiveInt("TIDE_PAIR_RATE_LIMIT", DefaultPairRateLimit),
 		Transcripts:       envBool("TIDE_TRANSCRIPTS", false),
 	}
+	var problems []string
 	trusted, err := parseTrustedProxies(env("TIDE_TRUSTED_PROXIES", ""))
 	if err != nil {
-		return Config{}, fmt.Errorf("TIDE_TRUSTED_PROXIES: %w", err)
+		problems = append(problems, "TIDE_TRUSTED_PROXIES: "+err.Error())
 	}
 	cfg.TrustedProxies = trusted
-	if !dev {
-		if err := cfg.validateProduction(); err != nil {
-			return Config{}, err
+
+	// Sign-in, or anonymous mode with its rooms in memory (§4.1).
+	cfg.Anonymous = cfg.OIDCIssuer == ""
+	if cfg.Anonymous {
+		cfg.DBPath = ":memory:"
+		if cfg.SessionSecret == "" {
+			// Its sessions end with its rooms, at restart.
+			cfg.SessionSecret = randomSecret()
+		}
+	} else {
+		cfg.DBPath = env("TIDE_DB_PATH", "./data/tide.db")
+		cfg.OIDCClientSecret = secret("TIDE_OIDC_CLIENT_SECRET", devOIDCSecret)
+	}
+
+	// Recording needs sign-in and object storage (§8).
+	if cfg.S3Endpoint != "" {
+		if cfg.Anonymous {
+			problems = append(problems,
+				"TIDE_S3_ENDPOINT is set but sign-in is off: recording needs TIDE_OIDC_ISSUER")
+		} else {
+			cfg.Recording = true
+			cfg.S3PublicEndpoint = envNonEmpty("TIDE_S3_PUBLIC_ENDPOINT", cfg.S3Endpoint)
+			cfg.S3EgressEndpoint = envNonEmpty("TIDE_S3_RECORDER_ENDPOINT", cfg.S3Endpoint)
+			cfg.S3AccessKey = secret("TIDE_S3_ACCESS_KEY", devS3AccessKey)
+			cfg.S3SecretKey = secret("TIDE_S3_SECRET_KEY", devS3SecretKey)
 		}
 	}
+	if cfg.Transcripts && !cfg.Recording {
+		problems = append(problems,
+			"TIDE_TRANSCRIPTS=true needs recording (TIDE_OIDC_ISSUER and TIDE_S3_ENDPOINT)")
+	}
+
+	// The media server: embedded unless TIDE_MEDIA_URL names one (§2.1).
+	cfg.MediaEmbedded = cfg.LiveKitURL == ""
+	if cfg.MediaEmbedded {
+		problems = append(problems, cfg.loadEmbeddedMedia(secret)...)
+	} else if cfg.LiveKitPublicURL == "" {
+		problems = append(problems,
+			"TIDE_MEDIA_PUBLIC_URL must be set with an external media server (TIDE_MEDIA_URL)")
+	}
+
+	var secretProblems []string
+	if !dev {
+		secretProblems = cfg.validateSecrets()
+	}
+	if len(problems)+len(secretProblems) > 0 {
+		message := "refusing to start: " + strings.Join(append(problems, secretProblems...), "; ")
+		if len(secretProblems) > 0 {
+			message += " (set TIDE_DEV_MODE=true only for local development)"
+		}
+		return Config{}, errors.New(message)
+	}
 	return cfg, nil
+}
+
+// loadEmbeddedMedia reads the embedded media server's settings into c and
+// returns what is wrong with them. secret reads a secret as Load does.
+func (c *Config) loadEmbeddedMedia(secret func(name, devFallback string) string) []string {
+	var problems []string
+	if c.LiveKitPublicURL == "" {
+		publicURL, err := signalingOrigin(c.BaseURL)
+		if err != nil {
+			problems = append(problems, "TIDE_BASE_URL: "+err.Error())
+		}
+		c.LiveKitPublicURL = publicURL
+	}
+	c.MediaInternalPort = DefaultMediaInternalPort
+	c.MediaNodeIP = strings.TrimSpace(os.Getenv("TIDE_MEDIA_NODE_IP"))
+	if c.MediaNodeIP != "" && net.ParseIP(c.MediaNodeIP) == nil {
+		problems = append(problems, fmt.Sprintf("TIDE_MEDIA_NODE_IP %q is not an IP address", c.MediaNodeIP))
+	}
+	var problem string
+	c.MediaTCPPort, problem = envPort("TIDE_MEDIA_TCP_PORT", DefaultMediaTCPPort)
+	problems = appendProblem(problems, problem)
+	c.MediaUDPPort, problem = envPort("TIDE_MEDIA_UDP_PORT", DefaultMediaUDPPort)
+	problems = appendProblem(problems, problem)
+	if c.Recording {
+		// The recorder joins rooms with the key and secret, and coordinates
+		// with the media server over tide's Redis endpoint, so all three are
+		// configured, and checked as secrets.
+		c.RecorderRedisAddr = envNonEmpty("TIDE_RECORDER_REDIS_ADDR", DefaultRecorderRedisAddr)
+		problems = appendProblem(problems, checkHostPort("TIDE_RECORDER_REDIS_ADDR", c.RecorderRedisAddr))
+		c.RecorderRedisPassword = secret("TIDE_RECORDER_REDIS_PASSWORD", devRecorderRedisPassword)
+		return problems
+	}
+	// Nothing outside the process needs the key and secret, so a missing one
+	// is made up for this start, and never printed.
+	if c.LiveKitAPIKey == "" {
+		c.LiveKitAPIKey = "tide" + randomHex(8)
+	}
+	if c.LiveKitAPISecret == "" {
+		c.LiveKitAPISecret = randomSecret()
+	}
+	return problems
+}
+
+// Summary says in one line what this deployment is, for main to log at
+// startup: its sign-in, its media server, and what it records.
+func (c Config) Summary() string {
+	parts := []string{"signed in"}
+	if c.Anonymous {
+		parts[0] = "anonymous"
+	}
+	switch {
+	case !c.MediaEmbedded:
+		parts = append(parts, "media server external")
+	case c.MediaNodeIP != "":
+		parts = append(parts, "media server embedded (node IP "+c.MediaNodeIP+")")
+	case c.MediaLoopback():
+		parts = append(parts, "media server embedded (node IP 127.0.0.1)")
+	default:
+		parts = append(parts, "media server embedded (node IP discovered)")
+	}
+	if c.Recording {
+		parts = append(parts, "recording on")
+	} else {
+		parts = append(parts, "recording off")
+	}
+	if c.Transcripts {
+		parts = append(parts, "transcripts on")
+	}
+	return strings.Join(parts, ", ")
+}
+
+// MediaLoopback reports whether the base URL's host is loopback, when the
+// embedded media server advertises 127.0.0.1 unless TIDE_MEDIA_NODE_IP says
+// otherwise.
+func (c Config) MediaLoopback() bool {
+	parsed, err := url.Parse(c.BaseURL)
+	if err != nil {
+		return false
+	}
+	host := parsed.Hostname()
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// signalingOrigin is the base URL's origin with a ws or wss scheme: where
+// browsers reach the embedded media server's signaling, which tide forwards
+// at /rtc.
+func signalingOrigin(baseURL string) (string, error) {
+	parsed, err := url.Parse(baseURL)
+	if err == nil && parsed.Host != "" {
+		switch strings.ToLower(parsed.Scheme) {
+		case "http":
+			return "ws://" + parsed.Host, nil
+		case "https":
+			return "wss://" + parsed.Host, nil
+		}
+	}
+	return "", fmt.Errorf("%q is not an absolute http or https URL", baseURL)
 }
 
 // parseList returns a stable, deduplicated comma-separated configuration list.
@@ -176,16 +343,18 @@ func parseList(raw string) []string {
 	return values
 }
 
-// validateProduction rejects any secret that is missing, a shipped dev
-// default, or too short. All problems are reported at once.
-func (c Config) validateProduction() error {
+// validateSecrets rejects each secret this configuration uses that is
+// missing, a shipped dev default, or too short. A secret Load generated
+// passes; one the mode doesn't use isn't checked.
+func (c Config) validateSecrets() []string {
 	devValues := map[string]bool{
-		devSessionSecret: true,
-		devLiveKitAPIKey: true,
-		devLiveKitSecret: true,
-		devOIDCSecret:    true,
-		devS3AccessKey:   true,
-		devS3SecretKey:   true,
+		devSessionSecret:         true,
+		devLiveKitAPIKey:         true,
+		devLiveKitSecret:         true,
+		devOIDCSecret:            true,
+		devS3AccessKey:           true,
+		devS3SecretKey:           true,
+		devRecorderRedisPassword: true,
 	}
 	var problems []string
 	check := func(name, value string, minLen int) {
@@ -201,14 +370,17 @@ func (c Config) validateProduction() error {
 	check("TIDE_SESSION_SECRET", c.SessionSecret, 32)
 	check("TIDE_MEDIA_API_KEY", c.LiveKitAPIKey, 1)
 	check("TIDE_MEDIA_API_SECRET", c.LiveKitAPISecret, 32)
-	check("TIDE_OIDC_CLIENT_SECRET", c.OIDCClientSecret, 16)
-	check("TIDE_S3_ACCESS_KEY", c.S3AccessKey, 1)
-	check("TIDE_S3_SECRET_KEY", c.S3SecretKey, 16)
-	if len(problems) > 0 {
-		return errors.New("refusing to start: " + strings.Join(problems, "; ") +
-			" (set TIDE_DEV_MODE=true only for local development)")
+	if !c.Anonymous {
+		check("TIDE_OIDC_CLIENT_SECRET", c.OIDCClientSecret, 16)
 	}
-	return nil
+	if c.Recording {
+		check("TIDE_S3_ACCESS_KEY", c.S3AccessKey, 1)
+		check("TIDE_S3_SECRET_KEY", c.S3SecretKey, 16)
+		if c.MediaEmbedded {
+			check("TIDE_RECORDER_REDIS_PASSWORD", c.RecorderRedisPassword, 32)
+		}
+	}
+	return problems
 }
 
 // parseTrustedProxies accepts a comma-separated list of CIDRs; a bare IP is
@@ -248,6 +420,14 @@ func env(name, fallback string) string {
 	return fallback
 }
 
+// envNonEmpty reads a variable whose empty value means unset.
+func envNonEmpty(name, fallback string) string {
+	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
+		return value
+	}
+	return fallback
+}
+
 // envPositiveInt reads a positive integer, falling back on anything unusable.
 // Rate limits are deployment configuration: a single-tenant install behind a
 // VPN, and the media gate where every browser shares one container IP, both
@@ -264,6 +444,44 @@ func envPositiveInt(name string, fallback int) int {
 	return parsed
 }
 
+// envPort reads a TCP or UDP port, returning the problem with it, if any.
+// Unlike a rate limit, a port that can't be used refuses startup: falling
+// back would open a port the operator didn't ask for.
+func envPort(name string, fallback int) (int, string) {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback, ""
+	}
+	port, err := strconv.Atoi(value)
+	if err != nil || port < 1 || port > 65535 {
+		return fallback, fmt.Sprintf("%s %q is not a port (1-65535)", name, value)
+	}
+	return port, ""
+}
+
+// checkHostPort says what is wrong with a listen address, if anything. An
+// empty host means every interface.
+func checkHostPort(name, address string) string {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil {
+		return fmt.Sprintf("%s %q is not host:port", name, address)
+	}
+	if host != "" && net.ParseIP(host) == nil && !strings.EqualFold(host, "localhost") {
+		return fmt.Sprintf("%s %q: the host must be an IP address, localhost, or empty", name, address)
+	}
+	if number, err := strconv.Atoi(port); err != nil || number < 1 || number > 65535 {
+		return fmt.Sprintf("%s %q: the port must be 1-65535", name, address)
+	}
+	return ""
+}
+
+func appendProblem(problems []string, problem string) []string {
+	if problem == "" {
+		return problems
+	}
+	return append(problems, problem)
+}
+
 func envBool(name string, fallback bool) bool {
 	value, ok := os.LookupEnv(name)
 	if !ok {
@@ -274,4 +492,18 @@ func envBool(name string, fallback bool) bool {
 		return fallback
 	}
 	return parsed
+}
+
+// randomHex is n random bytes, hex-encoded.
+func randomHex(n int) string {
+	value := make([]byte, n)
+	_, _ = rand.Read(value) // crypto/rand.Read never fails
+	return hex.EncodeToString(value)
+}
+
+// randomSecret is a secret for one start: 32 random bytes, 43 characters.
+func randomSecret() string {
+	value := make([]byte, 32)
+	_, _ = rand.Read(value) // crypto/rand.Read never fails
+	return base64.RawURLEncoding.EncodeToString(value)
 }
