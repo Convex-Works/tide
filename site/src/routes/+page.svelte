@@ -1,5 +1,7 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
+  import ArrowUpRight from 'phosphor-svelte/lib/ArrowUpRight';
+  import { demoURL } from '#lib/links.ts';
   import MeetingStage from '#lib/MeetingStage.svelte';
   import NewRoomCard from '#lib/NewRoomCard.svelte';
   import SiteFooter from '#lib/SiteFooter.svelte';
@@ -29,6 +31,15 @@
           >
           <a class="button" href={resolve('/docs/[slug]', { slug: 'local' })}>Run locally</a>
         </div>
+        <p class="mt-4 text-[14px] text-ink-2">
+          Or try it first:
+          <a href={demoURL} class="group inline-flex items-center gap-0.5 text-ink hover:text-tide"
+            >start a meeting on the demo<ArrowUpRight
+              size={14}
+              class="transition-transform group-hover:translate-x-px group-hover:-translate-y-px"
+            /></a
+          >
+        </p>
       </div>
 
       <!-- The product, as it looks: a room being created, and the meeting it opens. -->

@@ -1,6 +1,8 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
   import { page } from '$app/state';
+  import GithubLogo from 'phosphor-svelte/lib/GithubLogo';
+  import { repositoryURL } from './links.ts';
   import Logo from './Logo.svelte';
 
   const configuration = resolve('/docs/[slug]', { slug: 'configuration' });
@@ -38,7 +40,15 @@
       {/each}
     </ul>
   </nav>
-  <a class="button button-primary ml-auto" href={resolve('/docs/[slug]', { slug: 'prepare' })}
-    >Deploy</a
-  >
+  <div class="ml-auto flex items-center gap-4">
+    <a
+      href={repositoryURL}
+      class="text-ink-2 transition-colors hover:text-ink"
+      aria-label="tide on GitHub"
+      title="GitHub"
+    >
+      <GithubLogo size={20} />
+    </a>
+    <a class="button button-primary" href={resolve('/docs/[slug]', { slug: 'prepare' })}>Deploy</a>
+  </div>
 </header>
