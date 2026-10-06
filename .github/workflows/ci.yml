@@ -35,7 +35,14 @@ jobs:
         run: go vet ./...
       - name: Server tests
         working-directory: server
-        run: go test ./...
+        run: |
+          set -o pipefail
+          go test ./... 2>&1 | tee "$RUNNER_TEMP/go-test.log"
+      - name: Annotate failed server tests
+        if: failure()
+        run: |
+          grep -E -- '--- FAIL|_test\.go:[0-9]+:|^FAIL|^panic:' "$RUNNER_TEMP/go-test.log" 2>/dev/null |
+            head -50 | sed 's/^/::error title=go test::/' || true
       - name: Install web dependencies
         working-directory: web
         run: npm ci
