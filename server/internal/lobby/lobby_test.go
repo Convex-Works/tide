@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"tide/internal/store"
 )
 
 func TestWaitSSEApproveDenyAndExpiry(t *testing.T) {
@@ -80,5 +82,13 @@ func TestStreamCaps(t *testing.T) {
 	caps.release("k")
 	if !caps.acquire("k") {
 		t.Fatal("released capacity must be reusable")
+	}
+}
+
+// A freed slug is held for as long as the tokens minted for its old room
+// live, so none of them can reach a room created under it later.
+func TestFreedSlugsOutliveTokens(t *testing.T) {
+	if TokenTTL > store.FreedSlugHold {
+		t.Fatalf("tokens live %s but freed slugs are held only %s", TokenTTL, store.FreedSlugHold)
 	}
 }

@@ -34,7 +34,7 @@ func TestRoomCRUD(t *testing.T) {
 	oldSlug := want.Slug
 	want.Slug = "weekly-team"
 	want.LobbyEnabled = false
-	if err := db.UpdateRoom(ctx, want); err != nil {
+	if err := db.UpdateRoom(ctx, want, time.Now().Unix()); err != nil {
 		t.Fatal(err)
 	}
 	got, err = db.RoomBySlug(ctx, want.Slug)
@@ -210,5 +210,93 @@ func TestSessionRevocationStore(t *testing.T) {
 	}
 	if revoked, err := db.IsSessionRevoked(ctx, "sid-expired"); err != nil || revoked {
 		t.Fatalf("expired sid revoked=%v err=%v", revoked, err)
+	}
+}
+
+// A slug freed by deleting or renaming its room stays unavailable for as
+// long as a token minted for the old room could still be used
+// (ARCHITECTURE.md §5), then comes free.
+func TestFreedSlugsAreHeld(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	const now = int64(1_800_000_000)
+	hold := int64(FreedSlugHold / time.Second)
+	room := func(id, slug string, at int64) Room {
+		return Room{ID: id, Slug: slug, Name: slug, OwnerSub: "alice", LobbyEnabled: true, CreatedAt: at}
+	}
+	if err := db.CreateRoom(ctx, room("r1", "standup", now)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.DeleteRoom(ctx, "r1", now); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateRoom(ctx, room("r2", "standup", now+hold-1)); !IsSlugConflict(err) {
+		t.Fatalf("creating a just-deleted room's slug = %v, want a slug conflict", err)
+	}
+	if err := db.CreateRoom(ctx, room("r2", "standup", now+hold)); err != nil {
+		t.Fatalf("the slug once its hold ended: %v", err)
+	}
+
+	// Renaming frees the old slug the same way, and can't take a held one.
+	if err := db.CreateRoom(ctx, room("r3", "retro", now+hold)); err != nil {
+		t.Fatal(err)
+	}
+	renamed := room("r3", "retro-2", now+hold)
+	if err := db.UpdateRoom(ctx, renamed, now+hold); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateRoom(ctx, room("r4", "retro", now+hold+1)); !IsSlugConflict(err) {
+		t.Fatalf("creating a just-renamed room's old slug = %v, want a slug conflict", err)
+	}
+	other := room("r2", "retro", now+hold+1)
+	if err := db.UpdateRoom(ctx, other, now+hold+1); !IsSlugConflict(err) {
+		t.Fatalf("renaming another room to a held slug = %v, want a slug conflict", err)
+	}
+	// Saving a room without changing its slug holds nothing.
+	renamed.Name = "Retro"
+	if err := db.UpdateRoom(ctx, renamed, now+hold+2); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.CreateRoom(ctx, room("r5", "retro-3", now+hold+2)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Marking a room active says whether it still exists, even when it was
+// marked in the same second already.
+func TestMarkRoomActiveFindsOnlyRoomsThatExist(t *testing.T) {
+	ctx := context.Background()
+	db, err := Open(":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.CreateRoom(ctx, Room{ID: "r1", Slug: "standup", Name: "Standup", OwnerSub: "alice", CreatedAt: 100}); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if found, err := db.MarkRoomActive(ctx, "r1", 200); err != nil || !found {
+			t.Fatalf("mark an existing room = %v, %v", found, err)
+		}
+	}
+	got, err := db.RoomBySlug(ctx, "standup")
+	if err != nil || got.LastActiveAt == nil || *got.LastActiveAt != 200 {
+		t.Fatalf("last active = %v, %v", got.LastActiveAt, err)
+	}
+	if found, err := db.MarkRoomActive(ctx, "r1", 150); err != nil || !found {
+		t.Fatalf("an older mark = %v, %v", found, err)
+	}
+	if got, _ := db.RoomBySlug(ctx, "standup"); *got.LastActiveAt != 200 {
+		t.Fatalf("an older mark moved last active back to %d", *got.LastActiveAt)
+	}
+	if _, err := db.DeleteRoom(ctx, "r1", 300); err != nil {
+		t.Fatal(err)
+	}
+	if found, err := db.MarkRoomActive(ctx, "r1", 300); err != nil || found {
+		t.Fatalf("mark a deleted room = %v, %v, want not found", found, err)
 	}
 }

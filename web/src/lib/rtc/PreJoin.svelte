@@ -266,7 +266,7 @@
 
     <div class="details">
       <div class="brand-row">
-        <div class="brand">klisi</div>
+        <div class="brand">tide</div>
         {@render account?.()}
       </div>
       <h1 class:room-heading={!showRoom}>{heading}</h1>

@@ -281,12 +281,12 @@ class SpeakerStorm extends MediaCommand {
       const room = (
         window as Window &
           typeof globalThis & {
-            __klisiRoom: {
+            __tideRoom: {
               remoteParticipants: Map<string, unknown>;
               emit(event: string, participants: unknown[]): void;
             };
           }
-      ).__klisiRoom;
+      ).__tideRoom;
       const remote = [...room.remoteParticipants.values()][0];
       for (let index = 0; index < 12; index += 1) {
         room.emit('activeSpeakersChanged', index % 2 === 0 ? [remote] : []);
@@ -320,12 +320,12 @@ class RepairAttachment extends MediaCommand {
       const hook = (
         window as Window &
           typeof globalThis & {
-            __klisiMediaTest: {
+            __tideMediaTest: {
               clearSrcObject(publicationSid: string): boolean;
               reconcile(): void;
             };
           }
-      ).__klisiMediaTest;
+      ).__tideMediaTest;
       hook.clearSrcObject(sid);
       hook.reconcile();
     }, real.microphoneSid);
@@ -356,13 +356,13 @@ class DelayedAttachment extends MediaCommand {
       const hook = (
         window as Window &
           typeof globalThis & {
-            __klisiMediaTest: {
+            __tideMediaTest: {
               attachmentDelayMs: number;
               clearSrcObject(publicationSid: string): boolean;
               reconcile(): void;
             };
           }
-      ).__klisiMediaTest;
+      ).__tideMediaTest;
       hook.attachmentDelayMs = 80;
       hook.clearSrcObject(sid);
       hook.reconcile();
@@ -396,12 +396,12 @@ class SubscriptionFailure extends MediaCommand {
       const hook = (
         window as Window &
           typeof globalThis & {
-            __klisiMediaTest: {
+            __tideMediaTest: {
               injectSubscriptionFailure(publicationSid: string): void;
               unsubscribeBehindBack(publicationSid: string): boolean;
             };
           }
-      ).__klisiMediaTest;
+      ).__tideMediaTest;
       hook.injectSubscriptionFailure(sid);
       hook.unsubscribeBehindBack(sid);
     }, real.cameraSid);
@@ -410,7 +410,7 @@ class SubscriptionFailure extends MediaCommand {
         (
           window as Window &
             typeof globalThis & {
-              __klisiMediaTest: {
+              __tideMediaTest: {
                 snapshot(): Promise<{
                   participants: {
                     publications: Record<
@@ -422,7 +422,7 @@ class SubscriptionFailure extends MediaCommand {
                 }>;
               };
             }
-        ).__klisiMediaTest
+        ).__tideMediaTest
           .snapshot()
           .then((snapshot) => {
             const camera = snapshot.participants
@@ -454,13 +454,13 @@ class SignalReconnect extends MediaCommand {
       (
         window as Window &
           typeof globalThis & {
-            __klisiRoom: { simulateScenario(scenario: 'signal-reconnect'): Promise<void> };
+            __tideRoom: { simulateScenario(scenario: 'signal-reconnect'): Promise<void> };
           }
-      ).__klisiRoom.simulateScenario('signal-reconnect')
+      ).__tideRoom.simulateScenario('signal-reconnect')
     );
     await real.receiver.waitForFunction(
       () =>
-        (window as Window & typeof globalThis & { __klisiRoom: { state: string } }).__klisiRoom
+        (window as Window & typeof globalThis & { __tideRoom: { state: string } }).__tideRoom
           .state === 'connected',
       undefined,
       { timeout: 30_000 }
@@ -482,13 +482,13 @@ class FullReconnect extends MediaCommand {
       (
         window as Window &
           typeof globalThis & {
-            __klisiRoom: { simulateScenario(scenario: 'full-reconnect'): Promise<void> };
+            __tideRoom: { simulateScenario(scenario: 'full-reconnect'): Promise<void> };
           }
-      ).__klisiRoom.simulateScenario('full-reconnect')
+      ).__tideRoom.simulateScenario('full-reconnect')
     );
     await real.receiver.waitForFunction(
       () =>
-        (window as Window & typeof globalThis & { __klisiRoom: { state: string } }).__klisiRoom
+        (window as Window & typeof globalThis & { __tideRoom: { state: string } }).__tideRoom
           .state === 'connected',
       undefined,
       { timeout: 30_000 }
@@ -529,7 +529,7 @@ class ConcurrentJoinMediaChange extends MediaCommand {
     const browser = real.receiver.context().browser();
     if (!browser) throw new Error('Receiver browser is unavailable.');
     const context = await browser.newContext({
-      baseURL: process.env.KLISI_MEDIA_BASE_URL ?? 'http://klisi:8080'
+      baseURL: process.env.TIDE_MEDIA_BASE_URL ?? 'http://tide:8080'
     });
     const forbiddenSids = model.screenPublished ? [...real.screenSids] : [];
     try {
@@ -551,8 +551,8 @@ class ConcurrentJoinMediaChange extends MediaCommand {
       // departure broadcast prompt; an abrupt close races ICE detection.
       await page.evaluate(() =>
         (
-          window as Window & typeof globalThis & { __klisiRoom: { disconnect(): Promise<void> } }
-        ).__klisiRoom.disconnect()
+          window as Window & typeof globalThis & { __tideRoom: { disconnect(): Promise<void> } }
+        ).__tideRoom.disconnect()
       );
     } finally {
       await context.close();
@@ -576,7 +576,7 @@ class SequentialJoinLeave extends MediaCommand {
     const browser = real.receiver.context().browser();
     if (!browser) throw new Error('Receiver browser is unavailable.');
     const context = await browser.newContext({
-      baseURL: process.env.KLISI_MEDIA_BASE_URL ?? 'http://klisi:8080'
+      baseURL: process.env.TIDE_MEDIA_BASE_URL ?? 'http://tide:8080'
     });
     const page = await context.newPage();
     await joinMediaTestRoom(page, real.roomName, transientIdentity);
@@ -585,12 +585,12 @@ class SequentialJoinLeave extends MediaCommand {
     // the server discovering the death by ICE timeout (~15 s) plus the
     // departure grace, so "absent within the window" would race dead-peer
     // detection — which LiveKit does not promise. The departure invariant
-    // asserts that klisi converges on the departure broadcast, and a clean
+    // asserts that tide converges on the departure broadcast, and a clean
     // Leave is what makes that broadcast prompt.
     await page.evaluate(() =>
       (
-        window as Window & typeof globalThis & { __klisiRoom: { disconnect(): Promise<void> } }
-      ).__klisiRoom.disconnect()
+        window as Window & typeof globalThis & { __tideRoom: { disconnect(): Promise<void> } }
+      ).__tideRoom.disconnect()
     );
     await context.close();
     real.departedIdentities.push(devIdentity(transientIdentity));
@@ -660,7 +660,7 @@ test('seeded model-based media lifecycle fuzzing', async ({ page }, testInfo) =>
       args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream']
     });
     const publisherContext = await publisherBrowser.newContext({
-      baseURL: process.env.KLISI_MEDIA_BASE_URL ?? 'http://klisi:8080',
+      baseURL: process.env.TIDE_MEDIA_BASE_URL ?? 'http://tide:8080',
       permissions: ['camera', 'microphone']
     });
     const publisher = await publisherContext.newPage();
@@ -669,7 +669,7 @@ test('seeded model-based media lifecycle fuzzing', async ({ page }, testInfo) =>
     await joinMediaTestRoom(publisher, roomName, publisherIdentity);
 
     for (const seed of seeds) {
-      console.log(`KLISI_MEDIA_FUZZ seed=${seed} maxCommands=${maxCommands} runs=${numRuns}`);
+      console.log(`TIDE_MEDIA_FUZZ seed=${seed} maxCommands=${maxCommands} runs=${numRuns}`);
       let latestAttempt: FuzzAttemptDiagnostics | undefined;
       await fc.assert(
         fc.asyncProperty(
@@ -702,7 +702,7 @@ test('seeded model-based media lifecycle fuzzing', async ({ page }, testInfo) =>
                     );
                   }
                   replacementReceiverContext = await receiverBrowser.newContext({
-                    baseURL: process.env.KLISI_MEDIA_BASE_URL ?? 'http://klisi:8080'
+                    baseURL: process.env.TIDE_MEDIA_BASE_URL ?? 'http://tide:8080'
                   });
                   receiver = await replacementReceiverContext.newPage();
                   receiverConsoles.push(captureBrowserDiagnostics(receiver));
@@ -769,7 +769,7 @@ test('seeded model-based media lifecycle fuzzing', async ({ page }, testInfo) =>
         { seed, numRuns, verbose: 2, endOnFailure: !shrinkOnFailure }
       );
       console.log(
-        `KLISI_MEDIA_FUZZ_RESULT seed=${seed} operations=${latestAttempt?.trace.length ?? 0} trace=${JSON.stringify(latestAttempt?.trace ?? [])}`
+        `TIDE_MEDIA_FUZZ_RESULT seed=${seed} operations=${latestAttempt?.trace.length ?? 0} trace=${JSON.stringify(latestAttempt?.trace ?? [])}`
       );
     }
   } finally {

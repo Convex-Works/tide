@@ -11,8 +11,8 @@ import (
 	"git.convex.works/ConvexWorks/moil/sdk/go/moil"
 	"git.convex.works/ConvexWorks/moil/sdk/go/moiltest"
 
-	"klisi/internal/auth"
-	"klisi/internal/transcripts"
+	"tide/internal/auth"
+	"tide/internal/transcripts"
 )
 
 // A host confirming a pairing doesn't wait for another host's confirmation:
@@ -79,7 +79,7 @@ func (s *slowStore) Machines(ctx context.Context, owner string) ([]moil.MachineR
 }
 
 // serveMoil serves a moil server with the transcribe bundle over HTTP, as
-// klisi does under /moil, and returns the machines handler beside it and
+// tide does under /moil, and returns the machines handler beside it and
 // the moil base URL.
 func serveMoil(t *testing.T, store moil.Store) (*Handler, string) {
 	t.Helper()
@@ -88,7 +88,7 @@ func serveMoil(t *testing.T, store moil.Store) (*Handler, string) {
 		t.Fatal(err)
 	}
 	base := "http://" + listener.Addr().String()
-	server, err := moil.NewServer(moil.Config{Name: "klisi", VerificationURL: base + "/machines", Store: store})
+	server, err := moil.NewServer(moil.Config{Name: "tide", VerificationURL: base + "/machines", Store: store})
 	if err != nil {
 		t.Fatal(err)
 	}

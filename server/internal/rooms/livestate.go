@@ -2,12 +2,15 @@ package rooms
 
 import (
 	"context"
+	"errors"
+	"log"
 	"net/url"
 
 	protocol "github.com/livekit/protocol/livekit"
 	lksdk "github.com/livekit/server-sdk-go/v2"
+	"github.com/twitchtv/twirp"
 
-	"klisi/internal/config"
+	"tide/internal/config"
 )
 
 // LiveRoom is the current SFU-side state of one room, keyed by slug (LiveKit
@@ -53,6 +56,52 @@ func (s *liveKitSource) ActiveRooms(ctx context.Context) (map[string]LiveRoom, e
 		}
 	}
 	return live, nil
+}
+
+// A MeetingEnder ends the meeting live in a room, if there is one, as End
+// meeting does: everyone in it is disconnected. Deleting a room calls it
+// (ARCHITECTURE.md §5), so nobody stays on in a meeting whose slug someone
+// else can now create and own.
+type MeetingEnder interface {
+	EndMeeting(ctx context.Context, slug string) error
+}
+
+type roomDeleter interface {
+	DeleteRoom(context.Context, *protocol.DeleteRoomRequest) (*protocol.DeleteRoomResponse, error)
+}
+
+type liveKitEnder struct {
+	client roomDeleter
+}
+
+// NewLiveKitMeetingEnder builds a MeetingEnder backed by LiveKit's
+// RoomService.
+func NewLiveKitMeetingEnder(cfg config.Config) MeetingEnder {
+	client := lksdk.NewRoomServiceClient(liveKitHTTPURL(cfg.LiveKitURL), cfg.LiveKitAPIKey, cfg.LiveKitAPISecret)
+	return &liveKitEnder{client: client}
+}
+
+// EndMeeting deletes the room's media session. A room without one (twirp
+// not_found) has no meeting to end, which is success.
+func (e *liveKitEnder) EndMeeting(ctx context.Context, slug string) error {
+	_, err := e.client.DeleteRoom(ctx, &protocol.DeleteRoomRequest{Room: slug})
+	var twirpError twirp.Error
+	if errors.As(err, &twirpError) && twirpError.Code() == twirp.NotFound {
+		return nil
+	}
+	return err
+}
+
+// endMeeting ends the meeting in slug, if ender is set, logging a failure:
+// the room is gone either way, and a meeting nobody can find any more ends
+// when its last participant leaves.
+func endMeeting(ctx context.Context, ender MeetingEnder, slug string) {
+	if ender == nil {
+		return
+	}
+	if err := ender.EndMeeting(ctx, slug); err != nil {
+		log.Printf("rooms: end the meeting in deleted room %q: %v", slug, err)
+	}
 }
 
 // liveKitHTTPURL converts a ws(s):// SFU URL to its http(s):// API form.

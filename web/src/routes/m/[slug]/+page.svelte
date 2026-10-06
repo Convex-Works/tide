@@ -3,6 +3,7 @@
   import { page } from '$app/state';
   import {
     ApiError,
+    AuthRequiredError,
     approveLobby,
     denyLobby,
     joinRoom,
@@ -50,6 +51,11 @@
   let error = $state('');
   let canManage = $state(false);
   let currentUser = $state<Me>();
+  // Only a deployment with sign-in answers a browser without a session with
+  // 401; without sign-in /api/me issues one (ARCHITECTURE.md §4.1).
+  let canSignIn = $state(false);
+  // The record control needs a host on a deployment that records (§8).
+  const canRecord = $derived(canManage && currentUser?.recording === true);
   let pending = $state<LobbyRequestInfo[]>([]);
   let peopleOpen = $state(false);
   let lobbyError = $state('');
@@ -103,10 +109,15 @@
     canManage = details.can_manage;
     try {
       currentUser = await me();
+      // An anonymous owner has no name either, and types one like a guest.
       name = currentUser.name;
-    } catch {
-      // Signed-out guests have no profile; they type a name in prejoin.
+      canSignIn = false;
+    } catch (cause) {
+      // Signed-out guests have no profile; they type a name in prejoin. A
+      // refusal under the rate limit leaves them a guest too, and the server
+      // decides at join regardless.
       currentUser = undefined;
+      canSignIn = cause instanceof AuthRequiredError;
     }
     meetingState = 'prejoin';
   }
@@ -127,6 +138,7 @@
     // browser is a guest. The server re-checks at join regardless.
     currentUser = undefined;
     canManage = false;
+    canSignIn = true;
   }
 
   async function connect(admission: LobbyAdmittedSSE, options: PreJoinOptions): Promise<void> {
@@ -262,12 +274,18 @@
 </script>
 
 <svelte:head>
-  <title>{details ? `${details.name} · klisi` : 'klisi'}</title>
-  <meta name="description" content="Join a klisi meeting" />
+  <title>{details ? `${details.name} · tide` : 'tide'}</title>
+  <meta name="description" content="Join a tide meeting" />
 </svelte:head>
 
 {#snippet account()}
-  {#if currentUser}
+  {#if currentUser?.anonymous}
+    <!-- No account to show or leave (§4.1); only the room's owner learns
+         they join as its host. -->
+    {#if canManage}
+      <div class="account"><span class="account-role">Host</span></div>
+    {/if}
+  {:else if currentUser}
     <div class="account">
       <span class="account-name" title={currentUser.email}>{currentUser.name}</span>
       {#if canManage}<span class="account-role">· Host</span>{/if}
@@ -281,7 +299,7 @@
         <SignOut size={16} weight="regular" aria-hidden="true" />
       </button>
     </div>
-  {:else}
+  {:else if canSignIn}
     <a class="account-link" href={signInHref} data-sveltekit-reload>
       <SignIn size={16} weight="regular" aria-hidden="true" />
       Sign in
@@ -296,6 +314,7 @@
     roomName={details.name}
     onleave={leaveMeeting}
     {canManage}
+    {canRecord}
     {pending}
     bind:peopleOpen
     {lobbyError}

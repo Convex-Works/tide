@@ -28,13 +28,13 @@ function isAttached(node: HTMLMediaElement, track: Track): boolean {
 }
 
 function testAttachmentDelay(): number {
-  if (import.meta.env.VITE_KLISI_TEST !== 'true' || typeof window === 'undefined') return 0;
+  if (import.meta.env.VITE_TIDE_TEST !== 'true' || typeof window === 'undefined') return 0;
   return (
     (
       window as Window & {
-        __klisiMediaTest?: { attachmentDelayMs?: number };
+        __tideMediaTest?: { attachmentDelayMs?: number };
       }
-    ).__klisiMediaTest?.attachmentDelayMs ?? 0
+    ).__tideMediaTest?.attachmentDelayMs ?? 0
   );
 }
 

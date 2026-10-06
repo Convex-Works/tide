@@ -14,9 +14,9 @@ oauth2:
 enablePasswordDB: true
 
 staticClients:
-  - id: klisi
-    name: klisi
-    secret: klisi-dev-oidc-secret
+  - id: tide
+    name: tide
+    secret: tide-dev-oidc-secret
     redirectURIs:
       - http://localhost:8080/api/auth/callback
       # Dev: the Vite origin proxies /api to the Go server, so the OIDC flow
@@ -24,7 +24,7 @@ staticClients:
       - http://localhost:5173/api/auth/callback
 
 staticPasswords:
-  - email: host@klisi.dev
-    hash: $2y$10$F/KI0Qc6sm.Om4J4jrLBlupx3h1ybr1bg8aRdYDUQRGTKuQaIK8Vu
-    username: Klisi host
+  - email: host@tide.dev
+    hash: $2y$10$mN23kC1VYg9sJSDPRpRsY.3lQwMESUhrAlhDPDlxTxUTvswSJ4QDu
+    username: Tide host
     userID: 6f6fb3c0-86e0-4c08-85c5-cb6f5a649b4e

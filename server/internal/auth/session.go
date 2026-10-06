@@ -9,16 +9,17 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
-	"klisi/internal/auth/sessionctx"
+	"tide/internal/auth/sessionctx"
 )
 
 const (
-	SessionCookieName = "klisi_session"
+	SessionCookieName = "tide_session"
 	// One day: long enough for a workday, short enough that a stolen cookie
 	// has a bounded life even without explicit revocation.
 	sessionLifetime = 24 * time.Hour
@@ -41,12 +42,19 @@ type RevocationStore interface {
 }
 
 type Sessions struct {
-	secret      []byte
+	secret []byte
+	// anonymous is the deployment's mode (ARCHITECTURE.md §4.1): its
+	// sessions are anonymous ones, signed with a key of their own, and Read
+	// refuses every other kind, as a signed-in deployment refuses anonymous
+	// ones.
+	anonymous   bool
 	secure      bool
 	now         func() time.Time
 	revocations RevocationStore
 }
 
+// NewSessions makes the sessions of a deployment with sign-in, signed with
+// secret itself.
 func NewSessions(secret, baseURL string, revocations RevocationStore) *Sessions {
 	parsed, err := url.Parse(baseURL)
 	secure := err == nil && strings.EqualFold(parsed.Scheme, "https")
@@ -58,29 +66,53 @@ func NewSessions(secret, baseURL string, revocations RevocationStore) *Sessions 
 	}
 }
 
+// anonymousKeyLabel derives the key anonymous sessions are signed with from
+// the session secret. Signed-in sessions keep the secret itself, so a cookie
+// from one mode never verifies in the other when an operator switches modes
+// without changing the secret.
+const anonymousKeyLabel = "tide-session:anonymous"
+
+// NewAnonymousSessions makes the sessions of a deployment without sign-in:
+// anonymous ones only, signed with a key derived from secret.
+func NewAnonymousSessions(secret, baseURL string, revocations RevocationStore) *Sessions {
+	s := NewSessions(secret, baseURL, revocations)
+	mac := hmac.New(sha256.New, []byte(secret))
+	_, _ = mac.Write([]byte(anonymousKeyLabel))
+	s.secret = mac.Sum(nil)
+	s.anonymous = true
+	return s
+}
+
 func (s *Sessions) Set(w http.ResponseWriter, session Session) error {
-	expires := s.now().Add(sessionLifetime)
+	_, err := s.setFor(w, session, sessionLifetime)
+	return err
+}
+
+// setFor sets session on w, to last for lifetime, and returns it as the
+// cookie carries it: with its expiry and ID.
+func (s *Sessions) setFor(w http.ResponseWriter, session Session, lifetime time.Duration) (Session, error) {
+	expires := s.now().Add(lifetime)
 	session.Exp = expires.Unix()
 	sid, err := randomSID()
 	if err != nil {
-		return err
+		return Session{}, err
 	}
 	session.SID = sid
 	value, err := s.sign(session)
 	if err != nil {
-		return err
+		return Session{}, err
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name:     SessionCookieName,
 		Value:    value,
 		Path:     "/",
 		Expires:  expires,
-		MaxAge:   int(sessionLifetime / time.Second),
+		MaxAge:   int(lifetime / time.Second),
 		HttpOnly: true,
 		Secure:   s.secure,
 		SameSite: http.SameSiteLaxMode,
 	})
-	return nil
+	return session, nil
 }
 
 func (s *Sessions) Read(r *http.Request) (Session, error) {
@@ -96,6 +128,11 @@ func (s *Sessions) Read(r *http.Request) (Session, error) {
 		return Session{}, err
 	}
 	if session.Sub == "" {
+		return Session{}, ErrInvalidSession
+	}
+	// The key already separates the modes; the sub is the second lock, should
+	// a cookie ever be signed with the other mode's key.
+	if IsAnonymous(session) != s.anonymous || (s.anonymous && session.IsAdmin) {
 		return Session{}, ErrInvalidSession
 	}
 	if session.Exp <= s.now().Unix() {
@@ -119,6 +156,20 @@ func (s *Sessions) Revoke(ctx context.Context, session Session) error {
 		return nil
 	}
 	return s.revocations.RevokeSession(ctx, session.SID, session.Exp)
+}
+
+// Logout signs this session out: it revokes it server-side, then clears
+// the cookie, and answers 204.
+func (s *Sessions) Logout(w http.ResponseWriter, r *http.Request) {
+	// Revoke server-side first: clearing the cookie only helps this browser,
+	// while a copied cookie would otherwise stay valid until it expires.
+	if session, ok := SessionFromContext(r.Context()); ok {
+		if err := s.Revoke(r.Context(), session); err != nil {
+			log.Printf("auth: could not revoke session: %v", err)
+		}
+	}
+	s.Clear(w)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Sessions) Clear(w http.ResponseWriter) {

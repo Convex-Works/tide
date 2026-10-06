@@ -10,8 +10,8 @@ import (
 
 	"git.convex.works/ConvexWorks/moil/sdk/go/moil"
 
-	"klisi/internal/api"
-	"klisi/internal/transcripts"
+	"tide/internal/api"
+	"tide/internal/transcripts"
 )
 
 // A recording that ended after its owner paired a machine is waiting for
@@ -111,17 +111,17 @@ func TestMachineTextIsShownPlain(t *testing.T) {
 	}
 }
 
-// Where the moil app would refuse the URLs of klisi's storage, every
+// Where the moil app would refuse the URLs of tide's storage, every
 // transcript fails at once, naming the setting to change, and no machine
 // is offered one.
 func TestStorageMachinesCantUseFailsTranscriptsAtOnce(t *testing.T) {
-	problem := transcripts.StorageWarning("http://klisi:8080", "http://minio:9000")
+	problem := transcripts.StorageWarning("http://tide:8080", "http://minio:9000")
 	e := newEnv(t, func(cfg *transcripts.Config) { cfg.StorageProblem = problem })
 	room := e.room("alice", "Standup")
 	machine := e.machine("alice")
 	rec := e.record(room, time.Now())
 	info := e.waitStatus(room, rec, api.TranscriptFailed)
-	if info.Error != "Machines can't use klisi's storage: KLISI_S3_PUBLIC_ENDPOINT is plain http, which the moil app accepts only when klisi and its storage run on the machine itself. Ask klisi's administrator to set it to an https address, then try again." {
+	if info.Error != "Machines can't use tide's storage: TIDE_S3_PUBLIC_ENDPOINT is plain http, which the moil app accepts only when tide and its storage run on the machine itself. Ask tide's administrator to set it to an https address, then try again." {
 		t.Fatalf("error = %q", info.Error)
 	}
 	machine.Sync()
@@ -131,7 +131,7 @@ func TestStorageMachinesCantUseFailsTranscriptsAtOnce(t *testing.T) {
 }
 
 // Machines take https URLs, and http ones only to storage on the machine
-// itself, from a klisi on the machine itself.
+// itself, from a tide on the machine itself.
 func TestStorageWarning(t *testing.T) {
 	for _, test := range []struct {
 		base, storage string
@@ -139,23 +139,23 @@ func TestStorageWarning(t *testing.T) {
 	}{
 		{"http://localhost:5173", "http://localhost:9000", false},
 		{"http://127.0.0.1:8080", "http://[::1]:9000", false},
-		{"https://klisi.example.com", "https://s3.example.com", false},
-		{"http://klisi:8080", "https://s3.example.com", false},
-		{"https://klisi.example.com", "http://minio:9000", true},
-		{"http://klisi:8080", "http://minio:9000", true},
-		{"https://klisi.example.com", "http://localhost:9000", true},
+		{"https://tide.example.com", "https://s3.example.com", false},
+		{"http://tide:8080", "https://s3.example.com", false},
+		{"https://tide.example.com", "http://minio:9000", true},
+		{"http://tide:8080", "http://minio:9000", true},
+		{"https://tide.example.com", "http://localhost:9000", true},
 		{"http://localhost:8080", "http://192.168.1.5:9000", true},
 		{"http://localhost:8080", "minio:9000", true},
 	} {
 		if refused := transcripts.StorageWarning(test.base, test.storage) != ""; refused != test.refused {
-			t.Errorf("klisi at %s, storage at %s: refused %t, want %t", test.base, test.storage, refused, test.refused)
+			t.Errorf("tide at %s, storage at %s: refused %t, want %t", test.base, test.storage, refused, test.refused)
 		}
 	}
 }
 
-// When klisi can't prepare a machine's attempt, the transcript's error
-// says it was klisi, not the machine.
-func TestKlisisOwnFailuresBlameKlisi(t *testing.T) {
+// When tide can't prepare a machine's attempt, the transcript's error
+// says it was tide, not the machine.
+func TestTidesOwnFailuresBlameTide(t *testing.T) {
 	e := newEnv(t)
 	room := e.room("alice", "Standup")
 	machine := e.machine("alice")
@@ -163,7 +163,7 @@ func TestKlisisOwnFailuresBlameKlisi(t *testing.T) {
 		BEGIN SELECT RAISE(ABORT, 'database or disk is full'); END`)
 	rec := e.record(room, time.Now())
 	info := e.waitStatus(room, rec, api.TranscriptFailed)
-	if info.Error != "klisi couldn't reach its database or storage to hand the recording to a machine. Try again, and if it keeps failing, ask klisi's administrator to check them." {
+	if info.Error != "tide couldn't reach its database or storage to hand the recording to a machine. Try again, and if it keeps failing, ask tide's administrator to check them." {
 		t.Fatalf("error = %q", info.Error)
 	}
 	run, _ := e.moil.Run("recording-" + rec.ID)

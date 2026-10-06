@@ -9,7 +9,7 @@ export interface CalendarEvent {
   name: string;
   /** The meeting URL: URL, LOCATION and the description's link. */
   url: string;
-  /** Host of the klisi install, the UID's domain part. */
+  /** Host of the tide install, the UID's domain part. */
   host: string;
   start: Date;
   end: Date;
@@ -77,7 +77,7 @@ export function buildIcs(event: CalendarEvent): string {
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//klisi//EN',
+    'PRODID:-//tide//EN',
     'CALSCALE:GREGORIAN',
     'METHOD:PUBLISH',
     'BEGIN:VEVENT',

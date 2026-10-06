@@ -1,40 +1,30 @@
-name: klisi-media-test
+name: tide-media-test
 
 # A sealed stack on a private /24. Nothing is published to the host: the
 # browser under test runs inside `runner`, so every service is reachable only
 # by its compose DNS name. Configuration is baked into images rather than
 # bind-mounted because CI drives compose from inside a container, where host
 # bind mounts do not resolve on the daemon's filesystem.
+#
+# tide runs its media server embedded, as a production install does, and the
+# recorder shares tide's network namespace: besides tide, the gate runs the
+# recorder and the Redis the two share, as a production install with
+# recording does.
 
 services:
   redis:
-    image: redis:7.4.5-alpine
-    command: redis-server --save "" --appendonly no --loglevel warning
+    image: redis:7.4.8-alpine3.21
+    command: ["redis-server", "--requirepass", "tide-dev-recorder-redis-password-please-change", "--save", "", "--appendonly", "no"]
+    environment:
+      REDISCLI_AUTH: tide-dev-recorder-redis-password-please-change
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
       interval: 2s
       timeout: 2s
       retries: 30
     networks:
       media:
-        ipv4_address: ${KLISI_MEDIA_NET_PREFIX:-10.253.0}.2
-
-  livekit:
-    build:
-      context: ../..
-      dockerfile: deploy/media-test/livekit.Dockerfile
-    command: --config /etc/livekit.yaml --node-ip ${KLISI_MEDIA_NET_PREFIX:-10.253.0}.3
-    depends_on:
-      redis:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:7880/ || exit 1"]
-      interval: 2s
-      timeout: 2s
-      retries: 30
-    networks:
-      media:
-        ipv4_address: ${KLISI_MEDIA_NET_PREFIX:-10.253.0}.3
+        ipv4_address: ${TIDE_MEDIA_NET_PREFIX:-10.253.0}.2
 
   # Real OIDC. Without a session the suite cannot reach /m/[slug], the lobby,
   # host token grants, moderation or recording — /api/dev/token mints only
@@ -57,14 +47,14 @@ services:
       retries: 30
     networks:
       media:
-        ipv4_address: ${KLISI_MEDIA_NET_PREFIX:-10.253.0}.6
+        ipv4_address: ${TIDE_MEDIA_NET_PREFIX:-10.253.0}.6
 
   minio:
     image: minio/minio:RELEASE.2025-04-22T22-12-26Z
     command: server /data
     environment:
-      MINIO_ROOT_USER: klisi
-      MINIO_ROOT_PASSWORD: klisi-dev-minio
+      MINIO_ROOT_USER: tide
+      MINIO_ROOT_PASSWORD: tide-dev-minio
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 2s
@@ -72,7 +62,7 @@ services:
       retries: 30
     networks:
       media:
-        ipv4_address: ${KLISI_MEDIA_NET_PREFIX:-10.253.0}.7
+        ipv4_address: ${TIDE_MEDIA_NET_PREFIX:-10.253.0}.7
 
   minio-init:
     image: minio/mc:RELEASE.2025-04-16T18-13-26Z
@@ -82,12 +72,12 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >-
-        mc alias set local http://minio:9000 klisi klisi-dev-minio &&
-        mc mb --ignore-existing local/klisi-recordings
+        mc alias set local http://minio:9000 tide tide-dev-minio &&
+        mc mb --ignore-existing local/tide-recordings
     restart: "no"
     networks:
       media:
-        ipv4_address: ${KLISI_MEDIA_NET_PREFIX:-10.253.0}.8
+        ipv4_address: ${TIDE_MEDIA_NET_PREFIX:-10.253.0}.8
 
   egress:
     build:
@@ -95,6 +85,16 @@ services:
       dockerfile: deploy/media-test/egress.Dockerfile
     environment:
       EGRESS_CONFIG_FILE: /etc/egress.yaml
+    # tide's image has no shell for a healthcheck, so the recorder waits for
+    # tide's /healthz, which tide serves only once its media server is up: the
+    # runner, which waits for a healthy recorder, then starts against a tide
+    # that serves.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - >-
+        until wget -q -O /dev/null http://localhost:8080/healthz; do sleep 1; done;
+        exec /entrypoint.sh
     cap_add:
       - SYS_ADMIN
     security_opt:
@@ -104,8 +104,8 @@ services:
     tmpfs:
       - /recordings:mode=1777
     depends_on:
-      livekit:
-        condition: service_healthy
+      tide:
+        condition: service_started
       redis:
         condition: service_healthy
       minio-init:
@@ -115,47 +115,54 @@ services:
       interval: 5s
       timeout: 3s
       retries: 30
-    # Egress shares LiveKit's network namespace so the SFU's advertised
-    # node_ip (the .3 address below) is the correct candidate for its Chrome.
-    network_mode: "service:livekit"
+    # The recorder shares tide's network namespace: it signals at
+    # 127.0.0.1:7880 (the media server itself), takes jobs over redis:6379 as
+    # tide does, and the media server's advertised address (the .4 address
+    # below) is the correct candidate for its Chrome too.
+    network_mode: "service:tide"
 
-  klisi:
+  tide:
     build:
       context: ../..
       dockerfile: Dockerfile
       args:
-        VITE_KLISI_TEST: "true"
+        VITE_TIDE_TEST: "true"
     environment:
-      KLISI_ADDR: :8080
-      KLISI_BASE_URL: http://klisi:8080
-      KLISI_DB_PATH: /data/klisi.db
-      KLISI_DEV_MODE: "true"
-      KLISI_LIVEKIT_URL: ws://livekit:7880
-      KLISI_LIVEKIT_PUBLIC_URL: ws://livekit:7880
-      KLISI_LIVEKIT_API_KEY: devkey
-      KLISI_LIVEKIT_API_SECRET: klisi-dev-secret-please-change-0000000000
-      KLISI_OIDC_ISSUER: http://dex:5556/dex
-      KLISI_OIDC_CLIENT_ID: klisi
-      KLISI_OIDC_CLIENT_SECRET: klisi-dev-oidc-secret
-      KLISI_S3_ENDPOINT: http://minio:9000
-      KLISI_S3_PUBLIC_ENDPOINT: http://minio:9000
-      KLISI_S3_EGRESS_ENDPOINT: http://minio:9000
-      KLISI_S3_BUCKET: klisi-recordings
-      KLISI_S3_ACCESS_KEY: klisi
-      KLISI_S3_SECRET_KEY: klisi-dev-minio
-      KLISI_EGRESS_TEMPLATE_URL: http://klisi:8080/egress-template
+      TIDE_ADDR: :8080
+      TIDE_BASE_URL: http://tide:8080
+      TIDE_DB_PATH: /data/tide.db
+      TIDE_DEV_MODE: "true"
+      # The media server runs inside tide (no TIDE_MEDIA_URL). Browsers signal
+      # through tide's /rtc and send media to this address; the recorder uses
+      # the same key, secret and Redis (egress.yaml).
+      TIDE_MEDIA_NODE_IP: ${TIDE_MEDIA_NET_PREFIX:-10.253.0}.4
+      TIDE_MEDIA_API_KEY: devkey
+      TIDE_MEDIA_API_SECRET: tide-dev-secret-please-change-0000000000
+      TIDE_RECORDER_REDIS_ADDR: redis:6379
+      TIDE_RECORDER_REDIS_PASSWORD: tide-dev-recorder-redis-password-please-change
+      TIDE_OIDC_ISSUER: http://dex:5556/dex
+      TIDE_OIDC_CLIENT_ID: tide
+      TIDE_OIDC_CLIENT_SECRET: tide-dev-oidc-secret
+      TIDE_S3_ENDPOINT: http://minio:9000
+      TIDE_S3_PUBLIC_ENDPOINT: http://minio:9000
+      TIDE_S3_RECORDER_ENDPOINT: http://minio:9000
+      TIDE_S3_BUCKET: tide-recordings
+      TIDE_S3_ACCESS_KEY: tide
+      TIDE_S3_SECRET_KEY: tide-dev-minio
+      # The recorder shares tide's network namespace.
+      TIDE_RECORDER_TEMPLATE_URL: http://localhost:8080/egress-template
       # Every browser in the suite shares the runner's single container IP, so
       # the public per-IP defaults (10 joins/min) would throttle the gate.
-      KLISI_JOIN_RATE_LIMIT: "10000"
-      KLISI_WAIT_RATE_LIMIT: "10000"
-      KLISI_LOGIN_RATE_LIMIT: "10000"
+      TIDE_JOIN_RATE_LIMIT: "10000"
+      TIDE_WAIT_RATE_LIMIT: "10000"
+      TIDE_LOGIN_RATE_LIMIT: "10000"
       # The media gate covers meetings and recording, as a public install
       # runs them: without transcripts.
-      KLISI_TRANSCRIPTS: "false"
+      TIDE_TRANSCRIPTS: "false"
     depends_on:
-      livekit:
-        condition: service_healthy
       dex:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       minio-init:
         condition: service_completed_successfully
@@ -163,7 +170,7 @@ services:
       - /data:mode=1777
     networks:
       media:
-        ipv4_address: ${KLISI_MEDIA_NET_PREFIX:-10.253.0}.4
+        ipv4_address: ${TIDE_MEDIA_NET_PREFIX:-10.253.0}.4
 
   runner:
     build:
@@ -171,23 +178,21 @@ services:
       dockerfile: deploy/media-test/runner.Dockerfile
     environment:
       CI: "true"
-      KLISI_MEDIA_BASE_URL: http://klisi:8080
-      KLISI_MEDIA_DEX_URL: http://dex:5556
-      KLISI_MEDIA_ARTIFACTS: /artifacts
-      KLISI_MEDIA_SUITE: ${KLISI_MEDIA_SUITE:-deterministic}
-      KLISI_NETWORK_CHAOS: ${KLISI_NETWORK_CHAOS:-false}
-      KLISI_MESH_PARTICIPANTS: ${KLISI_MESH_PARTICIPANTS:-5}
+      TIDE_MEDIA_BASE_URL: http://tide:8080
+      TIDE_MEDIA_DEX_URL: http://dex:5556
+      TIDE_MEDIA_ARTIFACTS: /artifacts
+      TIDE_MEDIA_SUITE: ${TIDE_MEDIA_SUITE:-deterministic}
+      TIDE_NETWORK_CHAOS: ${TIDE_NETWORK_CHAOS:-false}
+      TIDE_MESH_PARTICIPANTS: ${TIDE_MESH_PARTICIPANTS:-5}
       FC_SEED: ${FC_SEED:-}
       FC_COMMANDS: ${FC_COMMANDS:-75}
       FC_RUNS: ${FC_RUNS:-1}
     volumes:
       - media-artifacts:/artifacts
     depends_on:
-      livekit:
-        condition: service_healthy
       egress:
         condition: service_healthy
-      klisi:
+      tide:
         condition: service_started
     cap_add:
       - NET_ADMIN
@@ -196,14 +201,14 @@ services:
     shm_size: 2gb
     networks:
       media:
-        ipv4_address: ${KLISI_MEDIA_NET_PREFIX:-10.253.0}.5
+        ipv4_address: ${TIDE_MEDIA_NET_PREFIX:-10.253.0}.5
 
 networks:
   media:
     driver: bridge
     ipam:
       config:
-        - subnet: ${KLISI_MEDIA_NET_PREFIX:-10.253.0}.0/24
+        - subnet: ${TIDE_MEDIA_NET_PREFIX:-10.253.0}.0/24
 
 volumes:
   media-artifacts:

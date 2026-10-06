@@ -1,0 +1,192 @@
+# tide, with its media server inside it. Browsers signal through tide's own
+# origin (/rtc), so there is one Service and one ingress route; audio and video
+# go straight to the pod on 7882/udp (and 7881/tcp as the fallback), which this
+# base deliberately does not expose. An overlay must select one media path:
+# read docs/DEPLOYMENT.md#choose-the-media-path.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tide
+  labels:
+    app.kubernetes.io/name: tide
+    app.kubernetes.io/component: app
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tide
+      app.kubernetes.io/component: app
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tide
+        app.kubernetes.io/component: app
+    spec:
+      # OVERLAY: For media path (b), pin the pod to the public-IP node, e.g.
+      # nodeSelector:
+      #   tide/media: public
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: tide
+          image: registry.example.com/tide:latest # OVERLAY: Use the image built from this repository.
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: media-tcp
+              containerPort: 7881
+              # OVERLAY: Media path (b) or (c): uncomment hostPort: 7881.
+              # hostPort: 7881
+              protocol: TCP
+            - name: media-udp
+              containerPort: 7882
+              # OVERLAY: Media path (b): uncomment hostPort: 7882.
+              # hostPort: 7882
+              protocol: UDP
+          env:
+            - name: TIDE_ADDR
+              value: :8080
+            - name: TIDE_BASE_URL
+              value: https://meet.example.com # OVERLAY: Set the public HTTPS origin, with no trailing slash.
+            - name: TIDE_SESSION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: tide-secrets
+                  key: session-secret
+            - name: TIDE_DB_PATH
+              value: /data/tide.db
+            # OVERLAY: Media path (a) only: add TIDE_MEDIA_NODE_IP, the load
+            # balancer's IPv4 address. For (b) and (c) leave it unset: tide
+            # discovers the node's public address over STUN and advertises the
+            # pod's own address beside it, which the recorder sidecar connects
+            # to. A configured address replaces the pod's, so the sidecar would
+            # then have to reach media through the public one.
+            - name: TIDE_OIDC_ISSUER
+              value: https://id.example.com # OVERLAY: Set the external OIDC issuer URL exactly as published.
+            - name: TIDE_OIDC_CLIENT_ID
+              value: tide # OVERLAY: Set the registered OIDC client ID.
+            - name: TIDE_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: tide-secrets
+                  key: oidc-client-secret
+            - name: TIDE_USER_GROUPS
+              value: "" # OVERLAY: Optional comma-separated OIDC groups allowed to sign in.
+            - name: TIDE_ADMIN_GROUPS
+              value: "" # OVERLAY: Optional comma-separated OIDC groups that administer every room.
+            - name: TIDE_TRUSTED_PROXIES
+              value: "" # OVERLAY: Set ingress proxy IPs or CIDRs, comma-separated, if forwarded client IPs are needed.
+            - name: TIDE_DEV_MODE
+              value: "false"
+            - name: TIDE_TRANSCRIPTS
+              value: "false" # OVERLAY: With the recording component, "true" runs transcripts through moil (alpha); see docs/DEPLOYMENT.md.
+          # Every meeting's media passes through this container.
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: tide-data
+        - name: tmp
+          emptyDir:
+            sizeLimit: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tide
+  labels:
+    app.kubernetes.io/name: tide
+    app.kubernetes.io/component: app
+spec:
+  selector:
+    app.kubernetes.io/name: tide
+    app.kubernetes.io/component: app
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+      protocol: TCP
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tide-data
+  labels:
+    app.kubernetes.io/name: tide
+    app.kubernetes.io/component: database
+spec:
+  accessModes:
+    - ReadWriteOnce
+  # An anonymous tide writes nothing here, but mounts it all the same, so that
+  # turning sign-in on later needs no migration.
+  storageClassName: standard # OVERLAY: Set a storage class with the required durability and topology, in every mode.
+  resources:
+    requests:
+      storage: 5Gi # OVERLAY: Size for SQLite state; recordings do not live here.
+
+# OVERLAY: Media path (a). Copy this resource into an overlay and patch the
+# provider-specific static address annotation. Its IPv4 address is
+# TIDE_MEDIA_NODE_IP. With recording, the recorder sidecar then reaches media
+# only through this address, so the cluster must route it back to the pod
+# (kube-proxy usually does): verify with a test recording.
+# ---
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: tide-media
+#   annotations:
+#     example.com/static-address: replace-me # OVERLAY: Use the provider's static-address annotation.
+# spec:
+#   type: LoadBalancer
+#   externalTrafficPolicy: Local
+#   selector:
+#     app.kubernetes.io/name: tide
+#     app.kubernetes.io/component: app
+#   ports:
+#     - name: media-udp
+#       port: 7882
+#       targetPort: media-udp
+#       protocol: UDP

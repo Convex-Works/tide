@@ -31,7 +31,7 @@ export interface FakeSfu {
 /** A response as its constructor takes it: nested messages may be partial. */
 type PartialSignalResponse = NonNullable<ConstructorParameters<typeof SignalResponse>[0]>;
 
-type PeerWindow = Window & { __klisiFakeSfuPeer?: RTCPeerConnection };
+type PeerWindow = Window & { __tideFakeSfuPeer?: RTCPeerConnection };
 
 const sfuHost = new URL(fakeSfuURL).host;
 
@@ -68,7 +68,7 @@ function answerInPage(page: Page, offer: string): Promise<string> {
   return page.evaluate(async (sdp) => {
     const peerWindow = window as PeerWindow;
     // Renegotiation offers land on the same connection.
-    const peer = (peerWindow.__klisiFakeSfuPeer ??= new RTCPeerConnection());
+    const peer = (peerWindow.__tideFakeSfuPeer ??= new RTCPeerConnection());
     await peer.setRemoteDescription({ type: 'offer', sdp });
     await peer.setLocalDescription(await peer.createAnswer());
     await new Promise<void>((resolve) => {
@@ -85,7 +85,7 @@ function answerInPage(page: Page, offer: string): Promise<string> {
 
 function addCandidateInPage(page: Page, candidateInit: string): Promise<void> {
   return page.evaluate(async (init) => {
-    const peer = (window as PeerWindow).__klisiFakeSfuPeer;
+    const peer = (window as PeerWindow).__tideFakeSfuPeer;
     const candidate = JSON.parse(init) as RTCIceCandidateInit;
     if (peer && candidate.candidate) await peer.addIceCandidate(candidate).catch(() => undefined);
   }, candidateInit);

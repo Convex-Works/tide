@@ -35,9 +35,9 @@ test('signal loss recovers without reload and the hairline maps all states', asy
   // Reload detection: this marker only survives if the document does.
   await page.evaluate(() => {
     (window as never as { __noReload: boolean }).__noReload = true;
-    const room = (window as never as { __klisiRoom?: { simulateScenario(s: string): void } })
-      .__klisiRoom;
-    if (!room) throw new Error('__klisiRoom missing');
+    const room = (window as never as { __tideRoom?: { simulateScenario(s: string): void } })
+      .__tideRoom;
+    if (!room) throw new Error('__tideRoom missing');
     room.simulateScenario('signal-reconnect');
   });
 
@@ -47,9 +47,9 @@ test('signal loss recovers without reload and the hairline maps all states', asy
         page.evaluate(() => {
           const w = window as never as {
             __noReload?: boolean;
-            __klisiRoom?: { state: string };
+            __tideRoom?: { state: string };
           };
-          return `${w.__noReload === true}:${w.__klisiRoom?.state}`;
+          return `${w.__noReload === true}:${w.__tideRoom?.state}`;
         }),
       { timeout: 45_000 }
     )
@@ -58,7 +58,7 @@ test('signal loss recovers without reload and the hairline maps all states', asy
   // UI mapping, driven deterministically through the store hook.
   for (const state of ['reconnecting', 'offline', 'recording', 'connected']) {
     await page.evaluate(
-      (s) => (window as never as { __klisiChrome: (s: string) => void }).__klisiChrome(s),
+      (s) => (window as never as { __tideChrome: (s: string) => void }).__tideChrome(s),
       state
     );
     await expect(hairline).toHaveAttribute('data-state', state);

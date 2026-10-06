@@ -17,10 +17,10 @@ import (
 	"testing"
 	"time"
 
-	"klisi/internal/api"
+	"tide/internal/api"
 )
 
-// A machine is a computer its owner lends klisi with the moil command
+// A machine is a computer its owner lends tide with the moil command
 // line, as moil's own end-to-end tests drive it: a moil home of its own,
 // the moil binary and, while it runs, `moil agent`.
 type machine struct {
@@ -37,8 +37,8 @@ type machine struct {
 	agentLog lines
 
 	// Set by pairing.
-	id        string // klisi's ID for the machine
-	serviceID string // the machine's ID for klisi
+	id        string // tide's ID for the machine
+	serviceID string // the machine's ID for tide
 
 	agent *agentProcess // the running agent, if any
 }
@@ -76,8 +76,8 @@ func newMachine(t *testing.T, name string) *machine {
 }
 
 // lentMachine sets up what most tests start from: a machine the host
-// paired, that approved the bundle klisi publishes, with its agent
-// running, and that klisi shows as idle and approved.
+// paired, that approved the bundle tide publishes, with its agent
+// running, and that tide shows as idle and approved.
 func lentMachine(t *testing.T, h *host, name string) *machine {
 	t.Helper()
 	m := newMachine(t, name)
@@ -141,7 +141,7 @@ func (m *machine) moil(args ...string) string {
 	return stdout
 }
 
-// Pair pairs the machine with klisi for h, the way a person does: `moil
+// Pair pairs the machine with tide for h, the way a person does: `moil
 // pair` shows a code, and h finds the machine under it on /machines, checks
 // it's theirs, and confirms.
 func (m *machine) Pair(h *host) {
@@ -227,7 +227,7 @@ func (m *machine) Review(hash string) string {
 	return ""
 }
 
-// Approve approves the bundle with hash for klisi, as its owner would after
+// Approve approves the bundle with hash for tide, as its owner would after
 // reading it: `moil approve`.
 func (m *machine) Approve(hash string) {
 	m.t.Helper()
@@ -236,7 +236,7 @@ func (m *machine) Approve(hash string) {
 	}
 }
 
-// Start runs `moil agent` and waits until it has connected to klisi.
+// Start runs `moil agent` and waits until it has connected to tide.
 func (m *machine) Start() {
 	m.t.Helper()
 	if m.agent != nil {
@@ -261,7 +261,7 @@ func (m *machine) Start() {
 			m.t.Fatalf("%s's agent exited: %v", m.name, a.err)
 		default:
 		}
-		_, connected := m.agentLog.find(from, "connected to klisi")
+		_, connected := m.agentLog.find(from, "connected to tide")
 		return connected
 	})
 }
@@ -351,7 +351,7 @@ func (m *machine) attemptKey(r *recording, attempt int) string {
 	return fmt.Sprintf("%s attempt %d from %s", r.jobID(), attempt, m.serviceID)
 }
 
-// jobID is the moil job klisi submits to transcribe the recording.
+// jobID is the moil job tide submits to transcribe the recording.
 func (r *recording) jobID() string { return "recording-" + r.id }
 
 // awaitGone waits until the process is gone.

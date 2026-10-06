@@ -1,18 +1,22 @@
 api_key: devkey
-api_secret: klisi-dev-secret-please-change-0000000000
-# localhost: egress shares LiveKit's network namespace (see compose.yaml), so
-# the SFU's advertised node_ip (10.253.0.3) is correct for its Chrome too.
-ws_url: ws://localhost:7880
+api_secret: tide-dev-secret-please-change-0000000000
+# 127.0.0.1: egress shares tide's network namespace (see compose.yaml). This is
+# the media server inside tide, whose advertised address (10.253.0.4) is
+# correct for egress's Chrome too.
+ws_url: ws://127.0.0.1:7880
 
+# The Redis tide's media server uses too, by its compose name (the recorder
+# resolves it from tide's network namespace).
 redis:
   address: redis:6379
+  password: tide-dev-recorder-redis-password-please-change
 
 health_port: 8081
 
 s3:
-  access_key: klisi
-  secret: klisi-dev-minio
+  access_key: tide
+  secret: tide-dev-minio
   region: us-east-1
   endpoint: http://minio:9000
-  bucket: klisi-recordings
+  bucket: tide-recordings
   force_path_style: true

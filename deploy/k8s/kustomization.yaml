@@ -1,13 +1,13 @@
+# The reference base: tide, signed in, with its media server inside it and no
+# recording. Add the component in recording/ to record meetings. Read
+# docs/DEPLOYMENT.md#kubernetes first: every `# OVERLAY:` line needs a value.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
 resources:
-  - klisi.yaml
-  - livekit.yaml
-  - redis.yaml
-  - egress.yaml
+  - tide.yaml
 
 labels:
   - pairs:
-      app.kubernetes.io/part-of: klisi
+      app.kubernetes.io/part-of: tide
     includeSelectors: false

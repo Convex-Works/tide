@@ -1,12 +1,12 @@
 #!/bin/sh
 set -eu
 
-mkdir -p "${KLISI_MEDIA_ARTIFACTS:-/artifacts}"
+mkdir -p "${TIDE_MEDIA_ARTIFACTS:-/artifacts}"
 
 ready=0
 attempt=0
 while [ "${attempt}" -lt 60 ]; do
-  if curl --fail --silent "${KLISI_MEDIA_BASE_URL:-http://klisi:8080}/healthz" >/dev/null; then
+  if curl --fail --silent "${TIDE_MEDIA_BASE_URL:-http://tide:8080}/healthz" >/dev/null; then
     ready=1
     break
   fi
@@ -14,7 +14,7 @@ while [ "${attempt}" -lt 60 ]; do
   sleep 1
 done
 if [ "${ready}" -ne 1 ]; then
-  echo "Klisi did not become healthy within 60 seconds."
+  echo "Tide did not become healthy within 60 seconds."
   exit 1
 fi
 
@@ -45,22 +45,22 @@ enable_netem() {
 # regression list, which is what makes a red gate mean "this branch broke it".
 full_suite() {
   mkdir -p "${artifacts}/deterministic" "${artifacts}/fuzz" "${artifacts}/network-chaos"
-  KLISI_MEDIA_ARTIFACTS="${artifacts}/deterministic" npm run media:e2e
+  TIDE_MEDIA_ARTIFACTS="${artifacts}/deterministic" npm run media:e2e
 
-  if [ "${KLISI_MEDIA_SUITE:-deterministic}" = "nightly" ] && [ -z "${FC_SEED:-}" ]; then
+  if [ "${TIDE_MEDIA_SUITE:-deterministic}" = "nightly" ] && [ -z "${FC_SEED:-}" ]; then
     FC_SEED="$(date -u +%Y%m%d)"
     export FC_SEED
   fi
-  KLISI_MEDIA_ARTIFACTS="${artifacts}/fuzz" npm run media:fuzz
+  TIDE_MEDIA_ARTIFACTS="${artifacts}/fuzz" npm run media:fuzz
 
   enable_netem
-  KLISI_MEDIA_ARTIFACTS="${artifacts}/network-chaos" npm run media:chaos
+  TIDE_MEDIA_ARTIFACTS="${artifacts}/network-chaos" npm run media:chaos
   cleanup_netem
 }
 
-artifacts="${KLISI_MEDIA_ARTIFACTS:-/artifacts}"
+artifacts="${TIDE_MEDIA_ARTIFACTS:-/artifacts}"
 
-case "${KLISI_MEDIA_SUITE:-deterministic}" in
+case "${TIDE_MEDIA_SUITE:-deterministic}" in
   deterministic | nightly)
     full_suite
     ;;
@@ -69,13 +69,13 @@ case "${KLISI_MEDIA_SUITE:-deterministic}" in
     npm run media:e2e
     ;;
   fuzz)
-    if [ "${KLISI_NETWORK_CHAOS:-false}" = "true" ]; then
+    if [ "${TIDE_NETWORK_CHAOS:-false}" = "true" ]; then
       enable_netem
     fi
     npm run media:fuzz
     ;;
   *)
-    echo "Unknown KLISI_MEDIA_SUITE=${KLISI_MEDIA_SUITE}"
+    echo "Unknown TIDE_MEDIA_SUITE=${TIDE_MEDIA_SUITE}"
     exit 2
     ;;
 esac

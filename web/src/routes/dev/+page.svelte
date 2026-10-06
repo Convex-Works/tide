@@ -45,11 +45,11 @@
 </script>
 
 <svelte:head>
-  <title>klisi</title>
+  <title>tide</title>
   <meta name="description" content="Lean self-hosted video meetings" />
 </svelte:head>
 
-{#if !import.meta.env.DEV && import.meta.env.VITE_KLISI_TEST !== 'true'}
+{#if !import.meta.env.DEV && import.meta.env.VITE_TIDE_TEST !== 'true'}
   <main class="unavailable">Not available.</main>
 {:else if meetingState === 'stage'}
   <RoomStage {rtc} roomSlug={room} roomName={room} onleave={returnToPrejoin} />

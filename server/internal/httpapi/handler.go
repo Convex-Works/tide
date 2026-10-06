@@ -3,6 +3,7 @@ package httpapi
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io/fs"
 	"log"
 	"net/http"
@@ -13,53 +14,65 @@ import (
 
 	"git.convex.works/ConvexWorks/moil/sdk/go/moil"
 
-	"klisi/internal/api"
-	"klisi/internal/auth"
-	"klisi/internal/config"
-	"klisi/internal/httpx"
-	klisilivekit "klisi/internal/livekit"
-	"klisi/internal/lobby"
-	"klisi/internal/moderation"
-	"klisi/internal/recording"
-	"klisi/internal/rooms"
-	"klisi/internal/store"
+	"tide/internal/api"
+	"tide/internal/auth"
+	"tide/internal/config"
+	"tide/internal/httpx"
+	tidelivekit "tide/internal/livekit"
+	"tide/internal/lobby"
+	"tide/internal/media"
+	"tide/internal/moderation"
+	"tide/internal/recording"
+	"tide/internal/rooms"
+	"tide/internal/store"
 )
+
+// anonymousRoomCap is rooms.AnonymousRoomCap, a variable so that tests can
+// reach the ceiling.
+var anonymousRoomCap = rooms.AnonymousRoomCap
 
 type Handler struct {
 	web         fs.FS
 	sessions    *auth.Sessions
-	oidc        *auth.OIDC
+	oidc        *auth.OIDC // nil in anonymous mode
 	rooms       *rooms.Handler
 	lobby       *lobby.Handler
 	moderation  *moderation.Handler
 	recording   *recording.Handler
-	transcripts *transcriptsFeature // nil when KLISI_TRANSCRIPTS is off
-	minter      *klisilivekit.Minter
+	transcripts *transcriptsFeature // nil when TIDE_TRANSCRIPTS is off
+	minter      *tidelivekit.Minter
+	// anonymous and recordingOn are the deployment's modes (ARCHITECTURE.md
+	// §2.1), for /api/me.
+	anonymous   bool
+	recordingOn bool
 }
 
-// Background is the work main runs beside the HTTP server: the reconciler
-// that heals recording state when LiveKit webhooks are lost and removes the
-// files of deleted recordings, and, with transcripts on, the reconciler that
-// projects transcript rows onto moil jobs and the moil server machines
-// connect to. Serve runs it and stops it in order.
+// Background is the work main runs beside the HTTP server: with recording
+// on, the reconciler that heals recording state when LiveKit webhooks are
+// lost and removes the files of deleted recordings; in anonymous mode, the
+// sweep that deletes rooms nobody uses; and, with transcripts on, the
+// reconciler that projects transcript rows onto moil jobs and the moil
+// server machines connect to. Serve runs it and stops it in order.
 type Background struct {
-	recording   *recording.Handler
-	transcripts *transcriptsFeature // nil when KLISI_TRANSCRIPTS is off
+	recording   *recording.Handler  // nil when recording is off
+	sweeper     *rooms.Sweeper      // nil unless tide is anonymous
+	transcripts *transcriptsFeature // nil when TIDE_TRANSCRIPTS is off
 	// lobby's streams end when the HTTP server shuts down.
 	lobby *lobby.Handler
 }
 
-// Run runs the reconcilers until ctx is done, and returns once they have
-// returned, transcript jobs' followers included.
+// Run runs the reconcilers and the sweep until ctx is done, and returns
+// once they have returned, transcript jobs' followers included.
 func (b *Background) Run(ctx context.Context) {
-	var reconciler sync.WaitGroup
-	reconciler.Add(1)
-	go func() {
-		defer reconciler.Done()
-		b.recording.RunReconciler(ctx, time.Minute)
-	}()
+	var reconcilers sync.WaitGroup
+	if b.recording != nil {
+		reconcilers.Go(func() { b.recording.RunReconciler(ctx, time.Minute) })
+	}
+	if b.sweeper != nil {
+		reconcilers.Go(func() { b.sweeper.Run(ctx, rooms.SweepInterval) })
+	}
 	b.transcripts.run(ctx)
-	reconciler.Wait()
+	reconcilers.Wait()
 }
 
 // Close disconnects every machine, ends every transcript job with
@@ -73,10 +86,22 @@ func (b *Background) Close() error {
 // New builds the HTTP handler and the Background work main must run beside it.
 // transcribe is the bundle machines run to transcribe recordings: main hands
 // in transcripts.Bundle(), as it hands in the embedded SPA. It is used only
-// when cfg.Transcripts is on, and may be nil when it is off.
-func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.Bundle) (http.Handler, *Background, error) {
+// when cfg.Transcripts is on, and may be nil when it is off. signal is the
+// embedded media server's signaling (media.Server.SignalHandler), mounted at
+// media.SignalPath; it is nil with an external media server, whose
+// signaling browsers reach directly.
+func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.Bundle, signal http.Handler) (http.Handler, *Background, error) {
+	if cfg.Transcripts && !cfg.Recording {
+		return nil, nil, errors.New("transcripts are on but recording is off: transcripts need recording")
+	}
+	if cfg.Recording && cfg.Anonymous {
+		return nil, nil, errors.New("recording is on in anonymous mode: recording needs sign-in")
+	}
 	sessions := auth.NewSessions(cfg.SessionSecret, cfg.BaseURL, roomStore)
-	minter := klisilivekit.NewMinter(cfg)
+	if cfg.Anonymous {
+		sessions = auth.NewAnonymousSessions(cfg.SessionSecret, cfg.BaseURL, roomStore)
+	}
+	minter := tidelivekit.NewMinter(cfg)
 	registry := lobby.NewRegistry(lobby.DefaultRequestTTL)
 	ips := newClientIPResolver(cfg.TrustedProxies)
 	joinRate := orDefault(cfg.JoinRateLimit, config.DefaultJoinRateLimit)
@@ -96,8 +121,16 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 	// docs/REVIEW-2026-07-19.md), so the denylist TTL is the token TTL.
 	denylist := moderation.NewDenylist(lobby.TokenTTL)
 	moderationHandler := moderation.NewHandler(roomStore, moderation.NewRoomService(cfg), denylist)
-	// One storage client for every handler, which keeps its connections.
-	objects := recording.NewMinIOStore(cfg)
+	// Recording needs storage (ARCHITECTURE.md §8): one storage client for
+	// every handler, which keeps its connections, and none without it.
+	var objects *recording.MinIOStore
+	var roomObjects interface {
+		Remove(ctx context.Context, key string) error
+	}
+	if cfg.Recording {
+		objects = recording.NewMinIOStore(cfg)
+		roomObjects = objects
+	}
 	recordingHandler := recording.New(cfg, roomStore, objects)
 
 	// Transcripts run on machines hosts pair through moil (ARCHITECTURE.md
@@ -119,43 +152,72 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 			log.Printf("rooms: touch active for %q: %v", roomName, err)
 		}
 	})
-	roomsHandler := rooms.NewHandler(roomStore, objects, rooms.NewLiveKitSource(cfg), registry)
+	liveRooms := rooms.NewLiveKitSource(cfg)
+	meetings := rooms.NewLiveKitMeetingEnder(cfg)
+	roomsHandler := rooms.NewHandler(roomStore, roomObjects, liveRooms, registry)
+	roomsHandler.SetMeetingEnder(meetings)
+	if cfg.Anonymous {
+		roomsHandler.SetRoomCap(anonymousRoomCap)
+	}
 	transcriptsOn.attach(recordingHandler, roomsHandler)
 	handler := &Handler{
 		web:         web,
 		sessions:    sessions,
-		oidc:        auth.NewOIDC(cfg, sessions),
 		rooms:       roomsHandler,
 		lobby:       lobby.NewHandler(roomStore, registry, minter),
 		moderation:  moderationHandler,
 		recording:   recordingHandler,
 		transcripts: transcriptsOn,
 		minter:      minter,
+		anonymous:   cfg.Anonymous,
+		recordingOn: cfg.Recording,
 	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handler.health)
-	mux.Handle(
-		"GET "+api.AuthLoginPath,
-		withRateLimit(loginLimiter, ips, http.HandlerFunc(handler.oidc.Login)),
-	)
-	mux.HandleFunc("GET "+api.AuthCallbackPath, handler.oidc.Callback)
-	mux.Handle("POST "+api.AuthLogoutPath, handler.csrf(http.HandlerFunc(handler.oidc.Logout)))
-	mux.Handle("GET "+api.MePath, handler.requireAuth(http.HandlerFunc(handler.me)))
+	if cfg.Anonymous {
+		// No identity provider (ARCHITECTURE.md §4.1): signing in issues an
+		// anonymous session, as /api/me does, and there is no callback.
+		mux.Handle(
+			"GET "+api.AuthLoginPath,
+			withRateLimit(loginLimiter, ips, http.HandlerFunc(sessions.AnonymousLogin)),
+		)
+		mux.Handle("POST "+api.AuthLogoutPath, handler.csrf(http.HandlerFunc(sessions.Logout)))
+		mux.Handle("GET "+api.MePath, handler.anonymousMe(loginLimiter, ips))
+	} else {
+		handler.oidc = auth.NewOIDC(cfg, sessions)
+		mux.Handle(
+			"GET "+api.AuthLoginPath,
+			withRateLimit(loginLimiter, ips, http.HandlerFunc(handler.oidc.Login)),
+		)
+		mux.HandleFunc("GET "+api.AuthCallbackPath, handler.oidc.Callback)
+		mux.Handle("POST "+api.AuthLogoutPath, handler.csrf(http.HandlerFunc(handler.oidc.Logout)))
+		mux.Handle("GET "+api.MePath, handler.requireAuth(http.HandlerFunc(handler.me)))
+	}
 
-	mux.Handle("POST "+api.RoomsPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.rooms.Create))))
+	createRoom := handler.requireAuth(http.HandlerFunc(handler.rooms.Create))
+	if cfg.Anonymous {
+		// Creating a room takes no account, so it is limited per client
+		// address, in a bucket of its own sized by the join limit (§15).
+		createRoom = withRateLimit(newRateLimiter(joinRate, time.Minute), ips, createRoom)
+	}
+	mux.Handle("POST "+api.RoomsPath, handler.csrf(createRoom))
 	mux.Handle("GET "+api.RoomsPath, handler.requireAuth(http.HandlerFunc(handler.rooms.List)))
-	mux.Handle("GET "+api.RoomPath, withLookupRateLimit(lookupLimiter, ips, http.HandlerFunc(handler.rooms.Public)))
+	mux.Handle("GET "+api.RoomPath, withLookupRateLimit(lookupLimiter, ips, !cfg.Anonymous, http.HandlerFunc(handler.rooms.Public)))
 	mux.Handle("PATCH "+api.RoomPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.rooms.Update))))
 	mux.Handle("DELETE "+api.RoomPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.rooms.Delete))))
 	mux.Handle("POST "+api.KickPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.moderation.Kick))))
 	mux.Handle("POST "+api.MutePath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.moderation.Mute))))
 	mux.Handle("POST "+api.MeetingEndPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.moderation.EndMeeting))))
-	mux.Handle("POST "+api.RecordingStartPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.recording.Start))))
-	mux.Handle("POST "+api.RecordingStopPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.recording.Stop))))
-	mux.Handle("GET "+api.RoomRecordingsPath, handler.requireAuth(http.HandlerFunc(handler.recording.List)))
-	mux.Handle("DELETE "+api.RecordingPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.recording.Delete))))
-	mux.Handle("GET "+api.RecordingDownloadPath, handler.requireAuth(http.HandlerFunc(handler.recording.Download)))
+	// The recording routes exist only with recording on (ARCHITECTURE.md
+	// §8): without it each answers 404 like any unknown path.
+	if cfg.Recording {
+		mux.Handle("POST "+api.RecordingStartPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.recording.Start))))
+		mux.Handle("POST "+api.RecordingStopPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.recording.Stop))))
+		mux.Handle("GET "+api.RoomRecordingsPath, handler.requireAuth(http.HandlerFunc(handler.recording.List)))
+		mux.Handle("DELETE "+api.RecordingPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.recording.Delete))))
+		mux.Handle("GET "+api.RecordingDownloadPath, handler.requireAuth(http.HandlerFunc(handler.recording.Download)))
+	}
 
 	mux.Handle(
 		"POST "+api.RoomJoinPath,
@@ -173,13 +235,25 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 	// fallbacks, exist only with transcripts on.
 	transcriptsOn.routes(mux, handler, ips)
 
+	// The media webhook stays without recording: it also enforces bans and
+	// marks rooms active.
 	mux.HandleFunc("POST "+api.LiveKitWebhookPath, handler.recording.Webhook)
+	// Browsers reach the embedded media server's signaling on tide's own
+	// origin (ARCHITECTURE.md §2.1). The media server checks the token on
+	// every connection, so the route has no session, CSRF or rate limit of
+	// its own; every method passes, WebSocket upgrades included.
+	if signal != nil {
+		mux.Handle(media.SignalPath, signal)
+		mux.Handle(media.SignalPath+"/", signal)
+	}
 	if cfg.DevMode {
 		mux.HandleFunc("GET "+api.DevTokenPath, handler.devToken)
 	}
 	registerMethodFallback(mux, "/healthz", http.MethodGet)
 	registerMethodFallback(mux, api.AuthLoginPath, http.MethodGet)
-	registerMethodFallback(mux, api.AuthCallbackPath, http.MethodGet)
+	if !cfg.Anonymous {
+		registerMethodFallback(mux, api.AuthCallbackPath, http.MethodGet)
+	}
 	registerMethodFallback(mux, api.AuthLogoutPath, http.MethodPost)
 	registerMethodFallback(mux, api.MePath, http.MethodGet)
 	registerMethodFallback(mux, api.RoomsPath, http.MethodGet+", "+http.MethodPost)
@@ -188,11 +262,13 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 	registerMethodFallback(mux, api.KickPath, http.MethodPost)
 	registerMethodFallback(mux, api.MutePath, http.MethodPost)
 	registerMethodFallback(mux, api.MeetingEndPath, http.MethodPost)
-	registerMethodFallback(mux, api.RecordingStartPath, http.MethodPost)
-	registerMethodFallback(mux, api.RecordingStopPath, http.MethodPost)
-	registerMethodFallback(mux, api.RoomRecordingsPath, http.MethodGet)
-	registerMethodFallback(mux, api.RecordingPath, http.MethodDelete)
-	registerMethodFallback(mux, api.RecordingDownloadPath, http.MethodGet)
+	if cfg.Recording {
+		registerMethodFallback(mux, api.RecordingStartPath, http.MethodPost)
+		registerMethodFallback(mux, api.RecordingStopPath, http.MethodPost)
+		registerMethodFallback(mux, api.RoomRecordingsPath, http.MethodGet)
+		registerMethodFallback(mux, api.RecordingPath, http.MethodDelete)
+		registerMethodFallback(mux, api.RecordingDownloadPath, http.MethodGet)
+	}
 	registerMethodFallback(mux, api.RoomLobbyPath, http.MethodGet)
 	registerMethodFallback(mux, api.LobbyWaitPath, http.MethodGet)
 	registerMethodFallback(mux, api.LobbyApprovePath, http.MethodPost)
@@ -202,7 +278,13 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 		registerMethodFallback(mux, api.DevTokenPath, http.MethodGet)
 	}
 	mux.HandleFunc("/", handler.spa)
-	background := &Background{recording: recordingHandler, transcripts: transcriptsOn, lobby: handler.lobby}
+	background := &Background{transcripts: transcriptsOn, lobby: handler.lobby}
+	if cfg.Recording {
+		background.recording = recordingHandler
+	}
+	if cfg.Anonymous {
+		background.sweeper = rooms.NewSweeper(roomStore, liveRooms, meetings, rooms.AnonymousRoomIdle)
+	}
 	return securityHeaders(handler.withSession(mux)), background, nil
 }
 
@@ -220,9 +302,40 @@ func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusUnauthorized, "Authentication required.")
 		return
 	}
+	h.writeMe(w, session)
+}
+
+func (h *Handler) writeMe(w http.ResponseWriter, session auth.Session) {
 	httpx.WriteJSON(w, http.StatusOK, api.Me{
 		Sub: session.Sub, Email: session.Email, Name: session.Name,
 		Transcripts: h.transcripts.enabled(),
+		Recording:   h.recordingOn,
+		Anonymous:   h.anonymous,
+	})
+}
+
+// anonymousMe is /api/me without sign-in (ARCHITECTURE.md §4.1): a browser
+// without a valid session gets an anonymous one rather than 401, so the SPA
+// never shows a sign-in screen. Issuing one counts against the login limit,
+// per client address, and is refused with 429 beyond it.
+func (h *Handler) anonymousMe(limiter *rateLimiter, ips *clientIPResolver) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// The answer may carry a new session: no cache may keep it.
+		w.Header().Set("Cache-Control", "no-store")
+		if session, ok := auth.SessionFromContext(r.Context()); ok {
+			h.writeMe(w, session)
+			return
+		}
+		if !limiter.allow(ips.key(r)) {
+			httpx.WriteError(w, http.StatusTooManyRequests, "Too many requests. Try again later.")
+			return
+		}
+		session, err := h.sessions.IssueAnonymous(w)
+		if err != nil {
+			httpx.WriteError(w, http.StatusInternalServerError, "Could not start a session. Try again.")
+			return
+		}
+		h.writeMe(w, session)
 	})
 }
 
@@ -271,7 +384,7 @@ func (h *Handler) requireAuth(next http.Handler) http.Handler {
 // HttpOnly SameSite=Lax session cookie supplies the remaining current defense.
 func (h *Handler) csrf(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-Klisi-Csrf") != "1" {
+		if r.Header.Get("X-Tide-Csrf") != "1" {
 			httpx.WriteError(w, http.StatusForbidden, "Missing CSRF header.")
 			return
 		}

@@ -3,17 +3,17 @@ set -eu
 
 repository_root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 compose_file="${repository_root}/deploy/media-test/compose.yaml"
-artifact_dir="${KLISI_MEDIA_ARTIFACT_DIR:-${repository_root}/artifacts/media}"
+artifact_dir="${TIDE_MEDIA_ARTIFACT_DIR:-${repository_root}/artifacts/media}"
 mkdir -p "${artifact_dir}"
 artifact_dir="$(CDPATH= cd -- "${artifact_dir}" && pwd)"
-export KLISI_MEDIA_ARTIFACT_DIR="${artifact_dir}"
+export TIDE_MEDIA_ARTIFACT_DIR="${artifact_dir}"
 
 run_identity="${CI_RUN_ID:-local}-${CI_JOB_ID:-media}-$$"
-project_name="$(printf '%s' "klisi-media-${run_identity}" | tr '[:upper:]_' '[:lower:]-' | tr -cd 'a-z0-9-')"
+project_name="$(printf '%s' "tide-media-${run_identity}" | tr '[:upper:]_' '[:lower:]-' | tr -cd 'a-z0-9-')"
 project_name="$(printf '%.55s' "${project_name}")"
 
-# The stack pins container addresses so LiveKit can advertise a reachable
-# node-ip, which means it needs a /24 to itself. A fixed one collides whenever
+# The stack pins container addresses so tide's media server can advertise a
+# reachable node IP, which means it needs a /24 to itself. A fixed one collides whenever
 # two gate runs overlap on a runner — and every pull request produces two, one
 # for the push event and one for the pull_request event.
 #
@@ -52,7 +52,7 @@ cleanup() {
   if [ -n "${runner_id}" ]; then
     docker cp "${runner_id}:/artifacts/." "${artifact_dir}/" 2>/dev/null || true
   fi
-  compose logs --no-color livekit klisi >"${artifact_dir}/stack.log" 2>&1 || true
+  compose logs --no-color tide egress redis >"${artifact_dir}/stack.log" 2>&1 || true
   # --rmi local: the per-run project name means every run builds a uniquely
   # named image set, so images `down` leaves behind are garbage no later run
   # can reuse. Run 339 found the end of that road: the runner disk filled,
@@ -62,12 +62,12 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # Leftovers from runs that died before their own cleanup (or ran before
-# cleanup removed images at all). The klisi-media- prefix is this script's
+# cleanup removed images at all). The tide-media- prefix is this script's
 # own namespace, and an image belonging to a live concurrent run is in use by
 # its containers, so its removal fails and is skipped. The layer cache
 # survives image removal, so rebuilds stay warm; the cache itself is bounded
 # separately below.
-docker image ls --filter 'reference=klisi-media-*' --format '{{.Repository}}:{{.Tag}}' |
+docker image ls --filter 'reference=tide-media-*' --format '{{.Repository}}:{{.Tag}}' |
   grep -v "^${project_name}-" |
   while read -r stale_image; do
     docker image rm "${stale_image}" >/dev/null 2>&1 || true
@@ -79,8 +79,8 @@ docker builder prune --force --keep-storage 20GB >/dev/null 2>&1 || true
 # run takes the same /24.
 compose build
 
-KLISI_MEDIA_NET_PREFIX="$(claim_network_prefix)"
-export KLISI_MEDIA_NET_PREFIX
-echo "Media stack network: ${KLISI_MEDIA_NET_PREFIX}.0/24 (project ${project_name})"
+TIDE_MEDIA_NET_PREFIX="$(claim_network_prefix)"
+export TIDE_MEDIA_NET_PREFIX
+echo "Media stack network: ${TIDE_MEDIA_NET_PREFIX}.0/24 (project ${project_name})"
 
 compose up --abort-on-container-exit --exit-code-from runner runner

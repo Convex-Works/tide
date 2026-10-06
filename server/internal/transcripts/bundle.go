@@ -7,7 +7,7 @@ import (
 	"git.convex.works/ConvexWorks/moil/sdk/go/moil"
 )
 
-// bundleFiles is the moil bundle klisi publishes, vendored from moil's
+// bundleFiles is the moil bundle tide publishes, vendored from moil's
 // examples/bundles/transcribe by scripts/vendor-moil.sh.
 //
 //go:embed bundle/job.py bundle/job.py.lock bundle/manifest.json

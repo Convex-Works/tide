@@ -14,7 +14,7 @@ import (
 
 func transcriptsTestStore(t *testing.T) *Store {
 	t.Helper()
-	db, err := Open(filepath.Join(t.TempDir(), "klisi.db"))
+	db, err := Open(filepath.Join(t.TempDir(), "tide.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

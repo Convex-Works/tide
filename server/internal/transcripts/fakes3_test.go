@@ -20,7 +20,7 @@ import (
 	"time"
 )
 
-// A clock is the time klisi and its storage share in these tests, which a
+// A clock is the time tide and its storage share in these tests, which a
 // test moves on.
 type clock struct {
 	mu  sync.Mutex
@@ -37,7 +37,7 @@ func (c *clock) Now() time.Time {
 	return c.now
 }
 
-// Advance moves time on, for klisi and storage alike.
+// Advance moves time on, for tide and storage alike.
 func (c *clock) Advance(d time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -45,10 +45,10 @@ func (c *clock) Advance(d time.Duration) {
 }
 
 // fakeS3 is object storage that machines and browsers reach over real HTTP,
-// as they reach S3, and klisi calls as it calls MinIOStore. It keeps objects
+// as they reach S3, and tide calls as it calls MinIOStore. It keeps objects
 // in memory and serves them only through URLs it presigned, which name one
 // method and one object and expire by the clock. A test can break or hold
-// what klisi asks of it.
+// what tide asks of it.
 type fakeS3 struct {
 	server *httptest.Server
 	secret []byte
@@ -58,7 +58,7 @@ type fakeS3 struct {
 	objects map[string]object
 	broken  map[string]bool  // operations that fail, by name, or by name and key
 	held    map[string]*hold // operations that wait, by name
-	calls   map[string]int   // how often klisi asked for each operation
+	calls   map[string]int   // how often tide asked for each operation
 	noETags bool             // Stat returns no entity tags
 }
 
@@ -73,7 +73,7 @@ func (o object) etag() string {
 	return hex.EncodeToString(sum[:])
 }
 
-// The operations klisi asks of storage, for Break and Hold.
+// The operations tide asks of storage, for Break and Hold.
 const (
 	opRemove  = "remove"
 	opStat    = "stat"
@@ -132,14 +132,14 @@ func (s *fakeS3) NoETags() {
 	s.noETags = true
 }
 
-// Calls reports how often klisi asked storage for op.
+// Calls reports how often tide asked storage for op.
 func (s *fakeS3) Calls(op string) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.calls[op]
 }
 
-// A hold keeps klisi's calls of an operation waiting until it's released,
+// A hold keeps tide's calls of an operation waiting until it's released,
 // as a slow storage would, or until their context ends.
 type hold struct {
 	entered  chan struct{}
@@ -147,7 +147,7 @@ type hold struct {
 	once     sync.Once
 }
 
-// Hold makes klisi's calls of op wait, from now until the hold is released.
+// Hold makes tide's calls of op wait, from now until the hold is released.
 func (s *fakeS3) Hold(op string) *hold {
 	h := &hold{entered: make(chan struct{}, 100), released: make(chan struct{})}
 	s.mu.Lock()
@@ -162,13 +162,13 @@ func (h *hold) Entered(t *testing.T) {
 	select {
 	case <-h.entered:
 	case <-time.After(waitTimeout):
-		t.Fatalf("waited %v for klisi to call storage", waitTimeout)
+		t.Fatalf("waited %v for tide to call storage", waitTimeout)
 	}
 }
 
 func (h *hold) Release() { h.once.Do(func() { close(h.released) }) }
 
-// enter is how every call klisi makes starts: it fails once its context is
+// enter is how every call tide makes starts: it fails once its context is
 // done, as a real client does, waits on a hold, and fails while op is
 // broken, or broken for key.
 func (s *fakeS3) enter(ctx context.Context, op string, key ...string) error {

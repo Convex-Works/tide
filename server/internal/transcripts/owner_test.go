@@ -53,7 +53,7 @@ func TestPrepareChecksTheRoomsCurrentOwner(t *testing.T) {
 	e.submitted(rec)
 	first, _ := e.moil.Run("recording-" + rec.ID)
 
-	// klisi has no API to give a room away; an operator can.
+	// tide has no API to give a room away; an operator can.
 	e.sql(`UPDATE rooms SET owner_sub = 'bob' WHERE id = ?`, room.ID)
 	alice.Connect()
 	if offer := alice.NextOffer(); offer.JobID != first.ID() {

@@ -42,7 +42,7 @@ export interface HandlerFault {
 }
 
 interface MediaTestBridge {
-  __klisiRoom: {
+  __tideRoom: {
     state: string;
     localParticipant: {
       identity: string;
@@ -50,7 +50,7 @@ interface MediaTestBridge {
       trackPublications: Map<string, { trackSid: string; source: string }>;
     };
   };
-  __klisiMediaTest: {
+  __tideMediaTest: {
     ledger(): LedgerEntry[];
     clearLedger(): void;
     uncaughtErrors(): string[];
@@ -70,7 +70,7 @@ export interface JoinOptions {
   microphone?: boolean;
 }
 
-const csrf = { 'X-Klisi-Csrf': '1' };
+const csrf = { 'X-Tide-Csrf': '1' };
 
 export class MeetingActor {
   /** LiveKit identity, resolved once the room reports connected. */
@@ -130,12 +130,12 @@ export class MeetingActor {
     await expect
       .poll(
         () =>
-          this.bridge(() => (window as unknown as MediaTestBridge).__klisiRoom?.state ?? 'missing'),
+          this.bridge(() => (window as unknown as MediaTestBridge).__tideRoom?.state ?? 'missing'),
         { timeout }
       )
       .toBe('connected');
     this.identity = await this.bridge(
-      () => (window as unknown as MediaTestBridge).__klisiRoom.localParticipant.identity
+      () => (window as unknown as MediaTestBridge).__tideRoom.localParticipant.identity
     );
   }
 
@@ -154,7 +154,7 @@ export class MeetingActor {
       [
         ...(
           window as unknown as MediaTestBridge
-        ).__klisiRoom.localParticipant.trackPublications.values()
+        ).__tideRoom.localParticipant.trackPublications.values()
       ]
         .map((publication) => publication.source)
         .sort()
@@ -237,27 +237,27 @@ export class MeetingActor {
   }
 
   async ledger(): Promise<LedgerEntry[]> {
-    return this.bridge(() => (window as unknown as MediaTestBridge).__klisiMediaTest.ledger());
+    return this.bridge(() => (window as unknown as MediaTestBridge).__tideMediaTest.ledger());
   }
 
   async clearLedger(): Promise<void> {
-    await this.bridge(() => (window as unknown as MediaTestBridge).__klisiMediaTest.clearLedger());
+    await this.bridge(() => (window as unknown as MediaTestBridge).__tideMediaTest.clearLedger());
   }
 
   async uncaughtErrors(): Promise<string[]> {
     return this.bridge(() =>
-      (window as unknown as MediaTestBridge).__klisiMediaTest.uncaughtErrors()
+      (window as unknown as MediaTestBridge).__tideMediaTest.uncaughtErrors()
     );
   }
 
   /**
-   * Listener exceptions klisi caught. A guard that swallowed instead of
+   * Listener exceptions tide caught. A guard that swallowed instead of
    * recording would leave both this and uncaughtErrors() empty, which is the
    * same bug one step further from view — so the fault scenarios assert it.
    */
   async handlerFaults(): Promise<HandlerFault[]> {
     return this.bridge(() =>
-      (window as unknown as MediaTestBridge).__klisiMediaTest.handlerFaults()
+      (window as unknown as MediaTestBridge).__tideMediaTest.handlerFaults()
     );
   }
 
@@ -266,27 +266,27 @@ export class MeetingActor {
     return (await this.probe()).projection;
   }
 
-  /** Arms a one-shot throw inside klisi's ParticipantConnected handler. */
+  /** Arms a one-shot throw inside tide's ParticipantConnected handler. */
   async failNextParticipantEntered(): Promise<void> {
     await this.bridge(() =>
-      (window as unknown as MediaTestBridge).__klisiMediaTest.failNextParticipantEntered()
+      (window as unknown as MediaTestBridge).__tideMediaTest.failNextParticipantEntered()
     );
   }
 
-  /** Arms a one-shot throw inside the projection klisi runs from handlers. */
+  /** Arms a one-shot throw inside the projection tide runs from handlers. */
   async failNextReconcile(): Promise<void> {
     await this.bridge(() =>
-      (window as unknown as MediaTestBridge).__klisiMediaTest.failNextReconcile()
+      (window as unknown as MediaTestBridge).__tideMediaTest.failNextReconcile()
     );
   }
 
   /**
-   * Silences every RoomEvent listener klisi registered, leaving the SFU
+   * Silences every RoomEvent listener tide registered, leaving the SFU
    * connection and LiveKit's own state untouched. Models the general case
    * behind every media incident here: an event that never arrives.
    */
   async deafen(): Promise<void> {
-    await this.bridge(() => (window as unknown as MediaTestBridge).__klisiMediaTest.deafen());
+    await this.bridge(() => (window as unknown as MediaTestBridge).__tideMediaTest.deafen());
   }
 
   /** Drives LiveKit's own fault simulations (signal-reconnect, server-leave…). */
@@ -295,9 +295,9 @@ export class MeetingActor {
       (name) =>
         (
           window as unknown as {
-            __klisiRoom: { simulateScenario(scenario: string): Promise<void> };
+            __tideRoom: { simulateScenario(scenario: string): Promise<void> };
           }
-        ).__klisiRoom.simulateScenario(name),
+        ).__tideRoom.simulateScenario(name),
       scenario
     );
   }

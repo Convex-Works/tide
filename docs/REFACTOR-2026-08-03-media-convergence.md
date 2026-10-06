@@ -22,7 +22,7 @@ Events were lost two ways, both verified against livekit-client 2.20.1:
   returns `false` without emitting unless the state is exactly `Connected`.
   `TrackUnpublished`/`TrackUnsubscribed` use plain `emit`, so teardown was
   delivered when setup was not — ghost tiles followed from the asymmetry.
-- **klisi dropped them again.** Three drop windows, all now deleted:
+- **tide dropped them again.** Three drop windows, all now deleted:
   `reconcileMedia()`'s early return during `Reconnecting`/`SignalReconnecting`;
   a `ConnectionStateChanged` handler that never reconciled at the moment
   reconciliation became legal again; and `scheduleRemovalReconcile()`, a 100 ms
@@ -45,7 +45,7 @@ was never installed for the rest of the session.
 | 2     | Events mark the projection dirty; a coalescing microtask flush plus a 2 s heartbeat reconcile it. A deferred flush is never discarded. A signature check keeps an idle meeting from republishing. | `deafen`, `full-reconnect`                  |
 | 3     | `applySubscriptions()` derives subscriptions from `hiddenCameraIdentities` in both directions. The retry state machine is gone; playback unlock no longer touches subscriptions.                  | — (removes a live hazard)                   |
 | 4     | Blocked playback surfaces a "Tap to hear audio" control, and recovery is attempted once rather than chased.                                                                                       | the three vacuous `Media paused` assertions |
-| 5     | The event ledger and fault log ship in production behind `window.klisiDiagnostics()`.                                                                                                             | — (attribution)                             |
+| 5     | The event ledger and fault log ship in production behind `window.tideDiagnostics()`.                                                                                                             | — (attribution)                             |
 
 ### A latent spin the Phase 4 test exposed
 
@@ -55,7 +55,7 @@ already in the code. `Room.startAudio()` awaits the media elements and
 `acquireAudioContext()` together, and the latter emits
 `AudioPlaybackStatusChanged(true)` when the context resumes. So one recovery
 attempt emits _both_ signals: the elements report blocked, the context reports
-healthy. klisi retried on the blocked report and re-armed on the healthy one,
+healthy. tide retried on the blocked report and re-armed on the healthy one,
 which is a closed cycle — measured at ~12 000 `play()` calls per second, enough
 to starve the page completely.
 
@@ -87,13 +87,13 @@ The only item with no reliability payoff, and a contract change: ARCHITECTURE
 
 - **Triage `node-failure` and `disconnect-signal-on-resume`.** Both leave the
   host with zero remote participants, i.e. livekit-client did not recover at
-  the SDK level rather than klisi mis-projecting. The media stack is
+  the SDK level rather than tide mis-projecting. The media stack is
   single-node, so this may be a harness artifact. They are `test.skip` with the
   reason recorded; decide, then either gate them or delete them.
 - **TLS for the media stack.** The gate serves plain http on a non-localhost
   origin, so pages are not secure contexts and `getUserMedia` does not exist;
   actors publish synthetic tracks and local capture is uncovered. Closing it
-  needs TLS for klisi _and_ LiveKit signalling, or the page hits mixed content.
+  needs TLS for tide _and_ LiveKit signalling, or the page hits mixed content.
 
 `livekit-client` is now pinned exactly (2.20.1); upgrade it and LiveKit server
 as a tested pair behind the gate.

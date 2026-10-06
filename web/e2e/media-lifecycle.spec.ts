@@ -25,7 +25,7 @@ import { expectMediaElementTags, tagMediaElements } from './media-helpers';
  * browser-specific capture flags are involved.
  */
 
-const meshParticipants = Number(process.env.KLISI_MESH_PARTICIPANTS ?? '5');
+const meshParticipants = Number(process.env.TIDE_MESH_PARTICIPANTS ?? '5');
 
 test('an existing participant sees a later joiner without reloading', async ({ browser }) => {
   const meeting = await Meeting.open(browser);
@@ -95,7 +95,7 @@ test('a throwing projection does not sever later joiners', async ({ browser }) =
     const host = await meeting.join({ name: 'host-faulty-projection', as: 'owner' });
     await host.clearLedger();
 
-    // The same wiring hazard, thrown from the projection klisi runs first
+    // The same wiring hazard, thrown from the projection tide runs first
     // inside the handler, so the participant is never projected either.
     await host.failNextReconcile();
 
@@ -118,7 +118,7 @@ test('an existing participant converges even when told nothing', async ({ browse
   try {
     const host = await meeting.join({ name: 'host-deafened', as: 'owner' });
 
-    // From here klisi receives no RoomEvents at all. The SFU connection and
+    // From here tide receives no RoomEvents at all. The SFU connection and
     // LiveKit's own participant maps are untouched, so the authoritative state
     // is correct and complete — only the notifications are gone.
     await host.deafen();
@@ -127,7 +127,7 @@ test('an existing participant converges even when told nothing', async ({ browse
 
     // The probe re-derives from LiveKit's maps, so this passes: the SDK knows.
     await expectSees(host, [latecomer]);
-    // The DOM is klisi's own projection. A client that only reduces an event
+    // The DOM is tide's own projection. A client that only reduces an event
     // stream stays frozen here forever and needs a reload; one that re-derives
     // from LiveKit's maps catches up without being told.
     await expectRenderedTiles(host, [latecomer]);
@@ -249,14 +249,14 @@ test('a departing participant is dropped by everyone', async ({ browser }) => {
 /**
  * A long-lived tab drops and recovers in more than one way, and the paths are
  * not equivalent. A resume buffers events and flushes them *before* flipping
- * the state back to connected, so anything klisi discards while it considers
+ * the state back to connected, so anything tide discards while it considers
  * itself reconnecting is gone. A full restart is harsher still: LiveKit tears
  * down every remote participant, then re-adds them from the join response.
  * Someone arriving during either window is the shape of the reported incident.
  */
 // 'node-failure' and 'disconnect-signal-on-resume' are deliberately not gated
 // yet: on those the host ends up with *zero* remote participants, meaning
-// livekit-client itself did not recover, not that klisi mis-projected. The
+// livekit-client itself did not recover, not that tide mis-projected. The
 // media stack is single-node, so there may be nowhere to fail over to and the
 // result may be an artifact of the harness rather than a product bug. They are
 // listed so the gap stays visible; triage before enabling.

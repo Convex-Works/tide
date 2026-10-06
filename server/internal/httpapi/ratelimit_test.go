@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"klisi/internal/api"
-	"klisi/internal/auth"
-	"klisi/internal/config"
-	"klisi/internal/store"
+	"tide/internal/api"
+	"tide/internal/auth"
+	"tide/internal/config"
+	"tide/internal/store"
 )
 
 // Guests may look rooms up as often as they may join; each lookup counts,
@@ -37,7 +37,7 @@ func TestRoomLookupLimitsGuestsPerAddressAndHostsPerSub(t *testing.T) {
 		LiveKitAPIKey: "devkey", LiveKitAPISecret: "test-livekit-secret-with-enough-bytes",
 		LiveKitPublicURL: "ws://public.example", JoinRateLimit: limit,
 	}
-	handler, background, err := New(cfg, nil, db, nil)
+	handler, background, err := New(cfg, nil, db, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestRoomLookupLimitsGuestsPerAddressAndHostsPerSub(t *testing.T) {
 	join := httptest.NewRequest(http.MethodPost, "/api/rooms/abc-defg-hij/join", strings.NewReader(`{"name":"Guest"}`))
 	join.RemoteAddr = "192.0.2.1:1234"
 	join.Header.Set("Content-Type", "application/json")
-	join.Header.Set("X-Klisi-Csrf", "1")
+	join.Header.Set("X-Tide-Csrf", "1")
 	joined := httptest.NewRecorder()
 	handler.ServeHTTP(joined, join)
 	if joined.Code != http.StatusOK {

@@ -1,50 +1,34 @@
-name: klisi
+name: tide
+
+# What tide doesn't contain. tide itself, with its media server inside it,
+# runs on the host (`make dev`).
 
 services:
+  # The Redis the media server inside tide and the recorder share once
+  # recording is on. Published on loopback only, where tide on the host finds
+  # it at its default address (TIDE_RECORDER_REDIS_ADDR=127.0.0.1:6379); the
+  # recorder uses redis:6379 on the compose network. Nothing in it is durable.
   redis:
-    image: redis:7-alpine
-    command: redis-server --save 60 1 --loglevel warning
-    # No host port: only LiveKit (on the compose network) talks to Redis.
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
-    networks: [klisi]
-
-  livekit:
-    image: livekit/livekit-server:v1.13.4
-    command: --config /etc/livekit.yaml --node-ip ${KLISI_NODE_IP:-127.0.0.1}
-    volumes:
-      - ./livekit.yaml:/etc/livekit.yaml:ro
-    # Signal/API on loopback only; media ports stay on all interfaces
-    # because browsers dial the advertised KLISI_NODE_IP (LAN) directly and
-    # ICE/SRTP require the token handshake anyway.
-    # Loopback needs BOTH families: browsers resolve localhost to ::1 first,
-    # and a v4-only bind makes fresh WebSockets fail intermittently.
+    image: redis:7.4.8-alpine3.21
+    command: ["redis-server", "--requirepass", "tide-dev-recorder-redis-password-please-change", "--save", "", "--appendonly", "no"]
+    environment:
+      REDISCLI_AUTH: tide-dev-recorder-redis-password-please-change
     ports:
-      - "127.0.0.1:7880:7880"
-      - "[::1]:7880:7880"
-      - "7881:7881"
-      - "7882:7882/udp"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    depends_on:
-      redis:
-        condition: service_healthy
+      - "127.0.0.1:6379:6379"
+      - "[::1]:6379:6379"
     healthcheck:
-      test: ["CMD-SHELL", "wget -q --spider http://localhost:7880/ || exit 1"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-    networks: [klisi]
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    networks: [tide]
 
   minio:
     image: minio/minio:RELEASE.2025-04-22T22-12-26Z
     command: server /data --console-address :9001
     environment:
-      MINIO_ROOT_USER: klisi
-      MINIO_ROOT_PASSWORD: klisi-dev-minio
+      MINIO_ROOT_USER: tide
+      MINIO_ROOT_PASSWORD: tide-dev-minio
     # Loopback only: the root credentials are public in this repo.
     ports:
       - "127.0.0.1:9000:9000"
@@ -58,7 +42,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-    networks: [klisi]
+    networks: [tide]
 
   minio-init:
     image: minio/mc:RELEASE.2025-04-16T18-13-26Z
@@ -68,11 +52,16 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >-
-        mc alias set local http://minio:9000 klisi klisi-dev-minio &&
-        mc mb --ignore-existing local/klisi-recordings
+        mc alias set local http://minio:9000 tide tide-dev-minio &&
+        mc mb --ignore-existing local/tide-recordings
     restart: "no"
-    networks: [klisi]
+    networks: [tide]
 
+  # The recorder. It takes jobs over redis:6379 and reaches tide on the host:
+  # signaling through tide's /rtc, and media through the LAN address tide
+  # advertises (TIDE_MEDIA_NODE_IP in deploy/.env). With no LAN address that
+  # falls back to 127.0.0.1, which the recorder can't reach: meetings work,
+  # recordings don't.
   egress:
     image: livekit/egress:v1.13.0
     environment:
@@ -87,9 +76,10 @@ services:
     # Staging area for file egress before the S3 upload; egress runs non-root.
     tmpfs:
       - /recordings:mode=1777
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # The recorder checks Redis once at startup and exits without it.
     depends_on:
-      livekit:
-        condition: service_healthy
       redis:
         condition: service_healthy
       minio-init:
@@ -99,10 +89,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 20
-    # Egress shares LiveKit's network namespace: the SFU advertises
-    # node_ip 127.0.0.1 for host browsers in dev, and this makes the same
-    # candidate address correct for egress's in-container Chrome too.
-    network_mode: "service:livekit"
+    networks: [tide]
 
   dex:
     image: ghcr.io/dexidp/dex:v2.43.1
@@ -118,10 +105,10 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-    networks: [klisi]
+    networks: [tide]
 
 networks:
-  klisi:
+  tide:
     driver: bridge
 
 volumes:

@@ -22,24 +22,24 @@ import (
 	"git.convex.works/ConvexWorks/moil/sdk/go/moiltest"
 	protocol "github.com/livekit/protocol/livekit"
 
-	"klisi/internal/api"
-	"klisi/internal/auth"
-	"klisi/internal/recording"
-	"klisi/internal/rooms"
-	"klisi/internal/store"
-	"klisi/internal/transcripts"
+	"tide/internal/api"
+	"tide/internal/auth"
+	"tide/internal/recording"
+	"tide/internal/rooms"
+	"tide/internal/store"
+	"tide/internal/transcripts"
 )
 
 // waitTimeout bounds every wait for something to happen.
 const waitTimeout = 10 * time.Second
 
-// An env is klisi's transcript pipeline, composed of its real pieces: a
+// An env is tide's transcript pipeline, composed of its real pieces: a
 // moil server that fake machines reach over HTTP and WebSocket, SQLite on
 // disk, the recording and rooms handlers, the transcripts service, both
 // reconcilers, and object storage over HTTP, all on one clock.
 //
-// Machines reach moil through a front door that stays put when klisi
-// restarts, as klisi's own address does.
+// Machines reach moil through a front door that stays put when tide
+// restarts, as tide's own address does.
 type env struct {
 	t      *testing.T
 	path   string // the database's file
@@ -55,7 +55,7 @@ type env struct {
 	service       *transcripts.Service
 	recordings    *recording.Handler
 	rooms         *rooms.Handler
-	cancelService func() // klisi starts stopping
+	cancelService func() // tide starts stopping
 	waitService   func() // and has stopped
 	recorded      int
 	probes        int
@@ -64,7 +64,7 @@ type env struct {
 
 func newEnv(t *testing.T, configure ...func(*transcripts.Config)) *env {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "klisi.db")
+	path := filepath.Join(t.TempDir(), "tide.db")
 	db, err := store.Open(path)
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +88,7 @@ func newEnv(t *testing.T, configure ...func(*transcripts.Config)) *env {
 	return e
 }
 
-// start starts klisi's side: a moil server with the transcribe bundle, the
+// start starts tide's side: a moil server with the transcribe bundle, the
 // transcripts service reconciling beside it, and the recording reconciler.
 // Only nudges and the pass at start drive the transcripts reconciler, as its
 // tick is an hour away; the recording reconciler runs every few
@@ -96,7 +96,7 @@ func newEnv(t *testing.T, configure ...func(*transcripts.Config)) *env {
 func (e *env) start() {
 	e.t.Helper()
 	server, err := moil.NewServer(moil.Config{
-		Name: "klisi", VerificationURL: e.front.URL + "/machines", Store: e.db,
+		Name: "tide", VerificationURL: e.front.URL + "/machines", Store: e.db,
 		MaxDataBytes: 4 << 20, KeepFinished: 5 * time.Minute,
 	})
 	if err != nil {
@@ -143,7 +143,7 @@ func (e *env) stopService() {
 	e.waitService()
 }
 
-// stop stops the service, then closes moil, as klisi does when it exits.
+// stop stops the service, then closes moil, as tide does when it exits.
 func (e *env) stop() {
 	e.stopService()
 	_ = e.moil.Close()
@@ -199,7 +199,7 @@ func (e *env) recordFor(room store.Room, slug string, duration time.Duration, en
 }
 
 // recordEgress makes an audio recording of room, carrying slug as its room's
-// slug, that klisi started at started. Egress ends it with a file lasting
+// slug, that tide started at started. Egress ends it with a file lasting
 // duration, saying it ended at ended, or not saying when if ended is zero.
 func (e *env) recordEgress(room store.Room, slug string, started, ended time.Time, duration time.Duration) store.Recording {
 	e.t.Helper()
@@ -273,8 +273,8 @@ func (e *env) queuedStaging() []string {
 	return staged
 }
 
-// sql changes klisi's database behind its back, over a connection of its
-// own, as an operator or another process could: for what klisi has no API
+// sql changes tide's database behind its back, over a connection of its
+// own, as an operator or another process could: for what tide has no API
 // for, and to make the database fail.
 func (e *env) sql(query string, args ...any) {
 	e.t.Helper()
@@ -463,7 +463,7 @@ func errorMessage(t *testing.T, response *httptest.ResponseRecorder) string {
 	return body.Error
 }
 
-// watchLogs copies what klisi logs, from now to the end of the test, to
+// watchLogs copies what tide logs, from now to the end of the test, to
 // the buffer it returns.
 func watchLogs(t *testing.T) *lockedBuffer {
 	t.Helper()

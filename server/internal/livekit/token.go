@@ -6,7 +6,7 @@ import (
 	protocolauth "github.com/livekit/protocol/auth"
 	protocol "github.com/livekit/protocol/livekit"
 
-	"klisi/internal/config"
+	"tide/internal/config"
 )
 
 type Minter struct {

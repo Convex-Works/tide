@@ -19,10 +19,10 @@ import (
 	protocol "github.com/livekit/protocol/livekit"
 	"google.golang.org/protobuf/proto"
 
-	"klisi/internal/api"
-	"klisi/internal/auth"
-	"klisi/internal/httpx"
-	"klisi/internal/store"
+	"tide/internal/api"
+	"tide/internal/auth"
+	"tide/internal/httpx"
+	"tide/internal/store"
 )
 
 const activeRecordingMessage = "This room already has an active recording."
@@ -170,14 +170,14 @@ func (h *Handler) Start(w http.ResponseWriter, r *http.Request) {
 	// overwrite each other.
 	key := path.Join("recordings", room.Slug, id, filename)
 	metadata := map[string]string{
-		"klisi-filename":       filename,
-		"klisi-meeting-id":     room.ID,
-		"klisi-meeting-name":   room.Name,
-		"klisi-meeting-slug":   room.Slug,
-		"klisi-recording-id":   id,
-		"klisi-recording-mode": mode,
-		"klisi-started-at":     started.Format(time.RFC3339),
-		"klisi-started-by":     session.Sub,
+		"tide-filename":       filename,
+		"tide-meeting-id":     room.ID,
+		"tide-meeting-name":   room.Name,
+		"tide-meeting-slug":   room.Slug,
+		"tide-recording-id":   id,
+		"tide-recording-mode": mode,
+		"tide-started-at":     started.Format(time.RFC3339),
+		"tide-started-by":     session.Sub,
 	}
 	info, err := h.egress.StartRoomCompositeEgress(r.Context(), &protocol.RoomCompositeEgressRequest{
 		RoomName:      room.Slug,

@@ -8,7 +8,7 @@ import (
 
 	"git.convex.works/ConvexWorks/moil/sdk/go/moil"
 
-	"klisi/internal/api"
+	"tide/internal/api"
 )
 
 // An attempt may take an hour plus twice the recording, and at least three

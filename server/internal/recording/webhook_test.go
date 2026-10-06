@@ -11,7 +11,7 @@ import (
 
 	protocol "github.com/livekit/protocol/livekit"
 
-	"klisi/internal/store"
+	"tide/internal/store"
 )
 
 func TestWebhookEgressStateTransitions(t *testing.T) {

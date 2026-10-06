@@ -6,7 +6,7 @@ import (
 )
 
 // Plain makes text a machine reported (its name, a progress message, an
-// error) safe to show beside klisi's own: control characters become spaces,
+// error) safe to show beside tide's own: control characters become spaces,
 // format characters such as bidirectional overrides and zero-width joiners
 // are dropped so they can't reorder or hide what surrounds them, and runs of
 // whitespace collapse to one space.

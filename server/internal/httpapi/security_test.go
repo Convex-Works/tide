@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"klisi/internal/config"
+	"tide/internal/config"
 )
 
 func TestSecurityHeadersArePresentOnAllResponses(t *testing.T) {
@@ -15,7 +15,7 @@ func TestSecurityHeadersArePresentOnAllResponses(t *testing.T) {
 		LiveKitURL:       "ws://livekit.example",
 		LiveKitAPIKey:    "devkey",
 		LiveKitAPISecret: "test-livekit-secret-with-enough-bytes",
-	}, nil, nil, transcribeBundle(t))
+	}, nil, nil, transcribeBundle(t), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

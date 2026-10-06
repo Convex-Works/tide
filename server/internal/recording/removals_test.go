@@ -16,8 +16,8 @@ import (
 
 	protocol "github.com/livekit/protocol/livekit"
 
-	"klisi/internal/config"
-	"klisi/internal/store"
+	"tide/internal/config"
+	"tide/internal/store"
 )
 
 // Storage out of reach holds a reconciler pass up for at most the removals'
@@ -54,7 +54,7 @@ func TestStorageOutOfReachDoesntHoldTheReconcilerUp(t *testing.T) {
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			db, err := store.Open(filepath.Join(t.TempDir(), "klisi.db"))
+			db, err := store.Open(filepath.Join(t.TempDir(), "tide.db"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -66,7 +66,7 @@ func TestStorageOutOfReachDoesntHoldTheReconcilerUp(t *testing.T) {
 			}
 			var requests atomic.Int32
 			objects := NewMinIOStore(config.Config{
-				S3Endpoint: test.storage(t, &requests), S3PublicEndpoint: "https://s3.example", S3Bucket: "klisi",
+				S3Endpoint: test.storage(t, &requests), S3PublicEndpoint: "https://s3.example", S3Bucket: "tide",
 				S3AccessKey: "key", S3SecretKey: "secret", S3Region: "us-east-1",
 			})
 			// A recording whose egress_ended webhook was lost.
@@ -137,7 +137,7 @@ func TestRemovingQueuedFilesStopsWhenStorageIsOutOfReach(t *testing.T) {
 		tries int
 	}{
 		{"storage refuses a file", errors.New("AccessDenied: Access Denied."), len(keys)},
-		{"storage refuses connections", &url.Error{Op: "Delete", URL: "http://minio:9000/klisi/a", Err: &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}}, 1},
+		{"storage refuses connections", &url.Error{Op: "Delete", URL: "http://minio:9000/tide/a", Err: &net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}}, 1},
 		{"storage doesn't answer in time", fmt.Errorf("remove: %w", context.DeadlineExceeded), 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {

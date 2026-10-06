@@ -12,7 +12,7 @@ import (
 
 func TestSessionRoundTripAndAttributes(t *testing.T) {
 	now := time.Unix(1_700_000_000, 0)
-	sessions := NewSessions("test-secret", "https://klisi.example", nil)
+	sessions := NewSessions("test-secret", "https://tide.example", nil)
 	sessions.now = func() time.Time { return now }
 	recorder := httptest.NewRecorder()
 	want := Session{Sub: "subject", Email: "host@example.com", Name: "Host", IsAdmin: true}

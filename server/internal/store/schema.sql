@@ -14,6 +14,15 @@ CREATE TABLE IF NOT EXISTS rooms (
 CREATE INDEX IF NOT EXISTS rooms_owner_created_idx
     ON rooms (owner_sub, created_at DESC);
 
+-- Room links freed by deleting a room or changing its slug, held until every
+-- token minted for them has expired (ARCHITECTURE.md §5): a token names its
+-- room by slug, so a new room under a freed slug would let the old room's
+-- tokens into its meeting, past its lobby.
+CREATE TABLE IF NOT EXISTS freed_slugs (
+    slug TEXT PRIMARY KEY,
+    until INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS recordings (
     id TEXT PRIMARY KEY,
     room_id TEXT NOT NULL,
@@ -55,7 +64,7 @@ CREATE TABLE IF NOT EXISTS revoked_sessions (
     expires_at INTEGER NOT NULL
 );
 
--- Machines hosts paired with klisi through moil (ARCHITECTURE.md §8.1). The
+-- Machines hosts paired with tide through moil (ARCHITECTURE.md §8.1). The
 -- Store implements moil.Store over this table. A machine's token is never
 -- stored, only its SHA-256; report is the machine's last moil.MachineReport as
 -- JSON (name, hardware, approved bundle hashes, last seen).

@@ -64,7 +64,7 @@ type SyntheticResource =
 
 type MediaTestWindow = Window &
   typeof globalThis & {
-    __klisiRoom: {
+    __tideRoom: {
       state: string;
       remoteParticipants: Map<string, { identity: string }>;
       localParticipant: {
@@ -87,7 +87,7 @@ type MediaTestWindow = Window &
       emit(event: string, participants: unknown[]): void;
       simulateScenario(scenario: string, arg?: unknown): Promise<void>;
     };
-    __klisiMediaTest: {
+    __tideMediaTest: {
       attachmentDelayMs: number;
       snapshot(): Promise<MediaProbeSnapshot>;
       reconcile(): void;
@@ -99,7 +99,7 @@ type MediaTestWindow = Window &
       blockPlayback(kind?: 'audio' | 'video' | 'any'): void;
       unblockPlayback(): void;
     };
-    __klisiSynthetic?: {
+    __tideSynthetic?: {
       resources: SyntheticResource[];
       cleanup: (() => void)[];
     };
@@ -129,7 +129,7 @@ export async function joinMediaTestRoom(
   await expect
     .poll(
       () =>
-        page.evaluate(() => (window as MediaTestWindow).__klisiRoom?.state ?? 'test-hook-missing'),
+        page.evaluate(() => (window as MediaTestWindow).__tideRoom?.state ?? 'test-hook-missing'),
       { timeout: 30_000 }
     )
     .toBe('connected');
@@ -140,7 +140,7 @@ export async function publishSyntheticCameraAndAudio(
 ): Promise<{ cameraSid: string; microphoneSid: string }> {
   return page.evaluate(async () => {
     const testWindow = window as MediaTestWindow;
-    const room = testWindow.__klisiRoom;
+    const room = testWindow.__tideRoom;
     const resources: SyntheticResource[] = [];
     const cleanup: (() => void)[] = [];
 
@@ -188,7 +188,7 @@ export async function publishSyntheticCameraAndAudio(
       source: 'microphone',
       name: 'synthetic-microphone'
     });
-    testWindow.__klisiSynthetic = { resources, cleanup };
+    testWindow.__tideSynthetic = { resources, cleanup };
     return { cameraSid: camera.trackSid, microphoneSid: microphone.trackSid };
   });
 }
@@ -199,9 +199,9 @@ export async function publishSyntheticScreen(
 ): Promise<{ screenSid: string; audioSid?: string }> {
   return page.evaluate(async (publishAudio) => {
     const testWindow = window as MediaTestWindow;
-    const room = testWindow.__klisiRoom;
-    const resources = testWindow.__klisiSynthetic?.resources ?? ([] as SyntheticResource[]);
-    const cleanup = testWindow.__klisiSynthetic?.cleanup ?? [];
+    const room = testWindow.__tideRoom;
+    const resources = testWindow.__tideSynthetic?.resources ?? ([] as SyntheticResource[]);
+    const cleanup = testWindow.__tideSynthetic?.cleanup ?? [];
     const canvas = document.createElement('canvas');
     canvas.width = 800;
     canvas.height = 450;
@@ -251,14 +251,14 @@ export async function publishSyntheticScreen(
       });
       audioSid = publication.trackSid;
     }
-    testWindow.__klisiSynthetic = { resources, cleanup };
+    testWindow.__tideSynthetic = { resources, cleanup };
     return { screenSid: screen.trackSid, audioSid };
   }, withAudio);
 }
 
 export async function unpublishSynthetic(page: Page, publicationSids: string[]): Promise<void> {
   await page.evaluate(async (sids) => {
-    const room = (window as MediaTestWindow).__klisiRoom;
+    const room = (window as MediaTestWindow).__tideRoom;
     for (const sid of sids) {
       const publication = room.localParticipant.trackPublications.get(sid);
       if (publication?.track) {
@@ -271,8 +271,8 @@ export async function unpublishSynthetic(page: Page, publicationSids: string[]):
 export async function publishReplacementCamera(page: Page): Promise<string> {
   return page.evaluate(async () => {
     const testWindow = window as MediaTestWindow;
-    const resources = testWindow.__klisiSynthetic?.resources ?? ([] as SyntheticResource[]);
-    const cleanup = testWindow.__klisiSynthetic?.cleanup ?? [];
+    const resources = testWindow.__tideSynthetic?.resources ?? ([] as SyntheticResource[]);
+    const cleanup = testWindow.__tideSynthetic?.cleanup ?? [];
     const canvas = document.createElement('canvas');
     canvas.width = 640;
     canvas.height = 360;
@@ -296,11 +296,11 @@ export async function publishReplacementCamera(page: Page): Promise<string> {
     cleanup.push(() => cancelAnimationFrame(animationFrame));
     const track = canvas.captureStream(15).getVideoTracks()[0];
     resources.push(track);
-    const publication = await testWindow.__klisiRoom.localParticipant.publishTrack(track, {
+    const publication = await testWindow.__tideRoom.localParticipant.publishTrack(track, {
       source: 'camera',
       name: `replacement-camera-${Date.now()}`
     });
-    testWindow.__klisiSynthetic = { resources, cleanup };
+    testWindow.__tideSynthetic = { resources, cleanup };
     return publication.trackSid;
   });
 }
@@ -308,8 +308,8 @@ export async function publishReplacementCamera(page: Page): Promise<string> {
 export async function publishReplacementMicrophone(page: Page): Promise<string> {
   return page.evaluate(async () => {
     const testWindow = window as MediaTestWindow;
-    const resources = testWindow.__klisiSynthetic?.resources ?? ([] as SyntheticResource[]);
-    const cleanup = testWindow.__klisiSynthetic?.cleanup ?? [];
+    const resources = testWindow.__tideSynthetic?.resources ?? ([] as SyntheticResource[]);
+    const cleanup = testWindow.__tideSynthetic?.cleanup ?? [];
     const audioContext = new AudioContext();
     await audioContext.resume();
     const oscillator = audioContext.createOscillator();
@@ -322,11 +322,11 @@ export async function publishReplacementMicrophone(page: Page): Promise<string> 
     resources.push(audioContext, oscillator);
     const track = destination.stream.getAudioTracks()[0];
     resources.push(track);
-    const publication = await testWindow.__klisiRoom.localParticipant.publishTrack(track, {
+    const publication = await testWindow.__tideRoom.localParticipant.publishTrack(track, {
       source: 'microphone',
       name: `replacement-microphone-${Date.now()}`
     });
-    testWindow.__klisiSynthetic = { resources, cleanup };
+    testWindow.__tideSynthetic = { resources, cleanup };
     return publication.trackSid;
   });
 }
@@ -336,15 +336,15 @@ export async function resetSyntheticMedia(
 ): Promise<{ cameraSid: string; microphoneSid: string }> {
   await page.evaluate(async () => {
     const testWindow = window as MediaTestWindow;
-    const publications = [...testWindow.__klisiRoom.localParticipant.trackPublications.values()];
+    const publications = [...testWindow.__tideRoom.localParticipant.trackPublications.values()];
     for (const publication of publications) {
       if (publication.track) {
-        await testWindow.__klisiRoom.localParticipant.unpublishTrack(publication.track, true);
+        await testWindow.__tideRoom.localParticipant.unpublishTrack(publication.track, true);
       }
     }
 
-    for (const stop of testWindow.__klisiSynthetic?.cleanup ?? []) stop();
-    for (const resource of testWindow.__klisiSynthetic?.resources ?? []) {
+    for (const stop of testWindow.__tideSynthetic?.cleanup ?? []) stop();
+    for (const resource of testWindow.__tideSynthetic?.resources ?? []) {
       if (resource instanceof MediaStreamTrack) resource.stop();
       else if (resource instanceof OscillatorNode) {
         try {
@@ -358,7 +358,7 @@ export async function resetSyntheticMedia(
         resource.remove();
       }
     }
-    testWindow.__klisiSynthetic = { resources: [], cleanup: [] };
+    testWindow.__tideSynthetic = { resources: [], cleanup: [] };
   });
   return publishSyntheticCameraAndAudio(page);
 }
@@ -372,7 +372,7 @@ export async function setPublicationMuted(
     async ({ sid, nextMuted }) => {
       const publication = (
         window as MediaTestWindow
-      ).__klisiRoom.localParticipant.trackPublications.get(sid);
+      ).__tideRoom.localParticipant.trackPublications.get(sid);
       if (!publication) throw new Error(`Publication ${sid} is missing.`);
       if (nextMuted) await publication.mute();
       else await publication.unmute();
@@ -382,7 +382,7 @@ export async function setPublicationMuted(
 }
 
 export async function probe(page: Page): Promise<MediaProbeSnapshot> {
-  return page.evaluate(() => (window as MediaTestWindow).__klisiMediaTest.snapshot());
+  return page.evaluate(() => (window as MediaTestWindow).__tideMediaTest.snapshot());
 }
 
 /**

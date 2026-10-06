@@ -11,7 +11,10 @@ export default defineConfig({
     proxy: {
       '/api': 'http://localhost:8080',
       // moil machines pair and keep their WebSocket here (ARCHITECTURE.md §8.1).
-      '/moil': { target: 'http://localhost:8080', ws: true }
+      '/moil': { target: 'http://localhost:8080', ws: true },
+      // Meeting signaling: tide forwards it to its media server, so the SPA
+      // signals through its own origin here too (ARCHITECTURE.md §2.1, §13).
+      '/rtc': { target: 'http://localhost:8080', ws: true }
     }
   }
 });

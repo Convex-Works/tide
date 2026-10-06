@@ -2,7 +2,7 @@
 # requires-python = ">=3.12"
 # dependencies = []
 # ///
-"""transcribe-e2e: a stand-in for klisi's transcribe bundle, for its end-to-end tests.
+"""transcribe-e2e: a stand-in for tide's transcribe bundle, for its end-to-end tests.
 
 It keeps the real bundle's contract (server/internal/transcripts/bundle): one
 input, the recording; each declared output written in the format its

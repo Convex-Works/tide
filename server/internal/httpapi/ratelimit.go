@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"klisi/internal/auth"
-	"klisi/internal/httpx"
+	"tide/internal/auth"
+	"tide/internal/httpx"
 )
 
 type tokenBucket struct {
@@ -116,11 +116,12 @@ func withRateLimit(limiter *rateLimiter, ips *clientIPResolver, next http.Handle
 // can ask (ARCHITECTURE.md §15). A guest is counted by client address; a
 // signed-in host by their sub, in a bucket of their own, so colleagues behind
 // one NAT don't share it and an account from a broad issuer can't test slugs
-// without a limit either.
-func withLookupRateLimit(limiter *rateLimiter, ips *clientIPResolver, next http.Handler) http.Handler {
+// without a limit either. perSub is false in anonymous mode, where anyone can
+// mint a session, so sessions are counted by client address like guests.
+func withLookupRateLimit(limiter *rateLimiter, ips *clientIPResolver, perSub bool, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := ips.key(r)
-		if session, ok := auth.SessionFromContext(r.Context()); ok {
+		if session, ok := auth.SessionFromContext(r.Context()); ok && perSub {
 			key = "host:" + session.Sub
 		}
 		if !limiter.allow(key) {

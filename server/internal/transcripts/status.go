@@ -11,12 +11,12 @@ import (
 
 	"git.convex.works/ConvexWorks/moil/sdk/go/moil"
 
-	"klisi/internal/api"
-	"klisi/internal/httpx"
-	"klisi/internal/store"
+	"tide/internal/api"
+	"tide/internal/httpx"
+	"tide/internal/store"
 )
 
-// maxMessage bounds, in characters, the messages from machines klisi shows.
+// maxMessage bounds, in characters, the messages from machines tide shows.
 const maxMessage = 300
 
 // expired is the error of a transcript no machine made within pendingFor
@@ -24,22 +24,22 @@ const maxMessage = 300
 const expired = "No machine transcribed it within 14 days. Check that a paired machine is online and has approved the transcribe bundle in the moil app, then request it again."
 
 // stoppedOnMachine is the error of a job a machine ended as cancelled when
-// klisi hadn't asked it to.
+// tide hadn't asked it to.
 const stoppedOnMachine = "Transcription was stopped on the machine before it finished. Try again, and if it keeps stopping, check the room owner's machine in the moil app."
 
 // noFile is the error of a transcript whose recording has no file.
 const noFile = "This recording has no file, so it can't be transcribed."
 
-// The errors of a job that succeeded with files klisi won't keep.
+// The errors of a job that succeeded with files tide won't keep.
 const (
 	missingOutputs = "The machine finished without uploading the transcript. Try again."
-	tooLarge       = "The transcript the machine uploaded is larger than 16 MiB, more than klisi keeps. Try again."
-	notAsReported  = "The transcript in klisi's storage isn't the one the machine reported uploading. Try again."
+	tooLarge       = "The transcript the machine uploaded is larger than 16 MiB, more than tide keeps. Try again."
+	notAsReported  = "The transcript in tide's storage isn't the one the machine reported uploading. Try again."
 )
 
-// notSaved is the error of a job that succeeded with a transcript klisi
+// notSaved is the error of a job that succeeded with a transcript tide
 // couldn't save.
-const notSaved = "The machine made the transcript, but klisi couldn't save it to its storage. Try again, and if it keeps failing, ask klisi's administrator to check klisi's storage."
+const notSaved = "The machine made the transcript, but tide couldn't save it to its storage. Try again, and if it keeps failing, ask tide's administrator to check tide's storage."
 
 // Transcripts implements recording.TranscriptSource: each recording's
 // transcript, from its row and, while pending, its job. It reads the room's
@@ -104,7 +104,7 @@ func pairedAt(machines []moil.Machine) []time.Time {
 }
 
 // running is a pending transcript's status while a machine is on its job,
-// or has finished it and klisi is saving its transcript; nil while no
+// or has finished it and tide is saving its transcript; nil while no
 // machine is.
 func (s *Service) running(recordingID string) *api.TranscriptInfo {
 	s.mu.Lock()
@@ -178,21 +178,21 @@ func phaseMessage(phase string) string {
 	return machineText(phase)
 }
 
-// machineText is text a machine reported, fit to show beside klisi's own:
+// machineText is text a machine reported, fit to show beside tide's own:
 // plain, bounded, and starting with a capital, as the bundle's messages are
 // lower-case for services to fit in sentences of their own.
 func machineText(text string) string {
 	return capitalize(truncate(httpx.Plain(text), maxMessage))
 }
 
-// codePrepare marks the error of an attempt klisi couldn't prepare, as
+// codePrepare marks the error of an attempt tide couldn't prepare, as
 // opposed to one a machine reported.
-const codePrepare moil.ErrorCode = "klisi_prepare"
+const codePrepare moil.ErrorCode = "tide_prepare"
 
-// prepareError puts the job back in the queue, as a failed attempt: klisi
+// prepareError puts the job back in the queue, as a failed attempt: tide
 // couldn't make its URLs this time, but could the next.
 func prepareError(err error) error {
-	return &moil.JobError{Code: codePrepare, Message: "klisi couldn't prepare the recording's files: " + err.Error(), Retryable: true}
+	return &moil.JobError{Code: codePrepare, Message: "tide couldn't prepare the recording's files: " + err.Error(), Retryable: true}
 }
 
 // failure says why a job failed, for its row's error.
@@ -202,11 +202,11 @@ func failure(err error) string {
 	case errors.As(err, &attempt):
 		return attemptFailure(attempt)
 	case errors.Is(err, moil.ErrTooMuchData):
-		return "The machine sent more than klisi keeps for a transcript. Try again."
+		return "The machine sent more than tide keeps for a transcript. Try again."
 	case errors.Is(err, moil.ErrBundleRemoved):
-		return "klisi's transcribe bundle changed before a machine could run it. Try again."
+		return "tide's transcribe bundle changed before a machine could run it. Try again."
 	default:
-		return "klisi couldn't hand the recording to a machine. Try again, and if it keeps failing, ask klisi's administrator to check its storage settings."
+		return "tide couldn't hand the recording to a machine. Try again, and if it keeps failing, ask tide's administrator to check its storage settings."
 	}
 }
 
@@ -214,7 +214,7 @@ func failure(err error) string {
 func attemptFailure(err *moil.JobError) string {
 	switch err.Code {
 	case codePrepare:
-		return "klisi couldn't reach its database or storage to hand the recording to a machine. Try again, and if it keeps failing, ask klisi's administrator to check them."
+		return "tide couldn't reach its database or storage to hand the recording to a machine. Try again, and if it keeps failing, ask tide's administrator to check them."
 	case moil.CodeScriptError:
 		// The bundle's errors are sentences for the service: "can't read
 		// the recording: …", "ran out of memory: …".

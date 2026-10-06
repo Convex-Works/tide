@@ -12,20 +12,20 @@ import (
 
 	"git.convex.works/ConvexWorks/moil/sdk/go/moil"
 
-	"klisi/internal/api"
-	"klisi/internal/config"
-	"klisi/internal/machines"
-	"klisi/internal/recording"
-	"klisi/internal/rooms"
-	"klisi/internal/store"
-	"klisi/internal/transcripts"
+	"tide/internal/api"
+	"tide/internal/config"
+	"tide/internal/machines"
+	"tide/internal/recording"
+	"tide/internal/rooms"
+	"tide/internal/store"
+	"tide/internal/transcripts"
 )
 
-// transcriptsFeature is everything KLISI_TRANSCRIPTS turns on
+// transcriptsFeature is everything TIDE_TRANSCRIPTS turns on
 // (ARCHITECTURE.md §8.1): the moil server machines connect to, the
 // transcripts service and its reconciler, the machines and pairing routes,
 // and the transcript routes. New builds one only when the switch is on; a
-// nil *transcriptsFeature is klisi without transcripts, and its methods do
+// nil *transcriptsFeature is tide without transcripts, and its methods do
 // nothing.
 //
 // With it off, nothing else changes: deleting a recording or a room still
@@ -53,11 +53,11 @@ func newTranscriptsFeature(cfg config.Config, db *store.Store, objects transcrip
 	}
 	baseURL := strings.TrimRight(cfg.BaseURL, "/")
 	moilServer, err := moil.NewServer(moil.Config{
-		Name:            "klisi",
+		Name:            "tide",
 		VerificationURL: baseURL + "/machines",
 		Store:           db,
 		Logger:          slog.Default(),
-		// A transcript travels as files, and klisi ignores data events: a
+		// A transcript travels as files, and tide ignores data events: a
 		// machine may make a job hold 4 MiB of them at most, and a finished
 		// job leaves moil's memory after 5 minutes (ARCHITECTURE.md §8.1).
 		MaxDataBytes: 4 << 20,
@@ -67,8 +67,8 @@ func newTranscriptsFeature(cfg config.Config, db *store.Store, objects transcrip
 		return nil, fmt.Errorf("start moil: %w", err)
 	}
 	moilServer.AddBundle(transcribe)
-	// Machines refuse plain http storage unless klisi and storage are both
-	// on loopback. klisi still starts (the media gate runs that way), but
+	// Machines refuse plain http storage unless tide and storage are both
+	// on loopback. tide still starts (the media gate runs that way), but
 	// every transcript fails at once, naming the setting.
 	storageProblem := transcripts.StorageWarning(cfg.BaseURL, cfg.S3PublicEndpoint)
 	if storageProblem != "" {

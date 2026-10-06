@@ -22,7 +22,7 @@ interface MediaProbe {
 
 async function probe(page: Page): Promise<MediaProbe> {
   return page.evaluate(() => {
-    const room = (window as any).__klisiRoom;
+    const room = (window as any).__tideRoom;
     const mediaTrack = (el: HTMLMediaElement) => {
       const stream = el.srcObject as MediaStream | null;
       const track = stream?.getTracks()[0];

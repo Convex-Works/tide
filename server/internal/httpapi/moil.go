@@ -4,7 +4,7 @@ import (
 	"mime"
 	"net/http"
 
-	"klisi/internal/httpx"
+	"tide/internal/httpx"
 )
 
 // writeMoilError answers a machine in moil's error format,

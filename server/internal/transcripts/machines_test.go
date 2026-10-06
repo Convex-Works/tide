@@ -12,13 +12,13 @@ import (
 
 	"git.convex.works/ConvexWorks/moil/sdk/go/moil"
 
-	"klisi/internal/api"
+	"tide/internal/api"
 )
 
 // These tests play machines that misbehave, within what moil lets through.
 
-// A machine that ends every attempt as cancelled, when klisi never asked it
-// to, can't make klisi submit the job again and again, each turn minting
+// A machine that ends every attempt as cancelled, when tide never asked it
+// to, can't make tide submit the job again and again, each turn minting
 // URLs and queueing staging keys, as fast as it answers. moil counts each
 // such attempt as interrupted, so the job ends after its three attempts,
 // having queued one set of staging keys, and the transcript fails, saying
@@ -68,8 +68,8 @@ func TestAMachineThatCancelsUnaskedFailsTheTranscript(t *testing.T) {
 	e.waitStatus(room, rec, api.TranscriptCompleted)
 }
 
-// A machine's error goes into klisi's log quoted, on one line: a message
-// with line breaks can't forge lines of klisi's own.
+// A machine's error goes into tide's log quoted, on one line: a message
+// with line breaks can't forge lines of tide's own.
 func TestAMachinesErrorCantForgeLogLines(t *testing.T) {
 	logs := watchLogs(t)
 	e := newEnv(t)
@@ -91,9 +91,9 @@ func TestAMachinesErrorCantForgeLogLines(t *testing.T) {
 }
 
 // A machine that takes a job and lets it go before it starts, which moil
-// lets it do again and again, costs klisi no new staging keys each time:
+// lets it do again and again, costs tide no new staging keys each time:
 // taking the job again within ten minutes, it is handed the directory
-// klisi made for it before, queued for removal once, with URLs that expire
+// tide made for it before, queued for removal once, with URLs that expire
 // when the first did. Later, it gets a new one.
 func TestAMachineThatKeepsLettingAJobGoGetsTheSameStagingKeys(t *testing.T) {
 	e := newEnv(t)
@@ -103,17 +103,17 @@ func TestAMachineThatKeepsLettingAJobGoGetsTheSameStagingKeys(t *testing.T) {
 	rec := e.record(room, time.Now())
 	prepared := e.clock.Now()
 
-	// The machine disconnects while klisi prepares its attempt...
+	// The machine disconnects while tide prepares its attempt...
 	presign.Entered(t)
 	machine.Disconnect()
 	machine.Connect()
-	// ...then takes it again, and pauses while klisi prepares it.
+	// ...then takes it again, and pauses while tide prepares it.
 	presign.Entered(t)
 	machine.SetState(moil.Paused)
 	machine.Sync()
 	presign.Release()
 	if staged := e.queuedStaging(); len(staged) != 2 {
-		t.Fatalf("staging keys queued after klisi prepared the job twice: %q", staged)
+		t.Fatalf("staging keys queued after tide prepared the job twice: %q", staged)
 	}
 
 	// Five minutes later it takes the job for good.
@@ -122,14 +122,14 @@ func TestAMachineThatKeepsLettingAJobGoGetsTheSameStagingKeys(t *testing.T) {
 	a := machine.NextAttempt()
 	staged := e.queuedStaging()
 	if len(staged) != 2 {
-		t.Fatalf("staging keys queued after klisi prepared the job three times: %q", staged)
+		t.Fatalf("staging keys queued after tide prepared the job three times: %q", staged)
 	}
 	for name, output := range a.Outputs {
 		if key := e.s3.Key(t, output.URL); !slices.Contains(staged, key) {
 			t.Fatalf("the attempt uploads %s to %s, not a key queued for removal: %q", name, key, staged)
 		}
 		if expires := e.s3.Expires(t, output.URL); !expires.Equal(prepared.Add(a.Timeout + 15*time.Minute)) {
-			t.Fatalf("its %s URL expires at %v, %v after klisi first prepared the job", name, expires, expires.Sub(prepared))
+			t.Fatalf("its %s URL expires at %v, %v after tide first prepared the job", name, expires, expires.Sub(prepared))
 		}
 	}
 	if offers := machine.Offers(); len(offers) != 3 {
@@ -174,7 +174,7 @@ func TestAnotherMachineGetsStagingKeysOfItsOwn(t *testing.T) {
 	a := studio.NextAttempt()
 	staged := e.queuedStaging()
 	if len(staged) != 4 {
-		t.Fatalf("staging keys queued after klisi prepared the job for two machines: %q", staged)
+		t.Fatalf("staging keys queued after tide prepared the job for two machines: %q", staged)
 	}
 	// Two of them are the studio's, the other two the laptop's.
 	dir := path.Dir(e.s3.Key(t, a.Outputs["transcript.txt"].URL))

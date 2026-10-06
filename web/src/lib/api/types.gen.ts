@@ -18,7 +18,7 @@ export const MeetingEndPath = "/api/rooms/{slug}/meeting/end";
 export const LobbyWaitPath = "/api/lobby/{id}/wait";
 export const LobbyApprovePath = "/api/lobby/{id}/approve";
 export const LobbyDenyPath = "/api/lobby/{id}/deny";
-export const LiveKitWebhookPath = "/api/webhooks/livekit";
+export const LiveKitWebhookPath = "/api/webhooks/media";
 export const RecordingStartPath = "/api/rooms/{slug}/recording/start";
 export const RecordingStopPath = "/api/rooms/{slug}/recording/stop";
 export const RoomRecordingsPath = "/api/rooms/{slug}/recordings";
@@ -52,10 +52,23 @@ export interface Me {
   name: string;
   /**
    * Transcripts is true when this deployment runs transcripts and machine
-   * pairing (KLISI_TRANSCRIPTS, ARCHITECTURE.md §8.1). When false the SPA
+   * pairing (TIDE_TRANSCRIPTS, ARCHITECTURE.md §8.1). When false the SPA
    * hides /machines and every transcript control; the routes 404.
    */
   transcripts: boolean;
+  /**
+   * Recording is true when this deployment records meetings: hosts sign in
+   * and object storage is configured (ARCHITECTURE.md §8). When false the
+   * SPA hides the record control and every recording list; the routes 404.
+   */
+  recording: boolean;
+  /**
+   * Anonymous is true when this deployment has no sign-in
+   * (ARCHITECTURE.md §4.1): the session is an anonymous one that owns the
+   * rooms this browser created, and Email and Name are empty. The SPA shows
+   * no account and no sign-out.
+   */
+  anonymous: boolean;
 }
 export interface RoomInfo {
   id: string;
@@ -72,8 +85,9 @@ export interface RoomInfo {
   num_participants: number /* int */;
   recording: boolean;
   /**
-   * LastActiveAt is Unix seconds of the most recent participant join, or null
-   * if the room has never been used.
+   * LastActiveAt is Unix seconds of the most recent join (tide minting a
+   * token for the room, or the media server reporting a participant), or
+   * null if the room has never been used.
    */
   last_active_at?: number /* int64 */;
 }
@@ -215,13 +229,13 @@ export interface TranscriptInfo {
 export interface MachinesResponse {
   machines: MachineInfo[];
   /**
-   * Bundle is the transcription bundle klisi publishes; a machine takes
+   * Bundle is the transcription bundle tide publishes; a machine takes
    * transcript jobs only once its owner approved exactly this hash.
    */
   bundle: BundleInfo;
   /**
    * MoilURL is the address the moil app pairs with, e.g.
-   * https://klisi.example.com/moil.
+   * https://tide.example.com/moil.
    */
   moil_url: string;
   /**
@@ -257,7 +271,7 @@ export interface MachineInfo {
  */
 export const MachineIdle = "idle";
 /**
- * MachineBusy: connected and running a job, for klisi or another service.
+ * MachineBusy: connected and running a job, for tide or another service.
  */
 export const MachineBusy = "busy";
 /**
@@ -287,7 +301,7 @@ export interface PairingInfo {
   app_version: string;
   expires_at: number /* int64 */;
   /**
-   * MoilURL is klisi's moil address, which the machine's moil app must
+   * MoilURL is tide's moil address, which the machine's moil app must
    * show it is pairing with: a pairing relayed through another address
    * shows the same code, so this is the host's check that it isn't one.
    */

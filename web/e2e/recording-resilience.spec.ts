@@ -59,7 +59,7 @@ test('recording survives the host tab dying', async () => {
 
     // The recording is still the server's to control.
     const stopped = await api.post(`/api/rooms/${slug}/recording/stop`, {
-      headers: { 'X-Klisi-Csrf': '1' }
+      headers: { 'X-Tide-Csrf': '1' }
     });
     expect(stopped.ok()).toBe(true);
     await expect.poll(status, { timeout: 90_000 }).toBe('completed');

@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"klisi/internal/api"
-	"klisi/internal/auth"
-	"klisi/internal/recording"
-	"klisi/internal/store"
+	"tide/internal/api"
+	"tide/internal/auth"
+	"tide/internal/recording"
+	"tide/internal/store"
 )
 
 type fakeLiveSource struct {

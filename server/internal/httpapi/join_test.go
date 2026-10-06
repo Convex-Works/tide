@@ -8,10 +8,10 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"klisi/internal/api"
-	"klisi/internal/auth"
-	"klisi/internal/config"
-	"klisi/internal/store"
+	"tide/internal/api"
+	"tide/internal/auth"
+	"tide/internal/config"
+	"tide/internal/store"
 )
 
 func TestJoinPolicyMatrix(t *testing.T) {
@@ -35,7 +35,7 @@ func TestJoinPolicyMatrix(t *testing.T) {
 		LiveKitAPIKey: "devkey", LiveKitAPISecret: "test-livekit-secret-with-enough-bytes",
 		LiveKitPublicURL: "ws://public.example", DevMode: true,
 	}
-	handler, background, err := New(cfg, nil, db, transcribeBundle(t))
+	handler, background, err := New(cfg, nil, db, transcribeBundle(t), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestJoinPolicyMatrix(t *testing.T) {
 			body, _ := json.Marshal(api.JoinRequest{Name: "Guest"})
 			request := httptest.NewRequest(http.MethodPost, "/api/rooms/"+test.slug+"/join", bytes.NewReader(body))
 			request.Header.Set("Content-Type", "application/json")
-			request.Header.Set("X-Klisi-Csrf", "1")
+			request.Header.Set("X-Tide-Csrf", "1")
 			if test.cookie != nil {
 				request.AddCookie(test.cookie)
 			}

@@ -22,8 +22,8 @@ jobs:
         env:
           CI_RUN_ID: ${{ github.run_id }}
           CI_JOB_ID: ${{ github.job }}
-          KLISI_MEDIA_SUITE: nightly
-          KLISI_NETWORK_CHAOS: "true"
+          TIDE_MEDIA_SUITE: nightly
+          TIDE_NETWORK_CHAOS: "true"
           FC_SEED: ${{ inputs.seed }}
           FC_COMMANDS: "100"
           FC_RUNS: "1"

@@ -211,7 +211,7 @@ async function blockPlaybackAndReconnect(page: Page): Promise<void> {
       startAudio: () => Promise<void>;
       emit: (event: string, ...args: unknown[]) => boolean;
     };
-    const room = (window as Window & { __klisiRoom?: TestRoom }).__klisiRoom!;
+    const room = (window as Window & { __tideRoom?: TestRoom }).__tideRoom!;
     Object.defineProperty(room, 'canPlaybackAudio', { configurable: true, get: () => false });
     room.startAudio = () => Promise.reject(new Error('Playback needs a gesture.'));
     room.emit('audioPlaybackChanged', false);

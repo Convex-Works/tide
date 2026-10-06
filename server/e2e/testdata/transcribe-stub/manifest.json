@@ -2,5 +2,5 @@
   "moil": 1,
   "name": "transcribe-e2e",
   "version": "0.1.0",
-  "description": "Stands in for klisi's transcribe bundle in its end-to-end tests: writes the transcript formats its outputs name, holding the recording's SHA-256 and size instead of what was said."
+  "description": "Stands in for tide's transcribe bundle in its end-to-end tests: writes the transcript formats its outputs name, holding the recording's SHA-256 and size instead of what was said."
 }

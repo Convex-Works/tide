@@ -27,7 +27,7 @@ const pairingInfo: PairingInfo = {
   arch: 'aarch64',
   app_version: '0.4.2',
   expires_at: now + 600,
-  moil_url: 'https://klisi.example.com/moil'
+  moil_url: 'https://tide.example.com/moil'
 };
 
 // The server's messages (server/internal/transcripts/status.go).
@@ -118,9 +118,9 @@ test.describe('pairing a machine', () => {
     await page.goto(`/machines?code=${code}`);
     await expect(page.getByRole('heading', { name: 'Pair this machine?' })).toBeVisible();
     // The check that matters leads, in one sentence: the code alone proves
-    // nothing, and the address must be klisi's.
+    // nothing, and the address must be tide's.
     await expect(page.getByTestId('moil-address-check')).toHaveText(
-      'Pair only if you just started pairing in the moil app on your own computer, and it shows this code and says it is pairing with https://klisi.example.com/moil. Otherwise, choose Deny.'
+      'Pair only if you just started pairing in the moil app on your own computer, and it shows this code and says it is pairing with https://tide.example.com/moil. Otherwise, choose Deny.'
     );
     await expect(page.getByText('choose Deny')).toHaveCount(1);
     await expect(page.getByTestId('pairing-code')).toHaveText(code);
@@ -132,7 +132,7 @@ test.describe('pairing a machine', () => {
         'Once paired, it downloads and transcribes every new recording of rooms you own, until you unpair it here.'
       )
     ).toBeVisible();
-    await expect(page.getByText('Pairs with your account host@klisi.dev.')).toBeVisible();
+    await expect(page.getByText('Pairs with your account host@tide.dev.')).toBeVisible();
 
     await page.getByRole('button', { name: 'Pair', exact: true }).click();
 
@@ -368,7 +368,7 @@ test.describe('your machines', () => {
 
     await expect(page.getByRole('link', { name: 'Add a machine' })).toHaveAttribute(
       'href',
-      'moil://pair?url=https%3A%2F%2Fklisi.example.com%2Fmoil'
+      'moil://pair?url=https%3A%2F%2Ftide.example.com%2Fmoil'
     );
     await expect(page.getByRole('heading', { name: 'Pair another computer' })).toBeVisible();
     // The app is linked where the server says moil's latest release is.
@@ -377,7 +377,7 @@ test.describe('your machines', () => {
       api.state.machines.app_url
     );
     await expect(page.getByLabel('Paste this address into its moil app')).toHaveValue(
-      'https://klisi.example.com/moil'
+      'https://tide.example.com/moil'
     );
   });
 
@@ -404,7 +404,7 @@ test.describe('your machines', () => {
     await page.getByRole('button', { name: 'Copy address' }).click();
     await expect(page.getByRole('button', { name: 'Address copied' })).toBeVisible();
     expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
-      'https://klisi.example.com/moil'
+      'https://tide.example.com/moil'
     );
   });
 
@@ -834,7 +834,7 @@ test.describe('transcripts in the recordings list', () => {
       return loads();
     }
 
-    // The next poll fails (klisi restarting, say); the mock never sees it.
+    // The next poll fails (tide restarting, say); the mock never sees it.
     let failed = 0;
     await page.route(
       (url) => url.pathname === recordingsPath,

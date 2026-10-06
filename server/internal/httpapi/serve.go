@@ -9,14 +9,15 @@ import (
 	"time"
 )
 
-// Serve runs klisi: server, whose handler New built, on listener, and
+// Serve runs tide: server, whose handler New built, on listener, and
 // background beside it, until ctx is done or the server fails. Then it stops
 // them in the order that lets each finish what it started:
 //
 //  1. The HTTP server stops accepting connections and waits up to grace for
 //     the requests in flight. Lobby streams end at once rather than hold it
 //     for all of grace. Requests still running after grace are cut off.
-//  2. The reconcilers stop starting new work.
+//  2. The reconcilers, and in anonymous mode the room sweep, stop starting
+//     new work.
 //  3. With transcripts on, moil disconnects the machines, whose WebSockets
 //     the HTTP server doesn't wait for, since they are hijacked; it ends
 //     every transcript job with moil.ErrClosed and saves what machines last
@@ -24,7 +25,7 @@ import (
 //  4. Serve waits for the reconcilers and the jobs' followers to return.
 //
 // When Serve returns, nothing uses the store New was given, and the caller
-// may close it. Serve returns nil when ctx ended it, or the error the server
+// may stop the media server and close the store (ARCHITECTURE.md §2). Serve returns nil when ctx ended it, or the error the server
 // failed with.
 func Serve(ctx context.Context, server *http.Server, listener net.Listener, background *Background, grace time.Duration) error {
 	server.RegisterOnShutdown(background.lobby.EndStreams)
@@ -51,13 +52,13 @@ func Serve(ctx context.Context, server *http.Server, listener net.Listener, back
 		if errors.Is(err, http.ErrServerClosed) {
 			err = nil // someone else shut it down
 		} else {
-			log.Printf("klisi: serving failed: %v", err)
+			log.Printf("tide: serving failed: %v", err)
 		}
 	}
 
 	shutdownCtx, cancelShutdown := context.WithTimeout(context.WithoutCancel(ctx), grace)
 	if shutdownErr := server.Shutdown(shutdownCtx); shutdownErr != nil {
-		log.Printf("klisi: cutting off requests still running after %s: %v", grace, shutdownErr)
+		log.Printf("tide: cutting off requests still running after %s: %v", grace, shutdownErr)
 		_ = server.Close()
 	}
 	cancelShutdown()
@@ -69,7 +70,7 @@ func Serve(ctx context.Context, server *http.Server, listener net.Listener, back
 
 	stopRun()
 	if closeErr := background.Close(); closeErr != nil {
-		log.Printf("klisi: close moil: %v", closeErr)
+		log.Printf("tide: close moil: %v", closeErr)
 	}
 	<-ran
 	return err

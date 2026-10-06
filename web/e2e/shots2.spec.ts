@@ -16,8 +16,8 @@ test('capture dashboard and lobby states', async () => {
   await page.screenshot({ path: 'shots/signin.png' });
 
   await page.getByRole('button', { name: /continue with sso/i }).click();
-  await page.fill('input[name="login"]', 'host@klisi.dev');
-  await page.fill('input[name="password"]', 'klisi-dev');
+  await page.fill('input[name="login"]', 'host@tide.dev');
+  await page.fill('input[name="password"]', 'tide-dev');
   await page.click('button[type="submit"]');
   await page.waitForURL('http://localhost:5173/**', { timeout: 20_000 });
   await page.waitForTimeout(800);

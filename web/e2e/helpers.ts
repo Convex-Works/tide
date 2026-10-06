@@ -2,17 +2,17 @@ import { expect, type Page } from '@playwright/test';
 
 type CueCaptureWindow = Window &
   typeof globalThis & {
-    __klisiCueOscillators?: OscillatorNode[];
+    __tideCueOscillators?: OscillatorNode[];
   };
 
 export async function installCueCapture(page: Page): Promise<void> {
   await page.addInitScript(() => {
     const cueWindow = window as CueCaptureWindow;
     const createOscillator = AudioContext.prototype.createOscillator;
-    cueWindow.__klisiCueOscillators = [];
+    cueWindow.__tideCueOscillators = [];
     AudioContext.prototype.createOscillator = function (this: AudioContext): OscillatorNode {
       const oscillator = createOscillator.call(this);
-      cueWindow.__klisiCueOscillators?.push(oscillator);
+      cueWindow.__tideCueOscillators?.push(oscillator);
       return oscillator;
     };
   });
@@ -20,14 +20,14 @@ export async function installCueCapture(page: Page): Promise<void> {
 
 export async function resetCueCapture(page: Page): Promise<void> {
   await page.evaluate(() => {
-    (window as CueCaptureWindow).__klisiCueOscillators = [];
+    (window as CueCaptureWindow).__tideCueOscillators = [];
   });
 }
 
 export async function capturedCueDetunes(page: Page): Promise<number[]> {
   return page.evaluate(
     () =>
-      (window as CueCaptureWindow).__klisiCueOscillators?.map(
+      (window as CueCaptureWindow).__tideCueOscillators?.map(
         (oscillator) => oscillator.detune.value
       ) ?? []
   );
@@ -36,8 +36,8 @@ export async function capturedCueDetunes(page: Page): Promise<number[]> {
 export async function dexLogin(page: Page): Promise<void> {
   await page.goto('/');
   await page.getByRole('button', { name: 'Continue with SSO' }).click();
-  await page.locator('input[name="login"]').fill('host@klisi.dev');
-  await page.locator('input[name="password"]').fill('klisi-dev');
+  await page.locator('input[name="login"]').fill('host@tide.dev');
+  await page.locator('input[name="password"]').fill('tide-dev');
   await page.locator('button[type="submit"], input[type="submit"]').click();
   await page.waitForURL((url) => url.pathname === '/', { timeout: 30_000 });
 }

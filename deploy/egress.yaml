@@ -1,18 +1,19 @@
 api_key: devkey
-api_secret: klisi-dev-secret-please-change-0000000000
-# localhost: egress shares LiveKit's network namespace (see compose.yaml).
-ws_url: ws://localhost:7880
+api_secret: tide-dev-secret-please-change-0000000000
+# tide runs on the host with its media server inside it: the recorder signals
+# through tide's /rtc, and shares the compose project's Redis with it.
+ws_url: ws://host.docker.internal:8080
 
 redis:
   address: redis:6379
+  password: tide-dev-recorder-redis-password-please-change
 
 health_port: 8081
 
 s3:
-  access_key: klisi
-  secret: klisi-dev-minio
+  access_key: tide
+  secret: tide-dev-minio
   region: us-east-1
   endpoint: http://minio:9000
-  bucket: klisi-recordings
+  bucket: tide-recordings
   force_path_style: true
-

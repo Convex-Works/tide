@@ -30,8 +30,8 @@ var (
 	// reaperGroup is the process group every process the tests start
 	// joins (see startReaper).
 	reaperGroup int
-	// objects is the S3 storage klisi keeps recordings in: MinIO in a
-	// container, or the store $KLISI_E2E_S3_ENDPOINT names.
+	// objects is the S3 storage tide keeps recordings in: MinIO in a
+	// container, or the store $TIDE_E2E_S3_ENDPOINT names.
 	objects *objectStore
 )
 
@@ -86,7 +86,7 @@ func setUp() (cleanup func(), err error) {
 	if uvBin, err = findUV(); err != nil {
 		return nil, err
 	}
-	scratch, err := os.MkdirTemp("", "klisi-e2e-")
+	scratch, err := os.MkdirTemp("", "tide-e2e-")
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +100,7 @@ func setUp() (cleanup func(), err error) {
 	// Named for this process, so the reaper can remove it too.
 	container := ""
 	if external == nil {
-		container = fmt.Sprintf("klisi-e2e-minio-%d", os.Getpid())
+		container = fmt.Sprintf("tide-e2e-minio-%d", os.Getpid())
 	}
 	stopReaper, err := startReaper(container)
 	if err != nil {

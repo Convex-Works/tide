@@ -1,6 +1,6 @@
 //go:build embed
 
-package klisi
+package tide
 
 import (
 	"embed"

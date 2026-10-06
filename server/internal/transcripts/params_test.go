@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"klisi/internal/api"
+	"tide/internal/api"
 )
 
 // A transcript job tells the machine when its recording was made, for the
@@ -24,7 +24,7 @@ func TestJobParamsAreTheRecordingsTimes(t *testing.T) {
 		duration       time.Duration
 		params         string
 	}{{
-		// klisi started it at 22:10; egress wrote 42 minutes 9.4 seconds of
+		// tide started it at 22:10; egress wrote 42 minutes 9.4 seconds of
 		// it, and ended it at 22:52:14.6.
 		name:     "a recording",
 		started:  time.Date(2026, 9, 27, 22, 10, 0, 0, time.UTC),
@@ -38,7 +38,7 @@ func TestJobParamsAreTheRecordingsTimes(t *testing.T) {
 		params:   `{"recording":{"duration_s":300,"started_at":"2026-09-28T09:30:00Z"}}`,
 	}} {
 		rec := e.recordEgress(room, room.Slug, test.started, test.ended, test.duration)
-		// It ended before alice paired her machine, or at no time klisi
+		// It ended before alice paired her machine, or at no time tide
 		// knows, so it waits for her to ask.
 		if response := e.requestTranscript(rec, session("alice")); response.Code != http.StatusAccepted {
 			t.Fatalf("%s: request: %d %s", test.name, response.Code, response.Body)
@@ -48,7 +48,7 @@ func TestJobParamsAreTheRecordingsTimes(t *testing.T) {
 			t.Fatalf("%s: attempt = job %q, title %q", test.name, a.JobID, a.Title)
 		}
 		// The params as the script, and then a hook, gets them: the JSON
-		// value klisi sent, written as the app writes it, keys in order.
+		// value tide sent, written as the app writes it, keys in order.
 		if string(a.Params) != test.params {
 			t.Fatalf("%s: params = %s, want %s", test.name, a.Params, test.params)
 		}

@@ -9,15 +9,15 @@ import (
 	"git.convex.works/ConvexWorks/moil/sdk/go/moil"
 	"git.convex.works/ConvexWorks/moil/sdk/go/moiltest"
 
-	"klisi/internal/store"
+	"tide/internal/store"
 )
 
-// A run that ended just as klisi started stopping is still recorded: the
-// follower goes by the run, not by klisi's context, and writes with a
-// context klisi stopping cancels only stopGrace later.
-func TestARunThatEndedIsRecordedWhileKlisiStops(t *testing.T) {
+// A run that ended just as tide started stopping is still recorded: the
+// follower goes by the run, not by tide's context, and writes with a
+// context tide stopping cancels only stopGrace later.
+func TestARunThatEndedIsRecordedWhileTideStops(t *testing.T) {
 	ctx := context.Background()
-	db, err := store.Open(filepath.Join(t.TempDir(), "klisi.db"))
+	db, err := store.Open(filepath.Join(t.TempDir(), "tide.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -36,7 +36,7 @@ func TestARunThatEndedIsRecordedWhileKlisiStops(t *testing.T) {
 	if ok, err := db.RequestTranscript(ctx, "rec", 1); err != nil || !ok {
 		t.Fatalf("request: %t, %v", ok, err)
 	}
-	server, err := moil.NewServer(moil.Config{Name: "klisi", VerificationURL: "http://klisi.test/machines", Store: db})
+	server, err := moil.NewServer(moil.Config{Name: "tide", VerificationURL: "http://tide.test/machines", Store: db})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestARunThatEndedIsRecordedWhileKlisiStops(t *testing.T) {
 	s.follow(stopping, ctx, j)
 	row, err := db.Transcript(ctx, "rec")
 	if err != nil || row.Status != "failed" || row.Error != "Transcription failed: can't read the recording: moov atom not found." {
-		t.Fatalf("row after klisi stopped = %+v, %v", row, err)
+		t.Fatalf("row after tide stopped = %+v, %v", row, err)
 	}
 	if len(s.jobs) != 0 {
 		t.Fatalf("still following %v", s.jobs)

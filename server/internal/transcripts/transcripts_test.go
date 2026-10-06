@@ -16,8 +16,8 @@ import (
 
 	"git.convex.works/ConvexWorks/moil/sdk/go/moil"
 
-	"klisi/internal/api"
-	"klisi/internal/transcripts"
+	"tide/internal/api"
+	"tide/internal/transcripts"
 )
 
 // The transcribe bundle's hash. Machine owners approve the bundle by this
@@ -59,7 +59,7 @@ func TestTranscribesRecordingOnOwnersMachine(t *testing.T) {
 	if names := slices.Sorted(maps.Keys(a.Outputs)); !slices.Equal(names, []string{"transcript.txt", "transcript.vtt"}) {
 		t.Fatalf("outputs = %v", names)
 	}
-	// It uploads to keys of its own attempt, which klisi never serves from,
+	// It uploads to keys of its own attempt, which tide never serves from,
 	// and reads only the recording.
 	txtKey, vttKey := sidecars(rec)
 	staged := []string{e.s3.Key(t, a.Outputs["transcript.txt"].URL), e.s3.Key(t, a.Outputs["transcript.vtt"].URL)}
@@ -182,7 +182,7 @@ func TestOnlyOwnersMachinesAreOffered(t *testing.T) {
 	e.waitStatus(room, rec, api.TranscriptCompleted)
 }
 
-// A restart loses moil's jobs, not the transcripts: klisi submits the
+// A restart loses moil's jobs, not the transcripts: tide submits the
 // pending ones again, and the machine that was working on one starts over
 // once it reconnects. The row never ends in between.
 func TestRestartResubmitsPendingTranscripts(t *testing.T) {
@@ -206,13 +206,13 @@ func TestRestartResubmitsPendingTranscripts(t *testing.T) {
 			test.stop(e)
 			machine.WaitClosed()
 			if row, ok := e.row(rec); !ok || row.Status != "pending" {
-				t.Fatalf("row after klisi stopped = %+v, %t", row, ok)
+				t.Fatalf("row after tide stopped = %+v, %t", row, ok)
 			}
 
 			e.start()
 			e.submitted(rec)
 			if row, ok := e.row(rec); !ok || row.Status != "pending" {
-				t.Fatalf("row after klisi started = %+v, %t", row, ok)
+				t.Fatalf("row after tide started = %+v, %t", row, ok)
 			}
 			machine.Connect()
 			second := machine.NextAttempt()
@@ -313,7 +313,7 @@ func TestDeletingARecordingStopsItsTranscript(t *testing.T) {
 		}
 	})
 
-	// A machine that lost klisi but not storage uploads after the deletion,
+	// A machine that lost tide but not storage uploads after the deletion,
 	// and again after its job ended: the uploads land in the attempt's
 	// staging keys, never beside the recording, and are removed once the
 	// attempt's URLs expire.
@@ -335,9 +335,9 @@ func TestDeletingARecordingStopsItsTranscript(t *testing.T) {
 		if keys := e.s3.Keys(staging); len(keys) != 2 {
 			t.Fatalf("uploaded after the deletion: %v", keys)
 		}
-		// Its job ends: the recording being gone, klisi removes the uploads.
+		// Its job ends: the recording being gone, tide removes the uploads.
 		a.Succeed(map[string]any{"speakers": 2})
-		waitFor(t, "klisi to remove the uploads", func() bool { return len(e.s3.Keys(staging)) == 0 })
+		waitFor(t, "tide to remove the uploads", func() bool { return len(e.s3.Keys(staging)) == 0 })
 		// And the machine uploads once more, with the URL it still holds.
 		if status := statusOf(t, http.MethodPut, a.Outputs["transcript.vtt"].URL, []byte("WEBVTT later")); status != http.StatusOK {
 			t.Fatalf("upload after the job ended: %d", status)

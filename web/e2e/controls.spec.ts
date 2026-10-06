@@ -38,13 +38,13 @@ test('microphone control updates UI and the local publication', async () => {
           page.evaluate(() => {
             const room = (
               window as Window & {
-                __klisiRoom?: {
+                __tideRoom?: {
                   localParticipant: {
                     audioTrackPublications: Map<string, { source: string; isMuted: boolean }>;
                   };
                 };
               }
-            ).__klisiRoom;
+            ).__tideRoom;
             const publication = room
               ? [...room.localParticipant.audioTrackPublications.values()].find(
                   (candidate) => candidate.source === 'microphone'

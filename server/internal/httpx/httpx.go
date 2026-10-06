@@ -8,9 +8,9 @@ import (
 	"io"
 	"net/http"
 
-	"klisi/internal/api"
-	"klisi/internal/auth/sessionctx"
-	"klisi/internal/store"
+	"tide/internal/api"
+	"tide/internal/auth/sessionctx"
+	"tide/internal/store"
 )
 
 const maxJSONRequestBody = 1 << 20

@@ -12,8 +12,8 @@ import (
 	protocol "github.com/livekit/protocol/livekit"
 	"github.com/twitchtv/twirp"
 
-	"klisi/internal/auth"
-	"klisi/internal/store"
+	"tide/internal/auth"
+	"tide/internal/store"
 )
 
 type fakeRoomStore struct {

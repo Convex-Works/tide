@@ -122,7 +122,7 @@ test('host records a two-participant room and manages the completed MP4', async 
 
     const deleted = await hostContext.request.delete(
       `/api/recordings/${encodeURIComponent(completed.id)}`,
-      { headers: { 'X-Klisi-Csrf': '1' } }
+      { headers: { 'X-Tide-Csrf': '1' } }
     );
     expect(deleted.status()).toBe(204);
     await expect

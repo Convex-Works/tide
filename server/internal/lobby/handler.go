@@ -6,17 +6,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"klisi/internal/api"
-	"klisi/internal/auth"
-	"klisi/internal/httpx"
-	klisilivekit "klisi/internal/livekit"
-	"klisi/internal/store"
+	"tide/internal/api"
+	"tide/internal/auth"
+	"tide/internal/httpx"
+	tidelivekit "tide/internal/livekit"
+	"tide/internal/store"
 )
 
 const (
@@ -38,7 +39,7 @@ const (
 type Handler struct {
 	store    *store.Store
 	registry *Registry
-	minter   *klisilivekit.Minter
+	minter   *tidelivekit.Minter
 	streams  *streamCaps
 
 	// ending is closed by EndStreams.
@@ -46,7 +47,7 @@ type Handler struct {
 	endStream sync.Once
 }
 
-func NewHandler(roomStore *store.Store, registry *Registry, minter *klisilivekit.Minter) *Handler {
+func NewHandler(roomStore *store.Store, registry *Registry, minter *tidelivekit.Minter) *Handler {
 	return &Handler{
 		store: roomStore, registry: registry, minter: minter,
 		streams: newStreamCaps(maxStreamsPerKey),
@@ -126,7 +127,7 @@ func (h *Handler) Join(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteError(w, http.StatusInternalServerError, "Could not join the room. Try again.")
 			return
 		}
-		h.writeAdmission(w, "host:"+session.Sub+":"+nonce, hostName, room.Slug, true)
+		h.writeAdmission(w, r, "host:"+session.Sub+":"+nonce, hostName, room, true)
 		return
 	}
 	if !room.LobbyEnabled {
@@ -135,7 +136,7 @@ func (h *Handler) Join(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteError(w, http.StatusInternalServerError, "Could not join the room. Try again.")
 			return
 		}
-		h.writeAdmission(w, identity, name, room.Slug, false)
+		h.writeAdmission(w, r, identity, name, room, false)
 		return
 	}
 	pending, err := h.registry.Add(room.Slug, name)
@@ -237,7 +238,7 @@ func (h *Handler) Host(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Approve(w http.ResponseWriter, r *http.Request) {
-	request, ok := h.authorizeRequest(w, r)
+	request, room, ok := h.authorizeRequest(w, r)
 	if !ok {
 		return
 	}
@@ -246,7 +247,10 @@ func (h *Handler) Approve(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not admit the guest. Try again.")
 		return
 	}
-	token, err := h.minter.MintToken(identity, request.Name, request.RoomSlug, false, TokenTTL)
+	if !h.markActive(w, r, room) {
+		return
+	}
+	token, err := h.minter.MintToken(identity, request.Name, room.Slug, false, TokenTTL)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not admit the guest. Try again.")
 		return
@@ -259,7 +263,7 @@ func (h *Handler) Approve(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Deny(w http.ResponseWriter, r *http.Request) {
-	request, ok := h.authorizeRequest(w, r)
+	request, _, ok := h.authorizeRequest(w, r)
 	if !ok {
 		return
 	}
@@ -270,16 +274,17 @@ func (h *Handler) Deny(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *Handler) authorizeRequest(w http.ResponseWriter, r *http.Request) (Request, bool) {
+func (h *Handler) authorizeRequest(w http.ResponseWriter, r *http.Request) (Request, store.Room, bool) {
 	request, ok := h.registry.Get(r.PathValue("id"))
 	if !ok {
 		httpx.WriteError(w, http.StatusNotFound, "Lobby request not found.")
-		return Request{}, false
+		return Request{}, store.Room{}, false
 	}
-	if _, ok := h.requireManager(w, r, request.RoomSlug); !ok {
-		return Request{}, false
+	room, ok := h.requireManager(w, r, request.RoomSlug)
+	if !ok {
+		return Request{}, store.Room{}, false
 	}
-	return request, true
+	return request, room, true
 }
 
 func (h *Handler) requireManager(w http.ResponseWriter, r *http.Request, slug string) (store.Room, bool) {
@@ -292,8 +297,32 @@ func (h *Handler) requireManager(w http.ResponseWriter, r *http.Request, slug st
 	return room, true
 }
 
-func (h *Handler) writeAdmission(w http.ResponseWriter, identity, name, room string, host bool) {
-	token, err := h.minter.MintToken(identity, name, room, host, TokenTTL)
+// markActive marks room in use before a token for it leaves tide, so that
+// the anonymous sweep (ARCHITECTURE.md §5), which deletes a room only if it
+// is still idle, never deletes one somebody is about to meet in. The media
+// server's participant_joined webhook marks it again, later. It answers the
+// request itself, and returns false, when the room can't be marked: in
+// particular when it was deleted after the caller loaded it, since a token
+// for a deleted room's slug could reach a room created under it later.
+func (h *Handler) markActive(w http.ResponseWriter, r *http.Request, room store.Room) bool {
+	found, err := h.store.MarkRoomActive(r.Context(), room.ID, time.Now().Unix())
+	if err != nil {
+		log.Printf("lobby: mark %q active: %v", room.Slug, err)
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not join the room. Try again.")
+		return false
+	}
+	if !found {
+		httpx.WriteError(w, http.StatusNotFound, "Room not found.")
+		return false
+	}
+	return true
+}
+
+func (h *Handler) writeAdmission(w http.ResponseWriter, r *http.Request, identity, name string, room store.Room, host bool) {
+	if !h.markActive(w, r, room) {
+		return
+	}
+	token, err := h.minter.MintToken(identity, name, room.Slug, host, TokenTTL)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not join the room. Try again.")
 		return

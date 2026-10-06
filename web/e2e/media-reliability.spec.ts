@@ -27,7 +27,7 @@ test('media ownership converges across the deterministic lifecycle corpus', asyn
       args: ['--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream']
     });
     const publisherContext = await publisherBrowser.newContext({
-      baseURL: process.env.KLISI_MEDIA_BASE_URL ?? 'http://klisi:8080',
+      baseURL: process.env.TIDE_MEDIA_BASE_URL ?? 'http://tide:8080',
       permissions: ['camera', 'microphone']
     });
     const publisher = await publisherContext.newPage();
@@ -52,13 +52,13 @@ test('media ownership converges across the deterministic lifecycle corpus', asyn
       const room = (
         window as Window &
           typeof globalThis & {
-            __klisiRoom: {
+            __tideRoom: {
               localParticipant: unknown;
               remoteParticipants: Map<string, unknown>;
               emit(event: string, participants: unknown[]): void;
             };
           }
-      ).__klisiRoom;
+      ).__tideRoom;
       const remote = [...room.remoteParticipants.values()][0];
       for (let index = 0; index < 30; index += 1) {
         room.emit('activeSpeakersChanged', index % 2 === 0 ? [remote] : []);
@@ -96,13 +96,13 @@ test('media ownership converges across the deterministic lifecycle corpus', asyn
       const hook = (
         window as Window &
           typeof globalThis & {
-            __klisiMediaTest: {
+            __tideMediaTest: {
               clearSrcObject(sid: string): boolean;
               forgetLiveKitAttachment(sid: string): boolean;
               reconcile(): void;
             };
           }
-      ).__klisiMediaTest;
+      ).__tideMediaTest;
       if (!hook.clearSrcObject(cameraSid)) throw new Error('Camera element was not found.');
       if (!hook.forgetLiveKitAttachment(microphoneSid)) {
         throw new Error('Audio element was not registered in LiveKit.');
@@ -119,13 +119,13 @@ test('media ownership converges across the deterministic lifecycle corpus', asyn
       const hook = (
         window as Window &
           typeof globalThis & {
-            __klisiMediaTest: {
+            __tideMediaTest: {
               rejectNextPlayback(kind: 'audio'): void;
               clearSrcObject(sid: string): boolean;
               reconcile(): void;
             };
           }
-      ).__klisiMediaTest;
+      ).__tideMediaTest;
       hook.rejectNextPlayback('audio');
       hook.clearSrcObject(microphoneSid);
       hook.reconcile();
@@ -141,13 +141,13 @@ test('media ownership converges across the deterministic lifecycle corpus', asyn
       const hook = (
         window as Window &
           typeof globalThis & {
-            __klisiMediaTest: {
+            __tideMediaTest: {
               blockPlayback(kind: 'audio'): void;
               clearSrcObject(sid: string): boolean;
               reconcile(): void;
             };
           }
-      ).__klisiMediaTest;
+      ).__tideMediaTest;
       hook.blockPlayback('audio');
       hook.clearSrcObject(microphoneSid);
       hook.reconcile();
@@ -168,8 +168,8 @@ test('media ownership converges across the deterministic lifecycle corpus', asyn
 
     await page.evaluate(() =>
       (
-        window as Window & typeof globalThis & { __klisiMediaTest: { unblockPlayback(): void } }
-      ).__klisiMediaTest.unblockPlayback()
+        window as Window & typeof globalThis & { __tideMediaTest: { unblockPlayback(): void } }
+      ).__tideMediaTest.unblockPlayback()
     );
     await page.getByTestId('playback-blocked').click();
     await expect(page.getByTestId('playback-blocked')).toHaveCount(0, { timeout: 15_000 });
@@ -183,9 +183,9 @@ test('media ownership converges across the deterministic lifecycle corpus', asyn
       (
         window as Window &
           typeof globalThis & {
-            __klisiMediaTest: { injectSubscriptionFailure(sid: string): void };
+            __tideMediaTest: { injectSubscriptionFailure(sid: string): void };
           }
-      ).__klisiMediaTest.injectSubscriptionFailure(cameraSid);
+      ).__tideMediaTest.injectSubscriptionFailure(cameraSid);
     }, synthetic.cameraSid);
     await expect
       .poll(async () => (await probe(page)).subscriptionFailures[synthetic.cameraSid], {
@@ -201,9 +201,9 @@ test('media ownership converges across the deterministic lifecycle corpus', asyn
       (
         window as Window &
           typeof globalThis & {
-            __klisiRoom: { simulateScenario(scenario: 'full-reconnect'): Promise<void> };
+            __tideRoom: { simulateScenario(scenario: 'full-reconnect'): Promise<void> };
           }
-      ).__klisiRoom.simulateScenario('full-reconnect')
+      ).__tideRoom.simulateScenario('full-reconnect')
     );
     await expect
       .poll(async () => (await probe(page)).connectionState, { timeout: 45_000 })
@@ -211,7 +211,7 @@ test('media ownership converges across the deterministic lifecycle corpus', asyn
     await expectMediaInvariant(page);
     await expectMediaElementTags(page, persistentTags);
 
-    // A subscription dropped behind klisi's back — no event, no UI action — is
+    // A subscription dropped behind tide's back — no event, no UI action — is
     // restored by applySubscriptions on the next tick.
     //
     // Deliberately last. Re-subscribing gets a *new* track from the SFU, so the
@@ -223,9 +223,9 @@ test('media ownership converges across the deterministic lifecycle corpus', asyn
       const hook = (
         window as Window &
           typeof globalThis & {
-            __klisiMediaTest: { unsubscribeBehindBack(sid: string): boolean };
+            __tideMediaTest: { unsubscribeBehindBack(sid: string): boolean };
           }
-      ).__klisiMediaTest;
+      ).__tideMediaTest;
       if (!hook.unsubscribeBehindBack(cameraSid)) {
         throw new Error('Camera publication was not found on any remote participant.');
       }
@@ -260,7 +260,7 @@ async function playCalls(page: Page): Promise<number> {
   return page.evaluate(
     () =>
       (
-        window as Window & typeof globalThis & { __klisiMediaTest: { playCalls(): number } }
-      ).__klisiMediaTest.playCalls() as number
+        window as Window & typeof globalThis & { __tideMediaTest: { playCalls(): number } }
+      ).__tideMediaTest.playCalls() as number
   );
 }

@@ -21,33 +21,33 @@ import (
 
 	"github.com/livekit/protocol/livekit"
 
-	"klisi/internal/api"
-	"klisi/internal/auth"
-	"klisi/internal/config"
-	"klisi/internal/store"
+	"tide/internal/api"
+	"tide/internal/auth"
+	"tide/internal/config"
+	"tide/internal/store"
 )
 
-// These tests stop klisi as main does on a signal, while it's busy, and hold
+// These tests stop tide as main does on a signal, while it's busy, and hold
 // it to the order Serve promises: requests in flight finish, then moil
 // closes, then the background work returns, and only then does the database
 // close.
 
-func TestStoppingKlisiFinishesTheRequestsInFlight(t *testing.T) {
+func TestStoppingTideFinishesTheRequestsInFlight(t *testing.T) {
 	watchForAClosedDatabase(t)
-	k := startKlisi(t, nil)
+	k := startTide(t, nil)
 	alice := k.signIn(auth.Session{Sub: "alice", Name: "Alice"})
 	standup := alice.createRoom("Standup")
 	m := alice.pair()
 	m.Connect()
 
 	// Alice watches her room's lobby, a stream that stays open, while her
-	// browser creates another room: klisi is reading that request's body
+	// browser creates another room: tide is reading that request's body
 	// when it's told to stop.
 	lobby := alice.watchLobby(standup.Slug)
 	retro := alice.startRequest(http.MethodPost, api.RoomsPath, `{"name":"Retro"}`)
 	k.shutdown()
 
-	// klisi stops taking connections at once, and ends the lobby stream
+	// tide stops taking connections at once, and ends the lobby stream
 	// rather than wait for it, as it would for all of its grace.
 	k.waitUntilRefused()
 	select {
@@ -56,11 +56,11 @@ func TestStoppingKlisiFinishesTheRequestsInFlight(t *testing.T) {
 			t.Fatalf("the lobby stream ended with %v, want its end", err)
 		}
 	case <-time.After(10 * time.Second):
-		t.Fatal("the lobby stream held klisi open")
+		t.Fatal("the lobby stream held tide open")
 	}
 	// It waits for the request, with the machine still connected.
 	if _, stopped := k.stopped(300 * time.Millisecond); stopped {
-		t.Fatal("klisi stopped with a request in flight")
+		t.Fatal("tide stopped with a request in flight")
 	}
 	m.Sync()
 	status, body := retro()
@@ -75,14 +75,14 @@ func TestStoppingKlisiFinishesTheRequestsInFlight(t *testing.T) {
 		t.Fatalf("the machine's channel closed with %d, want 1001 (going away)", code)
 	}
 	if err, stopped := k.stopped(10 * time.Second); !stopped || err != nil {
-		t.Fatalf("klisi stopped = %v with %v", stopped, err)
+		t.Fatalf("tide stopped = %v with %v", stopped, err)
 	}
 	if room, err := k.db.RoomBySlug(context.Background(), created.Slug); err != nil || room.Name != "Retro" {
 		t.Fatalf("the room the request created = %+v, %v", room, err)
 	}
 }
 
-func TestStoppingKlisiWaitsForItsBackgroundWork(t *testing.T) {
+func TestStoppingTideWaitsForItsBackgroundWork(t *testing.T) {
 	watchForAClosedDatabase(t)
 	egress := startFakeEgress(t)
 	db, dbPath := openStore(t)
@@ -99,7 +99,7 @@ func TestStoppingKlisiWaitsForItsBackgroundWork(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	k := startKlisiOn(t, db, dbPath, func(cfg *config.Config, _ *http.Server) {
+	k := startTideOn(t, db, dbPath, func(cfg *config.Config, _ *http.Server) {
 		cfg.LiveKitURL = egress.url
 	})
 
@@ -112,26 +112,26 @@ func TestStoppingKlisiWaitsForItsBackgroundWork(t *testing.T) {
 	egress.answer()
 	waitUntilBusy(t, k.db)
 
-	// klisi is told to stop. It waits for the reconciler, which is still in
+	// tide is told to stop. It waits for the reconciler, which is still in
 	// the database, however long the disk takes...
 	k.shutdown()
 	if _, stopped := k.stopped(500 * time.Millisecond); stopped {
-		t.Fatal("klisi stopped while its reconciler was writing")
+		t.Fatal("tide stopped while its reconciler was writing")
 	}
 	// ...and stops once it's out, before the database closes.
 	release()
 	if err, stopped := k.stopped(10 * time.Second); !stopped || err != nil {
-		t.Fatalf("klisi stopped = %v with %v", stopped, err)
+		t.Fatalf("tide stopped = %v with %v", stopped, err)
 	}
 }
 
-// An HTTP server something else closed, without klisi being told to stop,
-// stops klisi all the same: Serve closes moil and returns, as it does on a
+// An HTTP server something else closed, without tide being told to stop,
+// stops tide all the same: Serve closes moil and returns, as it does on a
 // signal, rather than wait for the server to stop a second time.
-func TestKlisiStopsWhenItsServerIsClosedElsewhere(t *testing.T) {
+func TestTideStopsWhenItsServerIsClosedElsewhere(t *testing.T) {
 	watchForAClosedDatabase(t)
 	var server *http.Server
-	k := startKlisi(t, func(_ *config.Config, s *http.Server) { server = s })
+	k := startTide(t, func(_ *config.Config, s *http.Server) { server = s })
 	alice := k.signIn(auth.Session{Sub: "alice"})
 	m := alice.pair()
 	m.Connect()
@@ -140,7 +140,7 @@ func TestKlisiStopsWhenItsServerIsClosedElsewhere(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err, stopped := k.stopped(10 * time.Second); !stopped || err != nil {
-		t.Fatalf("klisi stopped = %v with %v", stopped, err)
+		t.Fatalf("tide stopped = %v with %v", stopped, err)
 	}
 	if code := m.WaitClosed(); code != 1001 {
 		t.Fatalf("the machine's channel closed with %d, want 1001 (going away)", code)
@@ -148,8 +148,8 @@ func TestKlisiStopsWhenItsServerIsClosedElsewhere(t *testing.T) {
 }
 
 // watchForAClosedDatabase fails the test if anything logs that it found the
-// database closed, up to the end of the test, after klisi has stopped and
-// the database has closed. Call it before starting klisi.
+// database closed, up to the end of the test, after tide has stopped and
+// the database has closed. Call it before starting tide.
 func watchForAClosedDatabase(t *testing.T) {
 	t.Helper()
 	logs := &lockedBuffer{}
@@ -220,8 +220,8 @@ func (h *host) watchLobby(slug string) <-chan error {
 }
 
 // startRequest sends a request's head as the SPA does, and waits until
-// klisi's handler starts reading its body, which it holds back: the request
-// is in flight until finish sends the body and returns klisi's answer.
+// tide's handler starts reading its body, which it holds back: the request
+// is in flight until finish sends the body and returns tide's answer.
 func (h *host) startRequest(method, path, body string) (finish func() (int, string)) {
 	h.k.t.Helper()
 	conn, err := net.Dial("tcp", strings.TrimPrefix(h.k.url, "http://"))
@@ -229,7 +229,7 @@ func (h *host) startRequest(method, path, body string) (finish func() (int, stri
 		h.k.t.Fatal(err)
 	}
 	h.k.t.Cleanup(func() { conn.Close() })
-	fmt.Fprintf(conn, "%s %s HTTP/1.1\r\nHost: klisi\r\nCookie: %s=%s\r\nX-Klisi-Csrf: 1\r\n"+
+	fmt.Fprintf(conn, "%s %s HTTP/1.1\r\nHost: tide\r\nCookie: %s=%s\r\nX-Tide-Csrf: 1\r\n"+
 		"Content-Type: application/json\r\nContent-Length: %d\r\nExpect: 100-continue\r\n\r\n",
 		method, path, h.cookie.Name, h.cookie.Value, len(body))
 	reader := bufio.NewReader(conn)
@@ -259,8 +259,8 @@ func (h *host) startRequest(method, path, body string) (finish func() (int, stri
 	}
 }
 
-// waitUntilRefused waits until klisi refuses new connections.
-func (k *klisiServer) waitUntilRefused() {
+// waitUntilRefused waits until tide refuses new connections.
+func (k *tideServer) waitUntilRefused() {
 	k.t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for {
@@ -270,7 +270,7 @@ func (k *klisiServer) waitUntilRefused() {
 		}
 		conn.Close()
 		if time.Now().After(deadline) {
-			k.t.Fatal("klisi still takes connections")
+			k.t.Fatal("tide still takes connections")
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -348,7 +348,7 @@ func lockDatabase(t *testing.T, path string) (release func()) {
 	return release
 }
 
-// waitUntilBusy waits until klisi's one database connection is taken: a
+// waitUntilBusy waits until tide's one database connection is taken: a
 // query can't have it within 20 milliseconds.
 func waitUntilBusy(t *testing.T, db *store.Store) {
 	t.Helper()
@@ -361,7 +361,7 @@ func waitUntilBusy(t *testing.T, db *store.Store) {
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("klisi's database connection stayed free (%v)", err)
+			t.Fatalf("tide's database connection stayed free (%v)", err)
 		}
 		time.Sleep(5 * time.Millisecond)
 	}

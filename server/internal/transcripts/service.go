@@ -23,8 +23,8 @@ import (
 
 	"git.convex.works/ConvexWorks/moil/sdk/go/moil"
 
-	"klisi/internal/recording"
-	"klisi/internal/store"
+	"tide/internal/recording"
+	"tide/internal/store"
 )
 
 // ObjectStore is where recordings and their transcript sidecars live. URLs
@@ -67,25 +67,25 @@ const (
 	// maxTitle is the longest job title moil takes, in characters.
 	maxTitle = 200
 	// stagingPrefix is where machines upload transcripts, each attempt to
-	// keys of its own. klisi never serves from it.
+	// keys of its own. tide never serves from it.
 	stagingPrefix = "transcripts-staging"
-	// maxTranscriptBytes is the largest transcript file klisi keeps.
+	// maxTranscriptBytes is the largest transcript file tide keeps.
 	maxTranscriptBytes = 16 << 20
 	// pendingFor is how long a transcript waits for a machine to make it,
 	// from its request, before it fails.
 	pendingFor = 14 * 24 * time.Hour
-	// promoteFor is how long klisi keeps trying to save a transcript a
+	// promoteFor is how long tide keeps trying to save a transcript a
 	// machine made, while its storage or database fails, before it fails
 	// the transcript. It gives up sooner once the staged files' URLs have
 	// expired: they are removed soon after.
 	promoteFor = time.Hour
 	// sweepMargin is how long after its URL expires a staging key is
 	// removed: for an upload that began just before, and for storage's
-	// clock running behind klisi's.
+	// clock running behind tide's.
 	sweepMargin = 10 * time.Minute
 	// reuseGrace is how long a staging directory's URLs must outlast a
 	// whole attempt for the machine it was made for to be handed them
-	// again: with urlGrace, for ten minutes after klisi made it.
+	// again: with urlGrace, for ten minutes after tide made it.
 	reuseGrace = 5 * time.Minute
 )
 
@@ -103,7 +103,7 @@ const (
 	// settleTimeout bounds how long recording a run's end may take, storage
 	// and database included.
 	settleTimeout = 2 * time.Minute
-	// stopGrace is how long recording runs' ends goes on once klisi starts
+	// stopGrace is how long recording runs' ends goes on once tide starts
 	// stopping, all of them together.
 	stopGrace = 10 * time.Second
 )
@@ -128,18 +128,18 @@ type job struct {
 	recordingID string
 	run         *moil.Run
 	// timeout is how long each attempt may take, and valid how long the
-	// URLs of a staging directory last from when klisi makes it.
+	// URLs of a staging directory last from when tide makes it.
 	timeout, valid time.Duration
 	// finals are where the transcript's formats go beside the recording,
 	// in store.TranscriptFormats order: what to remove if the recording is
-	// deleted while klisi copies them.
+	// deleted while tide copies them.
 	finals []string
 
 	// Guarded by Service.mu: the staging directory of each attempt, by
-	// attempt number, and the one klisi made last; what the current
-	// attempt last reported; whether klisi cancelled the run; whether the
+	// attempt number, and the one tide made last; what the current
+	// attempt last reported; whether tide cancelled the run; whether the
 	// run ended without its end recorded, for the next pass to record, and
-	// since when klisi has failed to save its transcript; and whether a
+	// since when tide has failed to save its transcript; and whether a
 	// try may have copied files beside the recording.
 	staging      map[int]*staging
 	last         *staging
@@ -152,7 +152,7 @@ type job struct {
 	copied       bool
 }
 
-// staging is a directory klisi made for a machine's uploads of a job's
+// staging is a directory tide made for a machine's uploads of a job's
 // transcript, its keys queued for removal once their URLs expire.
 type staging struct {
 	machine string // the machine it was made for
@@ -172,7 +172,7 @@ func New(cfg Config) *Service {
 // stopped following jobs, and has tried once more to record the ends that
 // failed to be, spending at most stopGrace on runs' ends after ctx is done.
 // A job still running then leaves its row pending, and the next Run submits
-// it again; so does one whose end klisi couldn't record by then.
+// it again; so does one whose end tide couldn't record by then.
 func (s *Service) Run(ctx context.Context, interval time.Duration) {
 	// ends is what runs' ends are recorded with: it outlives ctx, by
 	// stopGrace.
@@ -376,7 +376,7 @@ func attemptTimeout(durationS *int64) time.Duration {
 // the recording and a PUT for each transcript format, valid for as long as
 // the attempt may take. Only a machine of the room's current owner gets
 // them, and it uploads to staging keys of its own (stagingFor), which
-// klisi never serves from: it checks and copies them when the job
+// tide never serves from: it checks and copies them when the job
 // succeeds.
 func (s *Service) files(ctx context.Context, j *job, a moil.Assignment) (map[string]moil.Download, map[string]moil.Upload, error) {
 	recording, err := s.cfg.Store.RecordingByID(ctx, j.recordingID)
@@ -421,10 +421,10 @@ func (s *Service) files(ctx context.Context, j *job, a moil.Assignment) (map[str
 
 // stagingFor is where the machine taking attempt a of j uploads: a new
 // staging directory, queued for removal once its URLs expire, or the one
-// klisi made last, if it was made for the same machine and its URLs would
+// tide made last, if it was made for the same machine and its URLs would
 // outlast the whole attempt by reuseGrace. A machine that keeps taking a
 // job and letting it go before it starts, which moil lets it do, costs
-// klisi no more than a directory every ten minutes.
+// tide no more than a directory every ten minutes.
 func (s *Service) stagingFor(ctx context.Context, j *job, a moil.Assignment, now time.Time) (*staging, error) {
 	s.mu.Lock()
 	last := j.last
@@ -489,7 +489,7 @@ func transcribable(recording store.Recording) bool {
 }
 
 // follow keeps what a run reports, for the recording list, until the run
-// ends, and then records its end with ends. If ctx ends first, klisi is
+// ends, and then records its end with ends. If ctx ends first, tide is
 // stopping: moil ends the run with ErrClosed, and its row stays pending for
 // the next start.
 func (s *Service) follow(ctx, ends context.Context, j *job) {
@@ -524,7 +524,7 @@ func (s *Service) settle(ctx context.Context, j *job) {
 		log.Printf("transcripts: recording %s: record how its job ended, again next pass: %v", j.recordingID, err)
 		return
 	}
-	// Only an end klisi brought about can leave the row wanting a new job:
+	// Only an end tide brought about can leave the row wanting a new job:
 	// a run that ends for a machine's reasons never makes the next pass
 	// start another at once.
 	if resubmit {
@@ -575,10 +575,10 @@ func (j *job) observe(event moil.Event) {
 
 // ended records how a run ended on its row: completed, with its files
 // beside the recording, or failed with an error the recording list shows. A
-// run klisi cancelled, because its row is gone or no longer pending, or
+// run tide cancelled, because its row is gone or no longer pending, or
 // ended by a shutdown, leaves the row as it is; so does one Prepare ended
 // because the room changed hands. It reports whether the row may want a new
-// job now: only after those ends of klisi's own making. It fails only if
+// job now: only after those ends of tide's own making. It fails only if
 // storage or the database did, and then can be tried again.
 func (s *Service) ended(ctx context.Context, j *job) (resubmit bool, err error) {
 	result, err := j.run.Wait(ctx) // the run has ended
@@ -588,7 +588,7 @@ func (s *Service) ended(ctx context.Context, j *job) (resubmit bool, err error) 
 	s.mu.Unlock()
 	switch {
 	case errors.Is(err, moil.ErrClosed):
-		// klisi is shutting down; the pending row is submitted again at the
+		// tide is shutting down; the pending row is submitted again at the
 		// next start.
 		return false, nil
 	case errors.Is(err, moil.ErrCancelled) && cancelled:
@@ -596,7 +596,7 @@ func (s *Service) ended(ctx context.Context, j *job) (resubmit bool, err error) 
 		// requested again since.
 		return true, nil
 	case errors.Is(err, moil.ErrCancelled):
-		// A machine said it cancelled an attempt klisi never asked it to.
+		// A machine said it cancelled an attempt tide never asked it to.
 		// Submitting it again would go round as fast as the machine
 		// answers.
 		log.Printf("transcripts: recording %s: machine ended the job as cancelled unasked", j.recordingID)
@@ -642,7 +642,7 @@ func (s *Service) ended(ctx context.Context, j *job) (resubmit bool, err error) 
 }
 
 // promote checks the files a succeeded attempt uploaded to its staging
-// directory, copies them beside the recording, where klisi serves them
+// directory, copies them beside the recording, where tide serves them
 // from, checks the copies, and completes the row. It rejects the attempt,
 // failing the row, when a file is missing, larger than maxTranscriptBytes,
 // or not the one moil says the machine uploaded, and removes whatever it
@@ -754,7 +754,7 @@ func (s *Service) reject(ctx context.Context, j *job, dir, message string, now i
 	return nil
 }
 
-// notSaved fails a row whose transcript klisi couldn't save, blaming its
+// notSaved fails a row whose transcript tide couldn't save, blaming its
 // storage, after trying once more to remove what a try copied.
 func (s *Service) notSaved(ctx context.Context, j *job, dir string, now int64) error {
 	if err := s.removeCopies(ctx, j); err != nil {
@@ -768,7 +768,7 @@ func (s *Service) notSaved(ctx context.Context, j *job, dir string, now int64) e
 }
 
 // removeCopies removes the files a try copied beside the recording, if one
-// may have. They aren't a transcript klisi serves, the row being pending,
+// may have. They aren't a transcript tide serves, the row being pending,
 // and nothing else writes there until the row is requested again, so they
 // are removed at once rather than queued.
 func (s *Service) removeCopies(ctx context.Context, j *job) error {
@@ -806,7 +806,7 @@ func (s *Service) discard(ctx context.Context, j *job, dir string, now int64) er
 	return nil
 }
 
-// removeStaged removes an attempt's uploads once klisi is done with them.
+// removeStaged removes an attempt's uploads once tide is done with them.
 // They stay queued until their URLs expire, so that storage also loses an
 // upload that arrives after this.
 func (s *Service) removeStaged(ctx context.Context, recordingID, dir string) {

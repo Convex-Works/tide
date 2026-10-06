@@ -141,7 +141,7 @@ function projectionSignature(views: ParticipantView[]): string {
 
 export class RoomState {
   // Both layer-pausing optimisations are OFF, for one reason: a paused video
-  // layer that never resumes is indistinguishable from a broken one, and klisi
+  // layer that never resumes is indistinguishable from a broken one, and tide
   // meetings are small by design, so neither saves anything worth that risk.
   //
   // adaptiveStream pauses *remote* layers by observed element size, and tiles
@@ -203,7 +203,7 @@ export class RoomState {
   private readonly handlerFaultLog: HandlerFault[] = [];
 
   constructor() {
-    // Before any of klisi's own handlers, so the ledger records what LiveKit
+    // Before any of tide's own handlers, so the ledger records what LiveKit
     // emitted rather than what a handler decided to do about it.
     this.installEventLedger();
 
@@ -309,13 +309,13 @@ export class RoomState {
     });
 
     if (typeof window !== 'undefined') {
-      if (import.meta.env.DEV || import.meta.env.VITE_KLISI_TEST === 'true') {
-        (window as Window & { __klisiRoom?: Room }).__klisiRoom = this.room;
+      if (import.meta.env.DEV || import.meta.env.VITE_TIDE_TEST === 'true') {
+        (window as Window & { __tideRoom?: Room }).__tideRoom = this.room;
       }
       // The support path for a media incident. Deliberately not a UI control:
       // the feature list is frozen, and this is a debug tool. It writes a file
       // on the machine that runs it and sends nothing anywhere.
-      (window as Window & { klisiDiagnostics?: () => void }).klisiDiagnostics = () =>
+      (window as Window & { tideDiagnostics?: () => void }).tideDiagnostics = () =>
         this.downloadDiagnostics();
     }
     this.installMediaTestHooks();
@@ -701,7 +701,7 @@ export class RoomState {
       message: error instanceof Error ? (error.stack ?? error.message) : String(error)
     });
     if (this.handlerFaultLog.length > maximumHandlerFaults) this.handlerFaultLog.shift();
-    console.error(`[klisi] room handler for ${event} threw`, error);
+    console.error(`[tide] room handler for ${event} threw`, error);
   }
 
   private syncAllMediaState(): void {
@@ -750,7 +750,7 @@ export class RoomState {
             : `Could not subscribe to this media publication (LiveKit error ${String(reason)}).`,
         // Recoverable means the request still stands: the publication exists,
         // we still want it, and we are allowed to have it. Recovery is the
-        // next reconcile tick re-deriving the subscription — klisi does not
+        // next reconcile tick re-deriving the subscription — tide does not
         // run its own retry loop against the SFU, because livekit-client
         // already re-establishes subscriptions from sendSyncState().
         recoverable:
@@ -798,7 +798,7 @@ export class RoomState {
   }
 
   /**
-   * States what klisi wants subscribed and lets the difference drive the SFU.
+   * States what tide wants subscribed and lets the difference drive the SFU.
    * Every publication of every remote participant is desired except a camera
    * whose owner the local user has hidden. Nothing is toggled that already
    * matches, so this is free on an unchanged room and self-repairing on a
@@ -899,7 +899,7 @@ export class RoomState {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = `klisi-diagnostics-${Date.now()}.json`;
+    anchor.download = `tide-diagnostics-${Date.now()}.json`;
     anchor.click();
     URL.revokeObjectURL(url);
   }
@@ -1038,7 +1038,7 @@ export class RoomState {
   }
 
   /**
-   * Registered before klisi's own handlers so the ledger records what LiveKit
+   * Registered before tide's own handlers so the ledger records what LiveKit
    * emitted, not what a handler decided to do about it. Final state alone
    * cannot distinguish "never told" from "told and mishandled"; the sequence
    * can, and that is what an incident report is read from.
@@ -1108,7 +1108,7 @@ export class RoomState {
   }
 
   private installMediaTestHooks(): void {
-    if (import.meta.env.VITE_KLISI_TEST !== 'true' || typeof window === 'undefined') return;
+    if (import.meta.env.VITE_TIDE_TEST !== 'true' || typeof window === 'undefined') return;
     type PlaybackKind = 'audio' | 'video' | 'any';
     type TestAPI = {
       attachmentDelayMs: number;
@@ -1130,12 +1130,12 @@ export class RoomState {
       failNextReconcile: () => void;
       deafen: () => void;
     };
-    const testWindow = window as Window & { __klisiMediaTest?: TestAPI };
+    const testWindow = window as Window & { __tideMediaTest?: TestAPI };
     let rejectedKind: PlaybackKind | undefined;
     let blockedKind: PlaybackKind | undefined;
     const nativePlay = HTMLMediaElement.prototype.play;
     const blocked = (): Promise<void> =>
-      Promise.reject(new DOMException('Playback blocked by Klisi test hook.', 'NotAllowedError'));
+      Promise.reject(new DOMException('Playback blocked by Tide test hook.', 'NotAllowedError'));
     let playCalls = 0;
     HTMLMediaElement.prototype.play = function (): Promise<void> {
       playCalls += 1;
@@ -1162,7 +1162,7 @@ export class RoomState {
       RoomState.prototype.reconcileMedia.call(this, authoritative);
     };
 
-    testWindow.__klisiMediaTest = {
+    testWindow.__tideMediaTest = {
       attachmentDelayMs: 0,
       snapshot: () => this.mediaProbeSnapshot(),
       reconcile: () => this.reconcileMedia(true),
@@ -1175,17 +1175,17 @@ export class RoomState {
       failNextParticipantEntered: () => {
         this.announceParticipantEntered = () => {
           this.announceParticipantEntered = announceParticipantEntered;
-          throw new Error('Klisi test hook: participant-entered fault.');
+          throw new Error('Tide test hook: participant-entered fault.');
         };
       },
       failNextReconcile: () => {
         this.reconcileMedia = () => {
           this.reconcileMedia = reconcileMedia;
-          throw new Error('Klisi test hook: reconcile fault.');
+          throw new Error('Tide test hook: reconcile fault.');
         };
       },
       // Drops every application listener and reinstates only the ledger, so
-      // the room keeps running while klisi is told nothing. LiveKit never
+      // the room keeps running while tide is told nothing. LiveKit never
       // listens to its own RoomEvents, so this silences the app alone. It
       // models the general case behind every media incident here: an event
       // that never arrives. A client that only reduces events stays frozen;
@@ -1218,7 +1218,7 @@ export class RoomState {
       injectSubscriptionFailure: (publicationSid) => {
         this.recordSubscriptionFailure(publicationSid);
       },
-      // Unsubscribes without telling klisi's own state, the way a stray SDK
+      // Unsubscribes without telling tide's own state, the way a stray SDK
       // path or a racing UI toggle would. applySubscriptions must put it back.
       unsubscribeBehindBack: (publicationSid) => {
         const publication = this.remotePublication(publicationSid);
@@ -1273,7 +1273,7 @@ export class RoomState {
         mine: participant?.identity === this.room.localParticipant.identity
       });
     } catch {
-      // Ignore data messages that are not valid klisi chat payloads.
+      // Ignore data messages that are not valid tide chat payloads.
     }
   }
 

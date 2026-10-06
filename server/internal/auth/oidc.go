@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"
-	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -15,13 +14,13 @@ import (
 	"github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 
-	"klisi/internal/api"
-	"klisi/internal/config"
-	"klisi/internal/httpx"
+	"tide/internal/api"
+	"tide/internal/config"
+	"tide/internal/httpx"
 )
 
 const (
-	oidcStateCookieName = "klisi_oidc_state"
+	oidcStateCookieName = "tide_oidc_state"
 	oidcStateLifetime   = 10 * time.Minute
 )
 
@@ -149,7 +148,7 @@ func (o *OIDC) Callback(w http.ResponseWriter, r *http.Request) {
 	}
 	allowed, isAdmin := groupAccess(claims.Groups, o.userGroups, o.adminGroups)
 	if !allowed {
-		httpx.WriteError(w, http.StatusForbidden, "Your account is not allowed to access Klisi.")
+		httpx.WriteError(w, http.StatusForbidden, "Your account is not allowed to access Tide.")
 		return
 	}
 	if err := o.sessions.Set(w, Session{
@@ -162,15 +161,7 @@ func (o *OIDC) Callback(w http.ResponseWriter, r *http.Request) {
 }
 
 func (o *OIDC) Logout(w http.ResponseWriter, r *http.Request) {
-	// Revoke server-side first: clearing the cookie only helps this browser,
-	// while a copied cookie would otherwise stay valid until it expires.
-	if session, ok := SessionFromContext(r.Context()); ok {
-		if err := o.sessions.Revoke(r.Context(), session); err != nil {
-			log.Printf("auth: could not revoke session: %v", err)
-		}
-	}
-	o.sessions.Clear(w)
-	w.WriteHeader(http.StatusNoContent)
+	o.sessions.Logout(w, r)
 }
 
 func (o *OIDC) getProvider(ctx context.Context) (*oidc.Provider, error) {

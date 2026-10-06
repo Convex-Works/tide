@@ -10,10 +10,11 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	_ "modernc.org/sqlite"
 
-	"klisi/internal/api"
+	"tide/internal/api"
 )
 
 //go:embed schema.sql
@@ -221,12 +222,61 @@ func (s *Store) Stats() sql.DBStats {
 	return s.db.Stats()
 }
 
+// FreedSlugHold is how long a slug freed by deleting or renaming its room
+// stays unavailable: as long as a meeting token lives (lobby.TokenTTL), so
+// no token minted for the old room can reach a new one.
+const FreedSlugHold = 10 * time.Minute
+
+// ErrSlugTaken says a slug belongs to another room, or was freed too
+// recently to be given out again (FreedSlugHold). IsSlugConflict reports it.
+var ErrSlugTaken = errors.New("store: slug taken")
+
+// CreateRoom inserts room, unless its slug is taken or held, as of
+// room.CreatedAt.
 func (s *Store) CreateRoom(ctx context.Context, room Room) error {
-	_, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := checkSlugFree(ctx, tx, room.Slug, room.CreatedAt); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO rooms (id, slug, name, owner_sub, lobby_enabled, created_at)
 		VALUES (?, ?, ?, ?, ?, ?)`,
 		room.ID, room.Slug, room.Name, room.OwnerSub, room.LobbyEnabled, room.CreatedAt,
-	)
+	); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// checkSlugFree refuses a slug freed less than FreedSlugHold before now.
+// The rooms table's own UNIQUE constraint refuses one in use.
+func checkSlugFree(ctx context.Context, tx *sql.Tx, slug string, now int64) error {
+	var held int
+	err := tx.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM freed_slugs WHERE slug = ? AND until > ?`, slug, now).Scan(&held)
+	if err != nil {
+		return err
+	}
+	if held > 0 {
+		return ErrSlugTaken
+	}
+	return nil
+}
+
+// holdSlug records slug as freed at now, and forgets slugs whose hold has
+// ended.
+func holdSlug(ctx context.Context, tx *sql.Tx, slug string, now int64) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM freed_slugs WHERE until <= ?`, now); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO freed_slugs (slug, until) VALUES (?, ?)
+		ON CONFLICT (slug) DO UPDATE SET until = excluded.until`,
+		slug, now+int64(FreedSlugHold/time.Second))
 	return err
 }
 
@@ -298,9 +348,45 @@ func (s *Store) Rooms(ctx context.Context) ([]Room, error) {
 	return rooms, rows.Err()
 }
 
+// IdleRooms lists the rooms nobody has used since before (Unix seconds):
+// those created before it and not joined since, oldest first.
+func (s *Store) IdleRooms(ctx context.Context, before int64) ([]Room, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT `+roomColumns+` FROM rooms
+		 WHERE MAX(created_at, COALESCE(last_active_at, created_at)) < ?
+		 ORDER BY created_at, slug`, before)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	rooms := make([]Room, 0)
+	for rows.Next() {
+		room, err := scanRoom(rows)
+		if err != nil {
+			return nil, err
+		}
+		rooms = append(rooms, room)
+	}
+	return rooms, rows.Err()
+}
+
 // TouchRoomActive records that a room saw activity at ts (Unix seconds),
 // advancing last_active_at monotonically so out-of-order webhook delivery can
 // never move the timestamp backwards.
+// MarkRoomActive records that room id is in use at ts, as tide mints a
+// token for it, and says whether the room still exists: a room deleted since
+// the caller loaded it must not get a token (ARCHITECTURE.md §5).
+func (s *Store) MarkRoomActive(ctx context.Context, id string, ts int64) (bool, error) {
+	result, err := s.db.ExecContext(ctx,
+		`UPDATE rooms SET last_active_at = MAX(COALESCE(last_active_at, 0), ?) WHERE id = ?`, ts, id)
+	if err != nil {
+		return false, err
+	}
+	changed, err := result.RowsAffected()
+	return changed > 0, err
+}
+
 func (s *Store) TouchRoomActive(ctx context.Context, slug string, ts int64) error {
 	_, err := s.db.ExecContext(ctx,
 		`UPDATE rooms SET last_active_at = ? WHERE slug = ? AND COALESCE(last_active_at, 0) < ?`,
@@ -308,13 +394,29 @@ func (s *Store) TouchRoomActive(ctx context.Context, slug string, ts int64) erro
 	return err
 }
 
-func (s *Store) UpdateRoom(ctx context.Context, room Room) error {
+// UpdateRoom saves room's slug, name and lobby setting as of now. A changed
+// slug must be free (ErrSlugTaken otherwise), and the old one is held
+// (FreedSlugHold).
+func (s *Store) UpdateRoom(ctx context.Context, room Room, now int64) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	var oldSlug string
+	err = tx.QueryRowContext(ctx, `SELECT slug FROM rooms WHERE id = ?`, room.ID).Scan(&oldSlug)
+	if err != nil {
+		return err
+	}
+	if oldSlug != room.Slug {
+		if err := checkSlugFree(ctx, tx, room.Slug, now); err != nil {
+			return err
+		}
+		if err := holdSlug(ctx, tx, oldSlug, now); err != nil {
+			return err
+		}
+	}
 	result, err := tx.ExecContext(ctx, `
 		UPDATE rooms SET slug = ?, name = ?, lobby_enabled = ? WHERE id = ?`,
 		room.Slug, room.Name, room.LobbyEnabled, room.ID,
@@ -339,6 +441,30 @@ func (s *Store) UpdateRoom(ctx context.Context, room Room) error {
 // transcripts, and queues every file of those recordings for removal from
 // storage by now, all in one transaction. It returns the keys it queued.
 func (s *Store) DeleteRoom(ctx context.Context, id string, now int64) ([]string, error) {
+	return s.deleteRoom(ctx, id, now, 0)
+}
+
+// DeleteIdleRoom deletes a room as DeleteRoom does, but only if nobody has
+// used it since before (Unix seconds), as IdleRooms says, checked in the
+// same statement that deletes it: a room touched since it was listed idle
+// stays. sql.ErrNoRows says it wasn't deleted.
+func (s *Store) DeleteIdleRoom(ctx context.Context, id string, before, now int64) ([]string, error) {
+	if before <= 0 {
+		return nil, errors.New("store: an idle cutoff is required")
+	}
+	return s.deleteRoom(ctx, id, now, before)
+}
+
+// CountRooms counts every room.
+func (s *Store) CountRooms(ctx context.Context) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM rooms`).Scan(&count)
+	return count, err
+}
+
+// deleteRoom deletes room id; with idleBefore set, only if it is idle since
+// then.
+func (s *Store) deleteRoom(ctx context.Context, id string, now, idleBefore int64) ([]string, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -368,11 +494,16 @@ func (s *Store) DeleteRoom(ctx context.Context, id string, now int64) ([]string,
 	}
 	// Recording and transcript rows go with the room via ON DELETE CASCADE
 	// (foreign_keys=ON).
-	result, err := tx.ExecContext(ctx, "DELETE FROM rooms WHERE id = ?", id)
-	if err != nil {
-		return nil, err
+	statement, args := "DELETE FROM rooms WHERE id = ?", []any{id}
+	if idleBefore > 0 {
+		statement += " AND MAX(created_at, COALESCE(last_active_at, created_at)) < ?"
+		args = append(args, idleBefore)
 	}
-	if err := requireChanged(result); err != nil {
+	var slug string
+	if err := tx.QueryRowContext(ctx, statement+" RETURNING slug", args...).Scan(&slug); err != nil {
+		return nil, err // sql.ErrNoRows: no such room, or not idle
+	}
+	if err := holdSlug(ctx, tx, slug, now); err != nil {
 		return nil, err
 	}
 	return keys, tx.Commit()
@@ -568,8 +699,10 @@ func scanRecording(scanner recordingScanner, extra ...any) (Recording, error) {
 	return recording, nil
 }
 
+// IsSlugConflict says err refused a slug that is in use or held.
 func IsSlugConflict(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed: rooms.slug")
+	return errors.Is(err, ErrSlugTaken) ||
+		err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed: rooms.slug")
 }
 
 func IsActiveRecordingConflict(err error) bool {

@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"klisi/internal/api"
+	"tide/internal/api"
 )
 
 // The stub the tests publish is a bundle moil accepts: its lockfile is
 // current, and the moil binary hashes it as the Go SDK does, so machines
-// approve exactly what klisi offers.
+// approve exactly what tide offers.
 func TestTheStubIsABundleMoilAccepts(t *testing.T) {
 	t.Parallel()
 	needSuite(t)
@@ -29,13 +29,13 @@ func TestTheStubIsABundleMoilAccepts(t *testing.T) {
 }
 
 // A host pairs their computer with the moil command line and approves the
-// bundle klisi publishes; from then on their recordings are transcribed on
+// bundle tide publishes; from then on their recordings are transcribed on
 // it, from the recording's own bytes, and the transcript downloads beside
 // the recording. Deleting the recording deletes its transcript, and
 // unpairing the machine cuts it off, even mid-job.
 func TestAHostPairsAMachineAndGetsTranscripts(t *testing.T) {
 	t.Parallel()
-	k := startKlisi(t)
+	k := startTide(t)
 	alice := k.signIn("alice")
 	standup := alice.createRoom("Standup")
 	laptop := newMachine(t, "alice-laptop")
@@ -52,7 +52,7 @@ func TestAHostPairsAMachineAndGetsTranscripts(t *testing.T) {
 	}
 	stub := k.bundle
 	if want := (api.BundleInfo{Name: "transcribe-e2e", Version: stub.Version(), Hash: stub.Hash()}); page.Bundle != want {
-		t.Fatalf("/machines names the bundle %+v, klisi publishes %+v", page.Bundle, want)
+		t.Fatalf("/machines names the bundle %+v, tide publishes %+v", page.Bundle, want)
 	}
 	// The machine sees that very bundle, waiting for its owner.
 	if status := laptop.Review(page.Bundle.Hash); status != "not approved" {
@@ -108,7 +108,7 @@ func TestAHostPairsAMachineAndGetsTranscripts(t *testing.T) {
 	}
 	checkDownload(t, header, name+".vtt", "text/vtt; charset=utf-8")
 
-	// The machine uploaded to staging keys, which klisi copied beside the
+	// The machine uploaded to staging keys, which tide copied beside the
 	// recording and then removes: nothing stays staged.
 	eventually(t, "the staged transcript to be removed", func() bool {
 		return len(objects.keys(t, "transcripts-staging/")) == 0
@@ -143,7 +143,7 @@ func TestAHostPairsAMachineAndGetsTranscripts(t *testing.T) {
 	running := attempts[1]
 	unpaired := laptop.agentLog.len()
 	alice.call(http.MethodDelete, fill(api.MachinePath, laptop.id), nil, http.StatusNoContent, nil)
-	laptop.Logged(unpaired, "klisi removed this machine; pair it again")
+	laptop.Logged(unpaired, "tide removed this machine; pair it again")
 	awaitGone(t, "the unpaired laptop's job", running.PID)
 	if machines := alice.machines().Machines; len(machines) != 0 {
 		t.Fatalf("alice's machines after unpairing = %+v", machines)
@@ -159,7 +159,7 @@ func TestAHostPairsAMachineAndGetsTranscripts(t *testing.T) {
 	// Given the time to reconnect, and a job it would take, it doesn't.
 	laptop.Release()
 	time.Sleep(reconnectWindow)
-	if line, ok := laptop.agentLog.find(unpaired, "connected to klisi"); ok {
+	if line, ok := laptop.agentLog.find(unpaired, "connected to tide"); ok {
 		t.Fatalf("the unpaired laptop connected again: %s", line)
 	}
 	if attempts := laptop.Attempts(); len(attempts) != 2 {
@@ -177,14 +177,14 @@ func TestAHostPairsAMachineAndGetsTranscripts(t *testing.T) {
 // losing its channel: it tries again within a second (moil spec §6.1).
 const reconnectWindow = 2 * time.Second
 
-// A restart loses moil's jobs, not the transcripts. klisi stops as main
-// does while a machine is on a transcript; the new klisi, on the same
+// A restart loses moil's jobs, not the transcripts. tide stops as main
+// does while a machine is on a transcript; the new tide, on the same
 // database and address, submits it again, the machine drops the attempt
 // the old one gave it and runs the new one, and the transcript completes.
 // Its row stays pending throughout.
-func TestTranscriptsSurviveAKlisiRestart(t *testing.T) {
+func TestTranscriptsSurviveATideRestart(t *testing.T) {
 	t.Parallel()
-	k := startKlisi(t)
+	k := startTide(t)
 	alice := k.signIn("alice")
 	retro := alice.createRoom("Retro")
 	laptop := lentMachine(t, alice, "alice-laptop")
@@ -205,8 +205,8 @@ func TestTranscriptsSurviveAKlisiRestart(t *testing.T) {
 	restarted := laptop.agentLog.len()
 	k.Restart()
 	laptop.Logged(restarted, "no longer expects "+laptop.attemptKey(rec, 1)+"; abandoning it")
-	awaitGone(t, "the attempt the old klisi gave", first.PID)
-	laptop.Logged(restarted, "connected to klisi")
+	awaitGone(t, "the attempt the old tide gave", first.PID)
+	laptop.Logged(restarted, "connected to tide")
 	alice.waitTranscript(rec, "running on the laptop again", func(info *api.TranscriptInfo) bool {
 		return info != nil && info.Status == api.TranscriptRunning && info.Message == "Waiting for the gate to open"
 	})
@@ -233,10 +233,10 @@ func TestTranscriptsSurviveAKlisiRestart(t *testing.T) {
 // to come online, and never gets it; it transcribes bob's own recordings.
 func TestOnlyTheOwnersMachinesGetTheJob(t *testing.T) {
 	t.Parallel()
-	k := startKlisi(t)
+	k := startTide(t)
 	alice, bob := k.signIn("alice"), k.signIn("bob")
 	standup := alice.createRoom("Standup")
-	// klisi learns what a machine approved when it connects, so alice's
+	// tide learns what a machine approved when it connects, so alice's
 	// laptop was online once since she approved the bundle. It isn't now.
 	aliceLaptop := lentMachine(t, alice, "alice-laptop")
 	aliceLaptop.Stop()
@@ -289,7 +289,7 @@ func TestOnlyTheOwnersMachinesGetTheJob(t *testing.T) {
 }
 
 // bidWindow is how long moil gives machines to answer an offer: its
-// default, which klisi keeps.
+// default, which tide keeps.
 const bidWindow = 2 * time.Second
 
 // checkDownload checks a download's headers: a browser saves it as
