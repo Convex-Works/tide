@@ -117,8 +117,9 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 		orDefault(cfg.LoginRateLimit, config.DefaultLoginRateLimit),
 		time.Minute,
 	)
-	// Kick bans must outlive any cached admission token (see finding #2 in
-	// docs/REVIEW-2026-07-19.md), so the denylist TTL is the token TTL.
+	// Kick bans must outlive any cached admission token: self-hosted LiveKit
+	// can't revoke a token, so a kicked guest could rejoin with theirs until
+	// it expires. The denylist TTL is therefore the token TTL.
 	denylist := moderation.NewDenylist(lobby.TokenTTL)
 	moderationHandler := moderation.NewHandler(roomStore, moderation.NewRoomService(cfg), denylist)
 	// Recording needs storage (ARCHITECTURE.md §8): one storage client for
