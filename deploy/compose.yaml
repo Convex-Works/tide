@@ -24,7 +24,9 @@ services:
     networks: [tide]
 
   minio:
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    # Built from source: MinIO no longer publishes images (minio.Dockerfile).
+    build: { context: ., dockerfile: minio.Dockerfile, target: minio }
+    image: tide-minio:RELEASE.2025-04-22T22-12-26Z
     command: server /data --console-address :9001
     environment:
       MINIO_ROOT_USER: tide
@@ -45,7 +47,8 @@ services:
     networks: [tide]
 
   minio-init:
-    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    build: { context: ., dockerfile: minio.Dockerfile, target: mc }
+    image: tide-mc:RELEASE.2025-04-16T18-13-26Z
     depends_on:
       minio:
         condition: service_healthy

@@ -117,17 +117,26 @@ func awaitMinIO(container, user, password string) (*objectStore, error) {
 	}
 }
 
-// minioImage is the MinIO image deploy/compose.yaml pins.
+// minioImage is the MinIO image deploy/compose.yaml pins, built from
+// source (deploy/minio.Dockerfile) unless Docker has it already.
 func minioImage() (string, error) {
 	compose, err := os.ReadFile("../../deploy/compose.yaml")
 	if err != nil {
 		return "", err
 	}
-	match := regexp.MustCompile(`(?m)^\s*image:\s*(minio/minio:\S+)\s*$`).FindSubmatch(compose)
+	match := regexp.MustCompile(`(?m)^\s*image:\s*(tide-minio:\S+)\s*$`).FindSubmatch(compose)
 	if match == nil {
-		return "", errors.New("deploy/compose.yaml pins no minio/minio image")
+		return "", errors.New("deploy/compose.yaml pins no tide-minio image")
 	}
-	return string(match[1]), nil
+	image := string(match[1])
+	if exec.Command("docker", "image", "inspect", image).Run() == nil {
+		return image, nil
+	}
+	build := exec.Command("docker", "compose", "--file", "../../deploy/compose.yaml", "build", "minio")
+	if out, err := build.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("building MinIO (%s): %w\n%s", image, err, out)
+	}
+	return image, nil
 }
 
 func removeContainer(name string) {

@@ -20,7 +20,7 @@ You also need Docker with Compose.
 make dev
 ```
 
-Open `http://localhost:5173`. Sign in as `host@tide.dev` with the password `tide-dev`.
+The first run builds MinIO from source, which takes a few minutes. Open `http://localhost:5173`. Sign in as `host@tide.dev` with the password `tide-dev`.
 
 `make dev` is for macOS. On Linux, add `TIDE_MEDIA_NODE_IP=<your LAN address>` to `.env` in the repository root, or recordings fail.
 

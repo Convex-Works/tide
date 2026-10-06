@@ -23,7 +23,8 @@ It needs:
   `~/.local/bin`. The stub needs Python 3.12 or newer, which uv downloads
   the first time unless it manages one already;
 - Docker, to run the MinIO image `deploy/compose.yaml` pins on a random
-  loopback port. To use another store instead, set `TIDE_E2E_S3_ENDPOINT`,
+  loopback port. MinIO no longer publishes images, so the first run builds
+  it from source (`deploy/minio.Dockerfile`), which takes a minute or two. To use another store instead, set `TIDE_E2E_S3_ENDPOINT`,
   `TIDE_E2E_S3_ACCESS_KEY` and `TIDE_E2E_S3_SECRET_KEY` (and optionally
   `TIDE_E2E_S3_BUCKET`, default `tide-e2e`, and `TIDE_E2E_S3_REGION`).
   Machines take plain http only from loopback, so it must be https or on
