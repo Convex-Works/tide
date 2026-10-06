@@ -27,3 +27,5 @@ server/web/build/
 web/test-results/
 web/playwright-report/
 /artifacts/media/
+
+.claude/
