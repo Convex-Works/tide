@@ -221,15 +221,20 @@ func mediaFlows(t *testing.T, opts Options) {
 	eventually(t, 20*time.Second, "bob to receive alice's first track", func() bool { return packets("first") >= 25 })
 	// Media must take the UDP mux, not ICE/TCP, which would hide a mux that
 	// isn't working. (Which of this machine's addresses carries it is up to
-	// ICE: on one machine a client also finds the mux's LAN socket.)
+	// ICE: on one machine a client also finds the mux's LAN socket.) The mux
+	// is the server's only UDP socket, as no ICE port range is set, so a
+	// different port can only be the network rewriting the mux's address on
+	// the way, which ICE learns as a peer-reflexive candidate: GitHub's
+	// runners do that on loopback.
 	receiver, _ := receivers.Load("first")
 	pair, err := receiver.(*webrtc.RTPReceiver).Transport().ICETransport().GetSelectedCandidatePair()
 	if err != nil || pair == nil {
 		t.Fatalf("bob's selected candidate pair: %v, %v", pair, err)
 	}
-	if pair.Remote.Protocol != webrtc.ICEProtocolUDP || int(pair.Remote.Port) != opts.UDPPort {
-		t.Fatalf("bob receives media over %s %s:%d, want UDP on the mux's port %d",
-			pair.Remote.Protocol, pair.Remote.Address, pair.Remote.Port, opts.UDPPort)
+	if pair.Remote.Protocol != webrtc.ICEProtocolUDP ||
+		(int(pair.Remote.Port) != opts.UDPPort && pair.Remote.Typ != webrtc.ICECandidateTypePrflx) {
+		t.Fatalf("bob receives media over %s %s %s:%d, want UDP on the mux's port %d",
+			pair.Remote.Protocol, pair.Remote.Typ, pair.Remote.Address, pair.Remote.Port, opts.UDPPort)
 	}
 
 	// Past the front server's deadlines, signaling must still carry a new
