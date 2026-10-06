@@ -80,7 +80,20 @@ jobs:
           CI_RUN_ID: ${{ github.run_id }}
           CI_JOB_ID: ${{ github.job }}
           TIDE_MEDIA_SUITE: deterministic
-        run: ./scripts/run-media-tests.sh
+        run: |
+          set -o pipefail
+          ./scripts/run-media-tests.sh 2>&1 | tee "$RUNNER_TEMP/media.log"
+      - name: Annotate the media suite's failure
+        if: failure()
+        run: |
+          # One annotation per log: its last lines, newlines escaped.
+          annotate() {
+            [ -f "$2" ] || return 0
+            tail -n "$3" "$2" | sed -e 's/\x1b\[[0-9;]*m//g' -e 's/%/%25/g' -e 's/\r//g' |
+              awk -v title="$1" 'BEGIN { printf "::error title=%s::", title } { printf "%s%%0A", $0 } END { print "" }'
+          }
+          annotate "media suite" "$RUNNER_TEMP/media.log" 80
+          annotate "media stack" artifacts/media/stack.log 60
       - name: Preserve media diagnostics
         if: always()
         uses: actions/upload-artifact@v4
