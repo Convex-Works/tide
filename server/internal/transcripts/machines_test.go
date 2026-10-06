@@ -106,12 +106,24 @@ func TestAMachineThatKeepsLettingAJobGoGetsTheSameStagingKeys(t *testing.T) {
 	// The machine disconnects while tide prepares its attempt...
 	presign.Entered(t)
 	machine.Disconnect()
+	// Once moil sees the machine gone, it drops that preparation. Otherwise
+	// it could finish after the clock moves on below, with URLs signed then.
+	waitFor(t, "moil to see the machine go", func() bool {
+		m, err := e.moil.Machine(context.Background(), machine.ID())
+		return err == nil && m.State == moil.Offline
+	})
 	machine.Connect()
 	// ...then takes it again, and pauses while tide prepares it.
 	presign.Entered(t)
 	machine.SetState(moil.Paused)
 	machine.Sync()
 	presign.Release()
+	// The paused attempt's URLs are signed before the clock moves on: the
+	// recording's and both transcripts', after the one the dropped
+	// preparation got as far as.
+	waitFor(t, "tide to sign the paused attempt's URLs", func() bool {
+		return e.s3.Calls(opPresign) == 1+3
+	})
 	if staged := e.queuedStaging(); len(staged) != 2 {
 		t.Fatalf("staging keys queued after tide prepared the job twice: %q", staged)
 	}

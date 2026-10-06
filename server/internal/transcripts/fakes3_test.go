@@ -279,38 +279,44 @@ func (s *fakeS3) Copy(ctx context.Context, src, etag, dst, contentType string) e
 }
 
 func (s *fakeS3) PresignedGet(ctx context.Context, key string, expiry time.Duration) (string, error) {
+	signed := s.clock.Now()
 	if err := s.enter(ctx, opPresign); err != nil {
 		return "", err
 	}
-	return s.presign(http.MethodGet, key, expiry, nil), nil
+	return s.presign(http.MethodGet, key, signed.Add(expiry), nil), nil
 }
 
 func (s *fakeS3) PresignedPut(ctx context.Context, key string, expiry time.Duration) (string, error) {
+	signed := s.clock.Now()
 	if err := s.enter(ctx, opPresign); err != nil {
 		return "", err
 	}
-	return s.presign(http.MethodPut, key, expiry, nil), nil
+	return s.presign(http.MethodPut, key, signed.Add(expiry), nil), nil
 }
 
 // PresignedDownload signs S3's response overrides into the URL, as
 // MinIOStore does.
 func (s *fakeS3) PresignedDownload(ctx context.Context, key string, expiry time.Duration, filename, contentType string) (string, error) {
+	signed := s.clock.Now()
 	if err := s.enter(ctx, opPresign); err != nil {
 		return "", err
 	}
-	return s.presign(http.MethodGet, key, expiry, url.Values{
+	return s.presign(http.MethodGet, key, signed.Add(expiry), url.Values{
 		"response-content-disposition": {mime.FormatMediaType("attachment", map[string]string{"filename": filename})},
 		"response-content-type":        {contentType},
 	}), nil
 }
 
-func (s *fakeS3) presign(method, key string, expiry time.Duration, params url.Values) string {
+// presign signs a URL that expires at expires. The callers read the clock
+// before any hold: a real client signs offline, the moment tide asks, so a
+// URL's lifetime never depends on how long a held call waited.
+func (s *fakeS3) presign(method, key string, expires time.Time, params url.Values) string {
 	query := url.Values{}
 	for name, values := range params {
 		query[name] = values
 	}
 	query.Set("X-Method", method)
-	query.Set("X-Expires", s.clock.Now().Add(expiry).Format(time.RFC3339Nano))
+	query.Set("X-Expires", expires.Format(time.RFC3339Nano))
 	query.Set("X-Signature", s.sign(key, query))
 	location := url.URL{Path: "/bucket/" + key, RawQuery: query.Encode()}
 	return s.server.URL + location.String()
