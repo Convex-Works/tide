@@ -86,14 +86,17 @@ jobs:
       - name: Annotate the media suite's failure
         if: failure()
         run: |
-          # One annotation per log: its last lines, newlines escaped.
+          # One annotation per log, kept under GitHub's size limit: its last
+          # characters, or only the lines that look like errors.
           annotate() {
             [ -f "$2" ] || return 0
-            tail -n "$3" "$2" | sed -e 's/\x1b\[[0-9;]*m//g' -e 's/%/%25/g' -e 's/\r//g' |
+            sed -e 's/\x1b\[[0-9;]*m//g' -e 's/\r//g' "$2" | $3 | tail -c 3500 | sed -e 's/%/%25/g' |
               awk -v title="$1" 'BEGIN { printf "::error title=%s::", title } { printf "%s%%0A", $0 } END { print "" }'
           }
-          annotate "media suite" "$RUNNER_TEMP/media.log" 80
-          annotate "media stack" artifacts/media/stack.log 60
+          errors() { grep -iE 'error|fail|panic|exited with code|timed out' || true; }
+          annotate "media suite: errors" "$RUNNER_TEMP/media.log" errors
+          annotate "media suite: end" "$RUNNER_TEMP/media.log" cat
+          annotate "media stack: end" artifacts/media/stack.log cat
       - name: Preserve media diagnostics
         if: always()
         uses: actions/upload-artifact@v4
