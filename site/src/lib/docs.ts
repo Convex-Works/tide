@@ -7,6 +7,8 @@ export type DocPage = {
   slug: string;
   path: `/docs${string}`;
   title: string;
+  /** The browser tab and search result title, when the nav title is too short for it. */
+  documentTitle?: string;
   summary: string;
   group: 'guide' | 'reference';
 };
@@ -24,6 +26,14 @@ export const docPages: DocPage[] = [
     path: '/docs/configuration',
     title: 'Configuration',
     summary: 'All environment variables.',
+    group: 'reference'
+  },
+  {
+    slug: 'compare',
+    path: '/docs/compare',
+    title: 'Compare',
+    documentTitle: 'Jitsi, Zoom and Google Meet alternative',
+    summary: 'tide next to Jitsi Meet, Zoom and Google Meet, axis by axis.',
     group: 'reference'
   },
   {

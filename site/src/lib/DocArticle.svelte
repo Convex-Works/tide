@@ -30,7 +30,7 @@
 </script>
 
 <svelte:head>
-  <title>{page.slug === 'index' ? 'Deploy tide' : page.title} · tide</title>
+  <title>{page.slug === 'index' ? 'Deploy tide' : (page.documentTitle ?? page.title)} · tide</title>
   <meta name="description" content={page.summary} />
 </svelte:head>
 

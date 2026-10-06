@@ -43,11 +43,10 @@
   <div class="ml-auto flex items-center gap-4">
     <a
       href={repositoryURL}
-      class="text-ink-2 transition-colors hover:text-ink"
-      aria-label="tide on GitHub"
-      title="GitHub"
+      class="flex items-center gap-1.5 text-[14px] text-ink-2 transition-colors hover:text-ink"
+      title="tide on GitHub"
     >
-      <GithubLogo size={20} />
+      <GithubLogo size={18} />Source
     </a>
     <a class="button button-primary" href={resolve('/docs')}>Deploy</a>
   </div>

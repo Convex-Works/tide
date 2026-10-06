@@ -3,7 +3,7 @@
   fan out toward the bottom as if the plane were folding away, and two pairs
   of tide streams that follow those bent columns and curl to the right. The
   streams are ordered-dither pixels with a fine vertical stripe; surges run
-  down them while they sway. One ink colour at low alpha on the stone.
+  down them while they sway. One ink colour at low alpha on the white.
 
   It is drawn into a buffer of 2×2-pixel cells and scaled up without
   smoothing. Still under prefers-reduced-motion; paused off screen.
