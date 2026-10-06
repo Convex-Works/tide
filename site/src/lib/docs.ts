@@ -7,78 +7,30 @@ export type DocPage = {
   slug: string;
   path: `/docs${string}`;
   title: string;
-  /** The runbook step number, for the four steps that must happen in order. */
-  step?: string;
   summary: string;
-  group: 'runbook' | 'reference';
+  group: 'guide' | 'reference';
 };
 
 export const docPages: DocPage[] = [
   {
     slug: 'index',
     path: '/docs',
-    title: 'Overview',
-    summary: 'The modes, what runs, what you bring, and the order of the steps.',
-    group: 'runbook'
-  },
-  {
-    slug: 'prepare',
-    path: '/docs/prepare',
-    title: 'Prepare',
-    step: '01',
-    summary: 'Hostname, OIDC client, bucket, media network path and secrets.',
-    group: 'runbook'
-  },
-  {
-    slug: 'install',
-    path: '/docs/install',
-    title: 'Install',
-    step: '02',
-    summary: 'Build the image, create secrets, write the Kubernetes overlay, apply.',
-    group: 'runbook'
-  },
-  {
-    slug: 'verify',
-    path: '/docs/verify',
-    title: 'Verify',
-    step: '03',
-    summary: 'Prove sign-in, calls, recording and downloads work.',
-    group: 'runbook'
-  },
-  {
-    slug: 'operate',
-    path: '/docs/operate',
-    title: 'Operate',
-    step: '04',
-    summary: 'Backups, upgrades, rollback and incident evidence.',
-    group: 'runbook'
-  },
-  {
-    slug: 'one-server',
-    path: '/docs/one-server',
-    title: 'One server',
-    summary: 'The binary behind Caddy on one Linux server, or Docker Compose with the recorder.',
-    group: 'reference'
+    title: 'Deploy',
+    summary: 'Run tide on one server or on Kubernetes, with optional sign-in and recording.',
+    group: 'guide'
   },
   {
     slug: 'configuration',
     path: '/docs/configuration',
     title: 'Configuration',
-    summary: 'Every environment variable, its default and its rule.',
-    group: 'reference'
-  },
-  {
-    slug: 'transcripts',
-    path: '/docs/transcripts',
-    title: 'Transcripts',
-    summary: 'Optional transcripts made on hosts’ own computers.',
+    summary: 'All environment variables.',
     group: 'reference'
   },
   {
     slug: 'local',
     path: '/docs/local',
     title: 'Local development',
-    summary: 'Run tide on one machine.',
+    summary: 'Run tide on your computer.',
     group: 'reference'
   }
 ];

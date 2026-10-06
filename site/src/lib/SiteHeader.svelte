@@ -49,6 +49,6 @@
     >
       <GithubLogo size={20} />
     </a>
-    <a class="button button-primary" href={resolve('/docs/[slug]', { slug: 'prepare' })}>Deploy</a>
+    <a class="button button-primary" href={resolve('/docs')}>Deploy</a>
   </div>
 </header>

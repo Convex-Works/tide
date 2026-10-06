@@ -4,23 +4,20 @@ export const prerender = true;
 
 // The index agents start from (llmstxt.org): what tide is, then every page.
 export function GET() {
-  const list = (group: 'runbook' | 'reference') =>
+  const list = (group: 'guide' | 'reference') =>
     docPages
       .filter((page) => page.group === group)
-      .map(
-        (page) =>
-          `- [${page.title}${page.step ? ` (step ${Number(page.step)})` : ''}](${markdownPath(page)}): ${page.summary}`
-      )
+      .map((page) => `- [${page.title}](${markdownPath(page)}): ${page.summary}`)
       .join('\n');
   const body = `# tide
 
-> Simple, self-hostable video conference service in one executable: a Go binary with its web app and media server inside it. Recording adds a recorder.
+> A simple, lightweight video conference service that you host yourself. One program contains the web app and the media server.
 
-To deploy tide on one server, read [One server](/docs/one-server.md). On Kubernetes, follow the runbook steps in order. Each ends with checks that prove it is done. The whole runbook is also one file: [llms-full.txt](/llms-full.txt).
+To deploy tide, follow [Deploy](/docs/index.md) step by step. All pages are also in one file: [llms-full.txt](/llms-full.txt).
 
-## Runbook
+## Guide
 
-${list('runbook')}
+${list('guide')}
 
 ## Reference
 

@@ -26,9 +26,7 @@
           tide. <span class="text-ink-2">Simple, self&#8209;hostable video conference service</span>
         </h1>
         <div class="mt-8 flex flex-wrap gap-2">
-          <a class="button button-primary" href={resolve('/docs/[slug]', { slug: 'prepare' })}
-            >Deploy</a
-          >
+          <a class="button button-primary" href={resolve('/docs')}>Deploy</a>
           <a class="button" href={resolve('/docs/[slug]', { slug: 'local' })}>Run locally</a>
         </div>
         <p class="mt-4 text-[14px] text-ink-2">

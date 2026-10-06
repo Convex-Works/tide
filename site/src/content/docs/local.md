@@ -1,10 +1,8 @@
 # Local development
 
-Run tide on one machine.
+You need Go 1.26 or later and Node 22 or later.
 
-## Just tide
-
-Requires: Go 1.26+, Node 22+.
+## Only tide
 
 ```sh
 cd web && npm install && cd ..
@@ -12,27 +10,25 @@ make build
 ./bin/tide
 ```
 
-Open `http://localhost:8080` and create a room. That is an anonymous meeting server with nothing else running; open the meeting link in a private window to join as a guest.
+Open `http://localhost:8080` and make a room. To join as a guest, open the room link in a private window.
 
-## The whole stack
+## With sign-in and recording
 
-Requires: Go 1.26+, Node 22+, Docker with Compose.
+You also need Docker with Compose.
 
 ```sh
 make dev
 ```
 
-`make dev` runs tide with sign-in and recording: the sign-in server, the object store, Redis and the recorder in Docker, tide and the web app on the host. Open `http://localhost:5173` and sign in as `host@tide.dev` with password `tide-dev`.
+Open `http://localhost:5173`. Sign in as `host@tide.dev` with the password `tide-dev`.
 
-`make dev` is made for macOS with Docker Desktop. On Linux, recordings need one line in `.env` at the repository root: `TIDE_MEDIA_NODE_IP=<your LAN address>` (`make dev` finds it with macOS's `ipconfig`). Meetings work without it.
+`make dev` is for macOS. On Linux, add `TIDE_MEDIA_NODE_IP=<your LAN address>` to `.env` in the repository root, or recordings fail.
 
-| Command      | Does                                                  |
-| ------------ | ----------------------------------------------------- |
-| `make dev`   | run everything locally                                |
-| `make check` | Go vet and tests, web checks, formatting, type drift  |
-| `make build` | build `bin/tide` with the web app embedded            |
-| `make media` | the full media test suite in Docker, about 16 minutes |
+| Command      | Does                                        |
+| ------------ | ------------------------------------------- |
+| `make dev`   | runs everything                             |
+| `make check` | runs the tests and checks                   |
+| `make build` | builds `bin/tide` with the web app in it    |
+| `make media` | runs the media tests in Docker (16 minutes) |
 
-Stop with Ctrl-C. Containers keep running until `docker compose -f deploy/compose.yaml down`.
-
-`make dev` uses development mode, which accepts the secrets committed to the repository, and turns transcripts on. Never use it in production.
+To stop, press Ctrl-C. Then run `docker compose -f deploy/compose.yaml down`.

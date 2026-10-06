@@ -6,7 +6,7 @@
 
   let { children } = $props();
 
-  const runbook = docPages.filter((doc) => doc.group === 'runbook');
+  const guide = docPages.filter((doc) => doc.group === 'guide');
   const reference = docPages.filter((doc) => doc.group === 'reference');
   let menu = $state<HTMLDetailsElement>();
 
@@ -31,7 +31,7 @@
 
 {#snippet contents()}
   <ol class="py-3">
-    {#each runbook as doc (doc.slug)}{@render item(doc)}{/each}
+    {#each guide as doc (doc.slug)}{@render item(doc)}{/each}
   </ol>
   <p class="mt-4 px-4 text-[13px] text-ink-2">Reference</p>
   <ul class="py-3">
