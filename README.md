@@ -118,3 +118,7 @@ and rebuilds changed code for iteration. Stop that stack with
 
 The [architecture contract](docs/ARCHITECTURE.md) defines the system, API,
 authorization rules, design language, and frozen feature scope.
+
+## License
+
+[MIT](LICENSE)
