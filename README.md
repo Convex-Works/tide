@@ -1,151 +1,120 @@
-# tide
+![tide — Simple, self-hosted video meetings](docs/assets/tide-banner.png)
 
-tide is a small, self-hosted video meeting service, and one executable: a Go
-binary with the SvelteKit app and the media server inside it. Recording adds
-one more process, the recorder, and an S3-compatible bucket for the files.
+<p align="center">
+  <a href="https://tide.convex.works">Website</a> ·
+  <a href="https://demo.tide.convex.works">Demo</a> ·
+  <a href="docs/DEPLOYMENT.md">Deployment</a> ·
+  <a href="docs/ARCHITECTURE.md">Architecture</a>
+</p>
 
-The feature list is frozen:
+tide is a self-hosted video meeting service. Its Go binary embeds the SvelteKit
+web app and LiveKit media server. Optional recording uses LiveKit Egress,
+Redis, and S3-compatible storage.
 
-- Reusable meeting links, with OIDC sign-in for hosts or none at all
-- Guest lobby with admit and deny controls
-- Microphone, camera, screen sharing, device selection, and reconnection
-- Per-participant controls for local camera hiding and host mute/remove
+- Meeting links with custom slugs and downloadable calendar invites (`.ics`)
+- Microphone, camera, screen sharing, device selection, and automatic reconnection
+- Guest lobby with host controls to admit, deny, mute, remove, and end meetings
+- Per-participant video hiding for the current viewer
 - Ephemeral in-room chat
-- Server-owned room recording with download and delete management, and
-  speaker-labelled transcripts made on the host's own computer
-
-The system shape and design rules are in
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+- Optional audio and video recording, with download and delete controls
 
 ## Quickstart
 
-Requires Go 1.26 or newer and Node 22 or newer.
+Requires Go 1.26 or later and Node 22 or later. From the repository root:
 
 ```sh
-cd web && npm install && cd ..
+npm ci --prefix web
 make build
 ./bin/tide
 ```
 
-Open `http://localhost:8080` and create a room: that is a working, anonymous
-meeting server, with nothing else running. Open its meeting link in a private
-window to join as a guest. To run it for real, see
-[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md): one binary behind a TLS proxy, Docker
-Compose with the recorder, or Kubernetes.
+With no `TIDE_*` environment variables set, tide runs in anonymous mode at
+`http://localhost:8080`. Create and join a room, then open its meeting link in
+a private window to join as a guest. Admit the guest from the host's People
+panel.
+
+In anonymous mode, anyone who can reach the server can create a room. The
+browser that creates it owns it. Unused rooms expire after 24 hours; restarting
+tide clears every room.
+
+## Deployment
+
+Configuration selects the mode:
+
+| Mode                     | Enabled by                | Room storage | Processes             |
+| ------------------------ | ------------------------- | ------------ | --------------------- |
+| Anonymous                | No OIDC issuer            | In memory    | tide                  |
+| Signed in                | `TIDE_OIDC_ISSUER`        | SQLite       | tide                  |
+| Signed in with recording | OIDC + `TIDE_S3_ENDPOINT` | SQLite       | tide + Egress + Redis |
+
+Sign-in requires an OIDC provider and session and client secrets. Guests join
+with a display name and do not need an account. Recording also requires an
+S3-compatible bucket, storage credentials, and shared media and Redis secrets.
+
+For production, serve tide behind an HTTPS proxy that forwards WebSocket
+upgrades. Media reaches the server directly over UDP 7882, with TCP 7881 as a
+fallback. The [deployment guide](docs/DEPLOYMENT.md) covers the binary, Docker
+Compose, Kubernetes, and all required configuration.
+
+Restarting tide restarts its embedded media server and ends live meetings and
+recordings. An [external media server](docs/DEPLOYMENT.md#external-media-server)
+can keep meetings running across a tide restart.
+
+## Recording
+
+Hosts can record audio as OGG or the meeting layout as MP4. Files go to the
+configured S3-compatible bucket and appear in the room's recording list for
+download or deletion.
+
+Recording runs on the server and continues if the host closes their tab while
+other participants remain. It stops when explicitly stopped or when the room
+empties.
 
 ## Development
 
-`make dev` runs the signed-in deployment with recording. It needs Docker with
-Compose for what tide doesn't contain: Dex for sign-in, MinIO for storage and
-the recorder.
+Install the web dependencies as in Quickstart, then run:
 
 ```sh
 make dev
 ```
 
-Open `http://localhost:5173`. The Dex test login is `host@tide.dev` with
-password `tide-dev`. `make dev` writes the detected LAN address to
-`deploy/.env` as the media address, starts the Compose stack, then runs the Go
-server and Vite.
+This requires Docker with Compose. It starts Dex, MinIO, Redis, and Egress in
+containers, with the Go server and Vite on the host. Open
+`http://localhost:5173` and sign in with `host@tide.dev` / `tide-dev`.
 
-It is made for macOS with Docker Desktop. On Linux, recordings need
-`TIDE_MEDIA_NODE_IP=<LAN address>` (the detection uses macOS's `ipconfig`) in
-`.env` at the repository root, which `make dev` loads last.
+`make dev` detects the LAN address on macOS and writes it to `deploy/.env`.
+On Linux, set `TIDE_MEDIA_NODE_IP=<your LAN address>` in `.env` at the
+repository root so the recorder can reach the media server.
 
-Useful targets:
+Stop the Go server and Vite with Ctrl-C. Stop the containers with:
 
 ```sh
-make check   # server tests and vet, web checks, formatting, generated-type drift
+docker compose -f deploy/compose.yaml down
+```
+
+## Checks and tests
+
+```sh
+make check   # Go vet/tests, web type/format checks, generated API type drift
 make gen     # regenerate TypeScript API types from Go
-make build   # build bin/tide with the SPA embedded
+make build   # build bin/tide with the web app embedded
 ```
 
-## End-to-end tests
+`make check` must pass before committing. API wire types live in
+`server/internal/api`; regenerate them with `make gen` after a change.
 
-Start `make dev` first so tide, the recorder, MinIO, Dex and Vite are
-available. The Playwright setup uses Chromium fake media devices.
+The media gate tests real meetings and recording in its own Docker Compose
+stack. It runs lifecycle, reliability, fuzz, and network-chaos scenarios in CI
+on every pull request:
 
 ```sh
-cd web
-npx playwright test
+make media
+make media-dev ARGS="media-lifecycle.spec.ts --project=chromium"
 ```
 
-### Media gate
+`make media` builds and tears down the stack. `make media-dev` keeps it running
+and rebuilds changed code for iteration. Stop that stack with
+`make media-dev ARGS="--down"`.
 
-The media suite runs against a real SFU in its own sealed Compose stack
-(`deploy/media-test/`) — tide with its media server, the recorder, Dex, MinIO,
-and the browser itself, on a private network with no published ports. It is
-the merge gate, and it runs in full on every pull request.
-
-```sh
-make media                                              # exactly what CI runs
-make media-dev ARGS="media-lifecycle.spec.ts --project=chromium"   # iterate
-```
-
-`make media-dev` keeps the stack up between runs and rebuilds only what
-changed. Note that changes under `web/src` need the tide image rebuilt,
-because the SPA is embedded in the Go binary; the script handles that.
-
-`media-lifecycle.spec.ts` holds the scenarios where a participant is _already_
-in the room when something changes — a later joiner, a reload, a mute, a screen
-share, a departure, a reconnect. See
-[Architecture §14](docs/ARCHITECTURE.md#14-ci) for the rule those encode and
-why an assertion has to prove presence before it proves flow.
-
-### Transcripts with the real moil
-
-`make moil-e2e` builds the moil command line from a checkout at `../moil`
-(or `MOIL_REPO`) and runs `server/e2e`: tide in process, with machines
-that run the real `moil pair`, `moil approve` and `moil agent`, real uv,
-and MinIO in Docker. It isn't part of `make check`; see
-[server/e2e/README.md](server/e2e/README.md).
-
-## Recording
-
-Recording is on when hosts sign in and `TIDE_S3_ENDPOINT` is set. tide starts
-a room-composite job on the recorder and includes the S3 destination in that
-request. The recorder renders tide's own `/egress-template`, writes OGG audio
-or MP4 video to S3-compatible storage, and reports state through signed
-webhooks. Object names include the UTC start time and meeting name, with
-identifying recording metadata stored alongside the file.
-
-## Transcripts
-
-Hosts can pair their own computer with tide through the
-[moil](https://git.convex.works/ConvexWorks/moil) app. From then on, each
-recording of a room they own is transcribed on that computer, never on the
-server: the machine downloads the recording, runs the transcription bundle
-tide publishes (Nemotron 3 Diarization and Parakeet), and returns a
-plain-text transcript and WebVTT captions, which tide keeps beside the
-recording. Older recordings can be transcribed on request. Jobs only go to the
-room owner's own machines, and the owner approves the bundle's exact code in
-the app first. A machine's first transcript downloads 2.9 GB of models, and
-transcribing uses up to 10 GB of memory. On an M3 Max an hour of meeting takes
-about a minute and a half on the GPU, or four minutes on the CPU.
-
-Transcripts need recording, and are off unless the server runs with
-`TIDE_TRANSCRIPTS=true` ([docs/DEPLOYMENT.md](docs/DEPLOYMENT.md#serve-transcripts)):
-moil is alpha.
-`make dev` turns them on. To try them in development, open `/machines` and
-choose **Add a machine**, or pair from a terminal with the moil CLI:
-
-```sh
-moil pair http://localhost:5173/moil   # confirm the code on the page it opens
-moil review tide                      # the transcription bundle and its hash
-moil approve tide <hash>              # read it in full, then approve it
-moil agent                             # take jobs until Ctrl-C
-```
-
-[Architecture §8.1](docs/ARCHITECTURE.md#81-transcripts) has the design.
-
-## Production notes
-
-[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) covers the modes, ports, every
-variable and the three ways to run tide. Configuration is specified in
-[Architecture §12](docs/ARCHITECTURE.md#12-configuration). Restarting tide
-restarts its media server and ends live meetings; an operator who can't
-accept that keeps an external media server with `TIDE_MEDIA_URL`.
-
-tide is an AGPL-free, fresh-history implementation and derives no code from
-the AGPL-licensed mirotalksfu project. That separation is recorded in the
-[decision log](docs/ARCHITECTURE.md#17-decision-log).
+The [architecture contract](docs/ARCHITECTURE.md) defines the system, API,
+authorization rules, design language, and frozen feature scope.

@@ -1,0 +1,872 @@
+<!doctype html>
+<!--
+  tide's GitHub README banner, composed from the documentation website.
+  From the repository root, after installing site dependencies:
+    python3 -m http.server 8765 --bind 127.0.0.1
+  Open http://localhost:8765/docs/assets/tide-banner.html and select Download PNG.
+  html-to-image 1.11.13 renders the 1280 × 840 composition at 2× resolution.
+  Export controls sit outside #banner and are never included in the image.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>tide · GitHub banner</title>
+    <style>
+      @font-face {
+        font-family: "Geist Variable";
+        src: url("../../site/node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2")
+          format("woff2");
+        font-weight: 100 900;
+        font-style: normal;
+        font-display: block;
+      }
+      @font-face {
+        font-family: "Inter Variable";
+        src: url("../../site/node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2")
+          format("woff2");
+        font-weight: 100 900;
+        font-style: normal;
+        font-display: block;
+      }
+      @font-face {
+        font-family: "Geist Mono Variable";
+        src: url("../../site/node_modules/@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2")
+          format("woff2");
+        font-weight: 100 900;
+        font-style: normal;
+        font-display: block;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        color: #171717;
+        background: #ecece6;
+        font-family: "Geist Variable", sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      #banner {
+        position: relative;
+        width: 1280px;
+        height: 840px;
+        overflow: hidden;
+        background: #fff;
+      }
+      .intro {
+        position: relative;
+        z-index: 2;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding-top: 48px;
+      }
+      .wordmark {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 50px;
+        line-height: 58px;
+        font-weight: 600;
+        letter-spacing: -1.5px;
+      }
+      .wordmark svg {
+        flex: none;
+      }
+      h1 {
+        margin: 25px 0 0;
+        font-size: 36px;
+        line-height: 44px;
+        font-weight: 500;
+        letter-spacing: -1.25px;
+      }
+      .subtitle {
+        margin: 10px 0 0;
+        color: #6e6e64;
+        font-size: 17px;
+        line-height: 26px;
+        font-weight: 400;
+      }
+      #tide-backdrop {
+        position: absolute;
+        top: 212px;
+        left: 0;
+        width: 1280px;
+        height: 628px;
+        image-rendering: pixelated;
+        opacity: 0.72;
+      }
+      .new-room-frame {
+        position: absolute;
+        z-index: 1;
+        left: 167px;
+        top: 239px;
+        width: 416px;
+        transform: rotate(-1deg);
+        transform-origin: top left;
+      }
+      .meeting-frame {
+        position: absolute;
+        z-index: 2;
+        left: 414px;
+        top: 282px;
+        width: 620px;
+        transform: scale(1.15);
+        transform-origin: top left;
+      }
+      .export-controls {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        width: 1280px;
+        padding: 16px 24px;
+        font-size: 14px;
+      }
+      .export-controls button {
+        padding: 8px 12px;
+        color: #fff;
+        background: #2320e6;
+        border: 0;
+        border-radius: 4px;
+        font: inherit;
+        cursor: pointer;
+      }
+      .export-controls button:disabled {
+        opacity: 0.5;
+        cursor: wait;
+      }
+      .export-controls span {
+        color: #6e6e64;
+      }
+      svg {
+        display: block;
+      }
+      .meeting-frame {
+        /* The app's dark meeting tokens (web/src/app.css). */
+        .stage {
+          --stage: #0f0f0e;
+          --panel: #161615;
+          --panel-2: #1e1e1c;
+          --border-d: #2a2a27;
+          --text: #edede6;
+          --text-2: #8f8f85;
+          --accent: #2320e6;
+          --accent-d: #5b58ff;
+          --rec: #e5484d;
+
+          position: relative;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          padding: 0 12px 12px;
+          overflow: hidden;
+          color: var(--text);
+          background: var(--stage);
+          border: 1px solid var(--border-d);
+          border-radius: 10px;
+          box-shadow:
+            0 0 0 1px rgb(0 0 0 / 0.4),
+            0 24px 60px -24px rgb(0 0 0 / 0.8);
+          font-family: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+          font-size: 13px;
+        }
+
+        .hairline {
+          height: 2px;
+          margin: 0 -12px;
+          background: var(--accent);
+        }
+
+        .top {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          height: 22px;
+          color: var(--text);
+        }
+
+        .clock {
+          min-width: 2.6em;
+          font-size: 12.5px;
+          font-variant-numeric: tabular-nums;
+        }
+
+        .rule {
+          width: 1px;
+          height: 12px;
+          background: var(--border-d);
+        }
+
+        .room {
+          font-weight: 500;
+        }
+
+        .top svg {
+          color: var(--text-2);
+        }
+
+        .grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 8px;
+        }
+
+        .tile {
+          position: relative;
+          aspect-ratio: 16 / 9;
+          overflow: hidden;
+          background: var(--panel-2);
+          border: 1px solid var(--border-d);
+          border-radius: 8px;
+          transition: border-color 120ms ease-out;
+        }
+
+        .tile.speaking {
+          border-color: var(--accent-d);
+        }
+
+        .tile img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          border-radius: 7px;
+        }
+
+        .label {
+          position: absolute;
+          bottom: 6px;
+          left: 6px;
+          display: flex;
+          align-items: center;
+          gap: 5px;
+          padding: 1px 6px;
+          color: var(--text-2);
+          font-size: 12px;
+          background: color-mix(in srgb, var(--stage) 78%, transparent);
+          border: 1px solid var(--border-d);
+          border-radius: 4px;
+          transition: color 120ms ease-out;
+        }
+
+        .speaking .label {
+          color: var(--text);
+        }
+
+        .you {
+          color: var(--text-2);
+        }
+
+        .bar {
+          display: flex;
+          align-items: center;
+          align-self: center;
+          gap: 6px;
+          margin-top: 2px;
+          padding: 8px;
+          background: var(--panel);
+          border: 1px solid var(--border-d);
+          border-radius: 6px;
+        }
+
+        .control {
+          position: relative;
+          display: grid;
+          width: 28px;
+          height: 28px;
+          place-items: center;
+          border-radius: 4px;
+        }
+
+        .caret {
+          display: grid;
+          width: 12px;
+          margin-left: -4px;
+          place-items: center;
+          color: var(--text-2);
+        }
+
+        .separator {
+          width: 1px;
+          height: 16px;
+          background: var(--border-d);
+        }
+
+        .badge {
+          position: absolute;
+          top: -3px;
+          right: -3px;
+          display: grid;
+          min-width: 14px;
+          height: 14px;
+          padding: 0 3px;
+          place-items: center;
+          color: #fff;
+          font-size: 9px;
+          font-weight: 600;
+          background: var(--accent-d);
+          border-radius: 7px;
+        }
+
+        .leave {
+          color: var(--rec);
+        }
+
+        @media (max-width: 480px) {
+          .stage {
+            gap: 8px;
+            padding: 0 8px 8px;
+          }
+
+          .hairline {
+            margin: 0 -8px;
+          }
+
+          .grid {
+            gap: 6px;
+          }
+
+          .label {
+            font-size: 11px;
+          }
+
+          .bar {
+            gap: 2px;
+            padding: 6px;
+          }
+
+          .caret {
+            display: none;
+          }
+        }
+      }
+      .new-room-frame {
+        /* The app's light-shell tokens (web/src/app.css). */
+        .card {
+          --paper: #f5f5f0;
+          --surface: #ecece6;
+          --border: #d8d8ce;
+          --ink: #171717;
+          --ink-2: #6e6e64;
+          --accent: #2320e6;
+
+          display: grid;
+          padding: 12px;
+          color: var(--ink);
+          background: var(--paper);
+          border: 1px solid var(--border);
+          border-radius: 6px;
+          box-shadow: 0 8px 24px rgb(23 23 23 / 14%);
+          font-family: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+          font-size: 13px;
+          font-weight: 450;
+          line-height: 20px;
+        }
+
+        .head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin: -4px 0 8px;
+          color: var(--ink-2);
+        }
+
+        .title {
+          color: var(--ink);
+          font-size: 15px;
+          font-weight: 550;
+        }
+
+        .label {
+          margin: 4px 0 4px;
+          color: var(--ink-2);
+          font-size: 12px;
+        }
+
+        .field {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          height: 28px;
+          min-width: 0;
+          padding: 0 8px;
+          overflow: hidden;
+          white-space: nowrap;
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: 4px;
+        }
+
+        .field svg {
+          flex: none;
+          color: var(--ink-2);
+        }
+
+        .link {
+          margin-bottom: 4px;
+        }
+
+        .slug {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          font-family: "Geist Mono Variable", ui-monospace, monospace;
+          font-size: 12px;
+        }
+
+        .prefix {
+          color: var(--ink-2);
+        }
+
+        .check {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          margin: 8px 0 4px;
+        }
+
+        .box {
+          display: grid;
+          width: 14px;
+          height: 14px;
+          place-items: center;
+          color: #fff;
+          background: var(--accent);
+          border-radius: 3px;
+        }
+
+        .times {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) 112px 112px;
+          column-gap: 8px;
+        }
+
+        .actions {
+          display: flex;
+          justify-content: flex-end;
+          gap: 8px;
+          margin-top: 12px;
+        }
+
+        .button {
+          display: inline-flex;
+          align-items: center;
+          height: 28px;
+          padding: 0 10px;
+          font-size: 12px;
+          font-weight: 550;
+          background: var(--paper);
+          border: 1px solid var(--border);
+          border-radius: 4px;
+        }
+
+        .button.accent {
+          color: #fff;
+          background: var(--accent);
+          border-color: var(--accent);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main
+      id="banner"
+      aria-label="tide. Simple, self-hosted video meetings. One binary. Your server. Your conversations."
+    >
+      <canvas
+        id="tide-backdrop"
+        width="640"
+        height="314"
+        aria-hidden="true"
+      ></canvas>
+      <header class="intro">
+        <div class="wordmark">
+          <svg
+            xmlns="http://www.w3.org/2000/svg"
+            width="58"
+            height="58"
+            aria-hidden="true"
+            viewBox="0 0 100 100"
+          >
+            <title>tide</title>
+            <path
+              fill-rule="evenodd"
+              fill="currentColor"
+              d="M4 93.5C4.5 92.7 5.7 90.3 6.7 88.8C7.7 87.3 8.8 85.9 9.8 84.4C10.9 83 11.9 81.5 12.9 80C13.8 78.4 14.6 76.8 15.4 75.2C16.2 73.6 16.8 71.9 17.6 70.2C18.3 68.6 19.1 67 19.9 65.4C20.8 63.8 21.7 62.3 22.7 60.8C23.7 59.2 24.7 57.8 25.8 56.3C26.9 54.9 28 53.5 29.1 52.1C30.3 50.7 31.5 49.4 32.7 48C33.9 46.7 35.2 45.4 36.4 44.1C37.7 42.8 38.9 41.5 40.2 40.3C41.4 39 42.7 37.7 44 36.4C45.3 35.2 46.5 33.9 47.9 32.7C49.3 31.5 50.7 30.4 52.1 29.3C53.5 28.2 55 27.2 56.6 26.3C58.1 25.4 59.7 24.5 61.4 23.8C63 23.2 64.8 22.7 66.6 22.4C68.3 22 70.1 21.8 71.9 21.9C73.7 22 75.6 22.2 77.2 22.9C78.8 23.6 80.4 24.6 81.6 25.9C82.8 27.2 83.8 28.9 84.4 30.5C85.1 32.1 85.5 34 85.6 35.7C85.6 37.5 85.3 39.4 84.8 41.1C84.3 42.7 83.4 44.4 82.5 45.9C81.6 47.5 80.5 49 79.3 50.3C78 51.5 76.6 52.7 75 53.5C73.4 54.3 71.5 54.9 69.8 54.8C68.1 54.8 66 54.2 64.8 53.2C63.6 52.1 62.8 50.1 62.4 48.4C62 46.8 62.1 44.7 62.6 43.1C63 41.4 63.8 39.2 65.1 38.4C66.3 37.7 69.3 38.4 70.1 38.4L70.1 38.4C69 38.4 65 37.2 63.2 38.1C61.4 39.1 59.9 41.9 59.4 44.1C58.9 46.3 59.4 49.1 60.3 51.3C61.2 53.4 63.1 55.4 65 56.8C66.8 58.3 69.3 59.3 71.6 59.8C73.9 60.3 76.6 60.2 78.9 59.8C81.3 59.3 83.7 58.4 85.7 57.1C87.8 55.9 89.7 54.2 91.2 52.3C92.7 50.4 94 48.2 94.8 45.9C95.6 43.7 96 41.1 96 38.7C96 36.3 95.6 33.8 94.9 31.5C94.2 29.2 93.1 26.9 91.8 24.9C90.5 22.8 88.8 21 87.1 19.2C85.4 17.5 83.5 15.9 81.6 14.5C79.6 13 77.5 11.7 75.4 10.6C73.2 9.5 70.8 8.6 68.5 8C66.2 7.3 63.7 6.9 61.3 6.7C58.9 6.5 56.4 6.5 54 6.8C51.5 7 49.1 7.4 46.7 8.1C44.4 8.7 42 9.5 39.8 10.4C37.6 11.4 35.4 12.6 33.3 13.9C31.2 15.1 29.2 16.6 27.4 18.2C25.6 19.8 23.8 21.6 22.3 23.4C20.7 25.3 19.3 27.3 18.1 29.4C16.8 31.6 15.8 33.8 14.9 36C13.9 38.3 13.2 40.6 12.5 43C11.8 45.3 11.3 47.7 10.7 50.1C10.2 52.5 9.7 54.9 9.2 57.3C8.7 59.7 8.2 62.1 7.7 64.5C7.1 66.9 6.4 69.2 6 71.6C5.6 74 5.2 76.5 5.1 78.9C4.9 81.3 5.1 83.8 4.9 86.2C4.7 88.7 4.2 92.3 4 93.5ZM19.6 42.7C19.8 42.2 20.6 40.6 21.2 39.6C21.8 38.5 22.5 37.5 23.1 36.5C23.8 35.5 24.5 34.6 25.3 33.6C26 32.7 26.8 31.8 27.6 30.9C28.4 30 29.2 29.2 30.1 28.3C31 27.5 31.9 26.7 32.8 25.9C33.7 25.2 34.6 24.4 35.6 23.7C36.5 23 37.5 22.3 38.5 21.6C39.4 20.9 40.4 20.2 41.4 19.5C42.4 18.9 43.4 18.2 44.5 17.6C45.5 17 46.5 16.4 47.6 15.8C48.6 15.3 49.7 14.7 50.8 14.3C51.9 13.8 53 13.3 54.1 13C55.3 12.6 56.5 12.3 57.6 12.1C58.8 11.9 60.6 11.8 61.2 11.7L61.2 11.7C60.6 11.8 58.7 11.9 57.5 12C56.3 12.1 55.1 12.2 53.8 12.4C52.6 12.6 51.4 12.9 50.2 13.2C49.1 13.5 47.9 13.9 46.7 14.3C45.5 14.7 44.4 15.1 43.3 15.6C42.1 16.1 41 16.6 39.9 17.2C38.9 17.8 37.8 18.5 36.8 19.2C35.8 19.9 34.9 20.7 34 21.5C33 22.3 32.1 23.2 31.3 24.1C30.5 25 29.6 25.9 28.9 26.8C28.1 27.8 27.4 28.8 26.7 29.8C26 30.8 25.3 31.9 24.7 32.9C24 34 23.4 35.1 22.9 36.1C22.3 37.2 21.7 38.3 21.2 39.4C20.6 40.5 19.8 42.2 19.6 42.7ZM31.2 35.9C31.6 35.5 32.6 34.3 33.3 33.5C34.1 32.7 34.8 32 35.6 31.2C36.4 30.5 37.2 29.8 38 29.1C38.9 28.5 39.7 27.8 40.6 27.2C41.4 26.6 42.3 26 43.2 25.4C44.2 24.9 45.1 24.4 46 23.8C47 23.3 47.9 22.8 48.9 22.4C49.8 21.9 50.8 21.5 51.8 21C52.7 20.6 53.7 20.1 54.7 19.8C55.7 19.4 56.6 19.1 57.6 18.8C58.7 18.5 59.7 18.2 60.7 18C61.8 17.7 62.8 17.5 63.9 17.4C64.9 17.3 66 17.2 67.1 17.2C68.1 17.1 69.2 17.2 70.3 17.3C71.3 17.5 72.9 17.8 73.4 17.9L73.4 17.9C72.9 17.8 71.3 17.4 70.2 17.2C69.1 17 68.1 16.8 67 16.7C65.9 16.6 64.8 16.5 63.7 16.5C62.6 16.5 61.5 16.5 60.4 16.6C59.3 16.7 58.2 16.8 57.2 17C56.1 17.2 55 17.4 54 17.7C52.9 18 51.9 18.5 50.9 18.9C49.9 19.4 48.9 19.9 48 20.4C47 21 46.1 21.5 45.2 22.1C44.3 22.8 43.4 23.4 42.6 24.1C41.7 24.8 40.9 25.5 40.1 26.2C39.3 26.9 38.5 27.7 37.7 28.5C36.9 29.3 36.2 30.1 35.5 30.9C34.7 31.7 34 32.5 33.3 33.4C32.6 34.2 31.6 35.5 31.2 35.9Z"
+            />
+          </svg>
+          <span>tide</span>
+        </div>
+        <h1>Simple, self-hosted video meetings.</h1>
+        <p class="subtitle">One binary. Your server. Your conversations.</p>
+      </header>
+      <div class="new-room-frame" aria-hidden="true">
+        <div class="card">
+          <div class="head">
+            <span class="title">New room</span
+            ><svg
+              width="16"
+              height="16"
+              viewBox="0 0 256 256"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"
+              />
+            </svg>
+          </div>
+          <span class="label">Name</span><span class="field">Weekly sync</span>
+          <span class="label">Link</span>
+          <span class="field link"
+            ><span class="slug"
+              ><span class="prefix">https://meet.example.com/m/</span
+              >chw-pnih-sxi</span
+            ><svg
+              width="16"
+              height="16"
+              viewBox="0 0 256 256"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                d="M237.66,178.34a8,8,0,0,1,0,11.32l-24,24a8,8,0,0,1-11.32-11.32L212.69,192H200.94a72.12,72.12,0,0,1-58.59-30.15l-41.72-58.4A56.1,56.1,0,0,0,55.06,80H32a8,8,0,0,1,0-16H55.06a72.12,72.12,0,0,1,58.59,30.15l41.72,58.4A56.1,56.1,0,0,0,200.94,176h11.75l-10.35-10.34a8,8,0,0,1,11.32-11.32ZM143,107a8,8,0,0,0,11.16-1.86l1.2-1.67A56.1,56.1,0,0,1,200.94,80h11.75L202.34,90.34a8,8,0,0,0,11.32,11.32l24-24a8,8,0,0,0,0-11.32l-24-24a8,8,0,0,0-11.32,11.32L212.69,64H200.94a72.12,72.12,0,0,0-58.59,30.15l-1.2,1.67A8,8,0,0,0,143,107Zm-30,42a8,8,0,0,0-11.16,1.86l-1.2,1.67A56.1,56.1,0,0,1,55.06,176H32a8,8,0,0,0,0,16H55.06a72.12,72.12,0,0,0,58.59-30.15l1.2-1.67A8,8,0,0,0,113,149Z"
+              /></svg
+          ></span>
+          <span class="check"
+            ><span class="box"
+              ><svg
+                width="10"
+                height="10"
+                viewBox="0 0 256 256"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z"
+                /></svg></span
+            >Add to calendar</span
+          >
+          <div class="times">
+            <span class="label">Date</span><span class="label">Starts</span
+            ><span class="label">Ends</span>
+            <span class="field"
+              >10/05/2026
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 256 256"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  d="M208,32H184V24a8,8,0,0,0-16,0v8H88V24a8,8,0,0,0-16,0v8H48A16,16,0,0,0,32,48V208a16,16,0,0,0,16,16H208a16,16,0,0,0,16-16V48A16,16,0,0,0,208,32ZM72,48v8a8,8,0,0,0,16,0V48h80v8a8,8,0,0,0,16,0V48h24V80H48V48ZM208,208H48V96H208V208Z"
+                /></svg
+            ></span>
+            <span class="field"
+              >07:30 PM
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 256 256"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm64-88a8,8,0,0,1-8,8H128a8,8,0,0,1-8-8V72a8,8,0,0,1,16,0v48h48A8,8,0,0,1,192,128Z"
+                /></svg
+            ></span>
+            <span class="field"
+              >08:00 PM
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 256 256"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm64-88a8,8,0,0,1-8,8H128a8,8,0,0,1-8-8V72a8,8,0,0,1,16,0v48h48A8,8,0,0,1,192,128Z"
+                /></svg
+            ></span>
+          </div>
+          <div class="actions">
+            <span class="button">Create</span
+            ><span class="button accent">Create &amp; join</span>
+          </div>
+        </div>
+      </div>
+      <div class="meeting-frame">
+        <div
+          class="stage"
+          role="img"
+          aria-label="A tide meeting with Daniel, Maya, Marcus and Nikos"
+        >
+          <div class="hairline"></div>
+          <div class="top">
+            <span class="clock">15:53</span><span class="rule"></span
+            ><span class="room">Weekly sync</span
+            ><svg
+              width="15"
+              height="15"
+              viewBox="0 0 256 256"
+              fill="currentColor"
+              aria-hidden="true"
+            >
+              <path
+                d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm16-40a8,8,0,0,1-8,8,16,16,0,0,1-16-16V128a8,8,0,0,1,0-16,16,16,0,0,1,16,16v40A8,8,0,0,1,144,176ZM112,84a12,12,0,1,1,12,12A12,12,0,0,1,112,84Z"
+              />
+            </svg>
+          </div>
+          <div class="grid">
+            <div class="tile">
+              <img src="../../site/static/meeting/daniel.jpg" alt="" />
+              <span class="label"><span>Daniel</span></span>
+            </div>
+            <div class="tile speaking">
+              <img src="../../site/static/meeting/maya.jpg" alt="" />
+              <span class="label"><span>Maya</span></span>
+            </div>
+            <div class="tile">
+              <img src="../../site/static/meeting/marcus.jpg" alt="" />
+              <span class="label"
+                ><span>Marcus</span
+                ><svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 256 256"
+                  fill="currentColor"
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M213.92,218.62l-160-176A8,8,0,0,0,42.08,53.38L80,95.09V128a48,48,0,0,0,69.11,43.12l11.1,12.2A63.41,63.41,0,0,1,128,192a64.07,64.07,0,0,1-64-64,8,8,0,0,0-16,0,80.11,80.11,0,0,0,72,79.6V240a8,8,0,0,0,16,0V207.59a78.83,78.83,0,0,0,35.16-12.22l30.92,34a8,8,0,1,0,11.84-10.76ZM128,160a32,32,0,0,1-32-32V112.69l41.66,45.82A32,32,0,0,1,128,160Zm57.52-3.91A63.32,63.32,0,0,0,192,128a8,8,0,0,1,16,0,79.16,79.16,0,0,1-8.11,35.12,8,8,0,0,1-7.19,4.49,7.88,7.88,0,0,1-3.51-.82A8,8,0,0,1,185.52,156.09ZM84,44.87A48,48,0,0,1,176,64v64a49.19,49.19,0,0,1-.26,5,8,8,0,0,1-8,7.17,8.13,8.13,0,0,1-.84,0,8,8,0,0,1-7.12-8.79c.11-1.1.17-2.24.17-3.36V64A32,32,0,0,0,98.64,51.25,8,8,0,1,1,84,44.87Z"
+                  /></svg
+              ></span>
+            </div>
+            <div class="tile">
+              <img src="../../site/static/meeting/nikos.jpg" alt="" />
+              <span class="label"
+                ><span>Nikos</span><span class="you">(You)</span></span
+              >
+            </div>
+          </div>
+          <div class="bar">
+            <span class="control"
+              ><svg
+                width="16"
+                height="16"
+                viewBox="0 0 256 256"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  d="M128,176a48.05,48.05,0,0,0,48-48V64a48,48,0,0,0-96,0v64A48.05,48.05,0,0,0,128,176ZM96,64a32,32,0,0,1,64,0v64a32,32,0,0,1-64,0Zm40,143.6V240a8,8,0,0,1-16,0V207.6A80.11,80.11,0,0,1,48,128a8,8,0,0,1,16,0,64,64,0,0,0,128,0,8,8,0,0,1,16,0A80.11,80.11,0,0,1,136,207.6Z"
+                /></svg></span
+            ><span class="caret"
+              ><svg
+                width="10"
+                height="10"
+                viewBox="0 0 256 256"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  d="M213.66,165.66a8,8,0,0,1-11.32,0L128,91.31,53.66,165.66a8,8,0,0,1-11.32-11.32l80-80a8,8,0,0,1,11.32,0l80,80A8,8,0,0,1,213.66,165.66Z"
+                /></svg></span
+            ><span class="control"
+              ><svg
+                width="16"
+                height="16"
+                viewBox="0 0 256 256"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  d="M251.77,73a8,8,0,0,0-8.21.39L208,97.05V72a16,16,0,0,0-16-16H32A16,16,0,0,0,16,72V184a16,16,0,0,0,16,16H192a16,16,0,0,0,16-16V159l35.56,23.71A8,8,0,0,0,248,184a8,8,0,0,0,8-8V80A8,8,0,0,0,251.77,73ZM192,184H32V72H192V184Zm48-22.95-32-21.33V116.28L240,95Z"
+                /></svg></span
+            ><span class="caret"
+              ><svg
+                width="10"
+                height="10"
+                viewBox="0 0 256 256"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  d="M213.66,165.66a8,8,0,0,1-11.32,0L128,91.31,53.66,165.66a8,8,0,0,1-11.32-11.32l80-80a8,8,0,0,1,11.32,0l80,80A8,8,0,0,1,213.66,165.66Z"
+                /></svg></span
+            ><span class="control"
+              ><svg
+                width="16"
+                height="16"
+                viewBox="0 0 256 256"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  d="M232,56V200a16,16,0,0,1-16,16H144a8,8,0,0,1,0-16h72V56H40V96a8,8,0,0,1-16,0V56A16,16,0,0,1,40,40H216A16,16,0,0,1,232,56ZM32,184a8,8,0,0,0,0,16,8,8,0,0,1,8,8,8,8,0,0,0,16,0A24,24,0,0,0,32,184Zm0-32a8,8,0,0,0,0,16,40,40,0,0,1,40,40,8,8,0,0,0,16,0A56.06,56.06,0,0,0,32,152Zm0-32a8,8,0,0,0,0,16,72.08,72.08,0,0,1,72,72,8,8,0,0,0,16,0A88.1,88.1,0,0,0,32,120Z"
+                /></svg></span
+            ><span class="control"
+              ><svg
+                width="16"
+                height="16"
+                viewBox="0 0 256 256"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  d="M128,24A104,104,0,1,0,232,128,104.11,104.11,0,0,0,128,24Zm0,192a88,88,0,1,1,88-88A88.1,88.1,0,0,1,128,216Zm0-160a72,72,0,1,0,72,72A72.08,72.08,0,0,0,128,56Zm0,128a56,56,0,1,1,56-56A56.06,56.06,0,0,1,128,184Z"
+                /></svg></span
+            ><span class="separator"></span
+            ><span class="control"
+              ><svg
+                width="16"
+                height="16"
+                viewBox="0 0 256 256"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  d="M216,40H40A16,16,0,0,0,24,56V200a16,16,0,0,0,16,16H216a16,16,0,0,0,16-16V56A16,16,0,0,0,216,40ZM96,120a32,32,0,1,1,32,32A32,32,0,0,1,96,120ZM72.57,200a64,64,0,0,1,110.86,0ZM216,200H201.33a80.14,80.14,0,0,0-43.69-42.28,48,48,0,1,0-59.28,0A80.14,80.14,0,0,0,54.67,200H40V56H216V200Z"
+                /></svg
+            ></span>
+            <span class="control people"
+              ><svg
+                width="16"
+                height="16"
+                viewBox="0 0 256 256"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  d="M244.8,150.4a8,8,0,0,1-11.2-1.6A51.6,51.6,0,0,0,192,128a8,8,0,0,1-7.37-4.89,8,8,0,0,1,0-6.22A8,8,0,0,1,192,112a24,24,0,1,0-23.24-30,8,8,0,1,1-15.5-4A40,40,0,1,1,219,117.51a67.94,67.94,0,0,1,27.43,21.68A8,8,0,0,1,244.8,150.4ZM190.92,212a8,8,0,1,1-13.84,8,57,57,0,0,0-98.16,0,8,8,0,1,1-13.84-8,72.06,72.06,0,0,1,33.74-29.92,48,48,0,1,1,58.36,0A72.06,72.06,0,0,1,190.92,212ZM128,176a32,32,0,1,0-32-32A32,32,0,0,0,128,176ZM72,120a8,8,0,0,0-8-8A24,24,0,1,1,87.24,82a8,8,0,1,0,15.5-4A40,40,0,1,0,37,117.51,67.94,67.94,0,0,0,9.6,139.19a8,8,0,1,0,12.8,9.61A51.6,51.6,0,0,1,64,128,8,8,0,0,0,72,120Z"
+                /></svg
+              ><span class="badge">4</span></span
+            >
+            <span class="control"
+              ><svg
+                width="16"
+                height="16"
+                viewBox="0 0 256 256"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  d="M172,112a8,8,0,0,1-8,8H96a8,8,0,0,1,0-16h68A8,8,0,0,1,172,112Zm-8,24H96a8,8,0,0,0,0,16h68a8,8,0,0,0,0-16Zm68-12A100.11,100.11,0,0,1,132,224H48a16,16,0,0,1-16-16V124a100,100,0,0,1,200,0Zm-16,0a84,84,0,0,0-168,0v84h84A84.09,84.09,0,0,0,216,124Z"
+                /></svg></span
+            ><span class="separator"></span>
+            <span class="control leave"
+              ><svg
+                width="16"
+                height="16"
+                viewBox="0 0 256 256"
+                fill="currentColor"
+                aria-hidden="true"
+              >
+                <path
+                  d="M231.59,90.13h0C175.44,34,80.56,34,24.41,90.13c-20,20-21.92,49.49-4.69,71.71A16,16,0,0,0,32.35,168a15.8,15.8,0,0,0,5.75-1.08l49-17.37.29-.11a16,16,0,0,0,9.75-11.73l5.9-29.52a76.52,76.52,0,0,1,49.68-.11h0l6.21,29.75a16,16,0,0,0,9.72,11.59l.29.11,49,17.39a16,16,0,0,0,18.38-5.06C253.51,139.62,251.58,110.13,231.59,90.13ZM223.67,152l-.3-.12-48.82-17.33-6.21-29.74A16,16,0,0,0,158,93a92.56,92.56,0,0,0-60.34.13,16,16,0,0,0-10.32,12l-5.9,29.51L32.63,151.86c-.1,0-.17.13-.27.17-12.33-15.91-11-36.23,3.36-50.58,25-25,58.65-37.53,92.28-37.53s67.27,12.51,92.28,37.53C234.61,115.8,236,136.12,223.67,152Zm.32,48a8,8,0,0,1-8,8H40a8,8,0,0,1,0-16H216A8,8,0,0,1,224,200Z"
+                /></svg
+            ></span>
+          </div>
+        </div>
+      </div>
+    </main>
+    <div class="export-controls">
+      <button id="download" type="button">Download PNG</button>
+      <span id="export-status" role="status">2560 × 1680 · PNG</span>
+    </div>
+    <script src="https://cdn.jsdelivr.net/npm/html-to-image@1.11.13/dist/html-to-image.js"></script>
+    <script>
+      // A still frame of site/src/lib/TideBackdrop.svelte's dithered streams.
+      const canvas = document.getElementById("tide-backdrop");
+      const context = canvas.getContext("2d");
+      const w = canvas.width,
+        h = canvas.height;
+      const image = context.createImageData(w, h);
+      const pixels = new Uint32Array(image.data.buffer);
+      const bayer = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5].map(
+        (v) => (v + 0.5) / 16,
+      );
+      const ink = (alpha) => ((Math.round(alpha * 255) << 24) | 0x171717) >>> 0;
+      const dots = Array.from({ length: 8 }, (_, i) => ink(0.07 + i * 0.016));
+      const fan = (x, y) => w / 2 + (x - w / 2) * (1 + (y / h) ** 2.2);
+      for (let y = 11; y < h; y += 11) {
+        const tall = y > h * 0.7 ? 2 : 1;
+        for (let gx = -w; gx < w * 2; gx += 14) {
+          const x = Math.round(fan(gx, y));
+          if (x < 0 || x >= w) continue;
+          for (let k = 0; k < tall && y + k < h; k++)
+            pixels[(y + k) * w + x] =
+              dots[Math.min(7, Math.floor((y / h) * 8))];
+        }
+      }
+      for (const pair of [
+        { at: 0.2, gap: 0.035, phase: 0 },
+        { at: 0.76, gap: 0.04, phase: 2.1 },
+      ]) {
+        for (const offset of [0, pair.gap]) {
+          for (let y = Math.round(h * 0.12); y < h; y++) {
+            const v = y / h;
+            const centre =
+              fan((pair.at + offset) * w, y) +
+              Math.max(0, v - 0.45) ** 2 * w * 0.4;
+            const half = 2 + v * 6;
+            const reach = Math.ceil(half * 2.2);
+            const rise = Math.min(1, (v - 0.12) / 0.3);
+            const surge =
+              0.55 + 0.45 * Math.sin(y * 0.07 + pair.phase + offset * 40);
+            for (
+              let x = Math.max(0, Math.floor(centre - reach));
+              x < Math.min(w, centre + reach);
+              x++
+            ) {
+              const d = (x - centre) / half;
+              const level = Math.exp(-d * d) * rise * surge * (x & 1 ? 0.6 : 1);
+              if (level > bayer[(y & 3) * 4 + (x & 3)])
+                pixels[y * w + x] = ink(0.24);
+            }
+          }
+        }
+      }
+      context.putImageData(image, 0, 0);
+
+      async function renderBanner() {
+        await document.fonts.ready;
+        await Promise.all(
+          Array.from(document.querySelectorAll("#banner img"), (img) =>
+            img.decode(),
+          ),
+        );
+        return htmlToImage.toPng(document.getElementById("banner"), {
+          width: 1280,
+          height: 840,
+          pixelRatio: 2,
+          backgroundColor: "#ffffff",
+          preferredFontFormat: "woff2",
+        });
+      }
+      document
+        .getElementById("download")
+        .addEventListener("click", async (event) => {
+          const button = event.currentTarget;
+          const status = document.getElementById("export-status");
+          button.disabled = true;
+          status.textContent = "Rendering…";
+          try {
+            const link = document.createElement("a");
+            link.download = "tide-banner.png";
+            link.href = await renderBanner();
+            link.click();
+            status.textContent = "2560 × 1680 · PNG";
+          } catch (error) {
+            console.error(error);
+            status.textContent =
+              "Export failed. Check the browser console and retry.";
+          } finally {
+            button.disabled = false;
+          }
+        });
+    </script>
+  </body>
+</html>
