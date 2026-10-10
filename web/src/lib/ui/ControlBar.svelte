@@ -14,7 +14,8 @@
     UserRectangle,
     UsersThree,
     VideoCamera,
-    VideoCameraSlash
+    VideoCameraSlash,
+    X
   } from 'phosphor-svelte';
   import type { RoomState } from '$lib/rtc/room.svelte';
   import { endMeeting, startRecording, stopRecording } from '$lib/api/client';
@@ -82,7 +83,8 @@
 
   function pickDevice(kind: DeviceMenuKind, deviceId: string): void {
     deviceMenu = '';
-    void run(() => rtc.switchDevice(kind, deviceId));
+    // The media controls report their own failures as rtc.mediaError.
+    void rtc.switchDevice(kind, deviceId);
   }
 
   async function leave(): Promise<void> {
@@ -90,12 +92,14 @@
     onleave();
   }
 
-  async function run(action: () => Promise<void>): Promise<void> {
-    try {
-      await action();
-    } catch {
-      // Browser media pickers may be cancelled without changing meeting rtc.
-    }
+  // One notice at a time above the bar. What the user just did here
+  // (recording, ending) outranks a device problem, which stays until fixed.
+  const notice = $derived(recordingError || endError || rtc.mediaError?.message || '');
+
+  function dismissNotice(): void {
+    if (recordingError) recordingError = '';
+    else if (endError) endError = '';
+    else rtc.dismissMediaError();
   }
 
   async function toggleRecording(): Promise<void> {
@@ -193,7 +197,7 @@
       aria-label={rtc.micEnabled ? 'Mute microphone' : 'Unmute microphone'}
       aria-pressed={rtc.micEnabled}
       title={rtc.micEnabled ? 'Mute microphone' : 'Unmute microphone'}
-      onclick={() => void run(() => rtc.toggleMic())}
+      onclick={() => void rtc.toggleMic()}
     >
       {#if rtc.micEnabled}
         <Microphone size={16} weight="regular" aria-hidden="true" />
@@ -228,7 +232,7 @@
       aria-label={rtc.camEnabled ? 'Turn camera off' : 'Turn camera on'}
       aria-pressed={rtc.camEnabled}
       title={rtc.camEnabled ? 'Turn camera off' : 'Turn camera on'}
-      onclick={() => void run(() => rtc.toggleCam())}
+      onclick={() => void rtc.toggleCam()}
     >
       {#if rtc.camEnabled}
         <VideoCamera size={16} weight="regular" aria-hidden="true" />
@@ -262,7 +266,7 @@
     aria-label={rtc.screenShareEnabled ? 'Stop sharing' : 'Share screen'}
     aria-pressed={rtc.screenShareEnabled}
     title={rtc.screenShareEnabled ? 'Stop sharing' : 'Share screen'}
-    onclick={() => void run(() => rtc.toggleScreenShare())}
+    onclick={() => void rtc.toggleScreenShare()}
   >
     <Screencast size={16} weight="regular" aria-hidden="true" />
   </button>
@@ -356,10 +360,19 @@
 
   <span class="separator" aria-hidden="true"></span>
 
-  {#if recordingError || endError}
-    <span class="recording-error" class:raised={leaveConfirm || recordingConfirm} role="alert"
-      >{recordingError || endError}</span
-    >
+  {#if notice}
+    <div class="bar-notice" class:raised={leaveConfirm || recordingConfirm}>
+      <span role="alert">{notice}</span>
+      <button
+        type="button"
+        class="notice-dismiss"
+        aria-label="Dismiss"
+        title="Dismiss"
+        onclick={dismissNotice}
+      >
+        <X size={12} weight="regular" aria-hidden="true" />
+      </button>
+    </div>
   {/if}
 
   {#if canManage}
@@ -542,18 +555,33 @@
     background: color-mix(in srgb, var(--rec) 85%, black);
   }
 
-  .recording-error {
+  .bar-notice {
     position: absolute;
     right: 0;
     bottom: calc(100% + 6px);
+    display: flex;
+    gap: 4px;
+    align-items: flex-start;
     width: max-content;
-    max-width: 280px;
-    padding: 4px 7px;
+    max-width: min(300px, calc(100vw - 24px));
+    padding: 4px 3px 4px 7px;
     color: var(--text);
-    font-size: 11px;
+    font-size: 12px;
+    line-height: 18px;
     background: var(--panel);
     border: 1px solid var(--rec);
     border-radius: var(--radius-control);
+  }
+
+  .bar-notice button.notice-dismiss {
+    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    color: var(--text-2);
+  }
+
+  .bar-notice button.notice-dismiss:hover {
+    color: var(--text);
   }
 
   button.leave {
@@ -734,7 +762,7 @@
       border-color: color-mix(in srgb, var(--rec) 32%, transparent);
     }
 
-    .recording-error.raised {
+    .bar-notice.raised {
       bottom: calc(100% + 54px);
     }
   }
