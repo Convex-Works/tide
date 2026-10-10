@@ -14,7 +14,7 @@ RUN npm ci
 COPY web/ ./
 RUN npx vite build
 
-FROM golang:1.26.5-alpine3.23 AS go-builder
+FROM golang:1.26.9-alpine3.23 AS go-builder
 WORKDIR /src/server
 
 COPY server/go.mod server/go.sum ./

@@ -248,9 +248,10 @@ test('a departing participant is dropped by everyone', async ({ browser }) => {
 
 /**
  * A long-lived tab drops and recovers in more than one way, and the paths are
- * not equivalent. A resume buffers events and flushes them *before* flipping
- * the state back to connected, so anything tide discards while it considers
- * itself reconnecting is gone. A full restart is harsher still: LiveKit tears
+ * not equivalent. A resume buffers events and, since livekit-client 2.21,
+ * flushes them only *after* flipping the state back to connected; before that
+ * they arrived while tide still considered itself reconnecting, so anything it
+ * discarded then was gone. A full restart is harsher still: LiveKit tears
  * down every remote participant, then re-adds them from the join response.
  * Someone arriving during either window is the shape of the reported incident.
  */
