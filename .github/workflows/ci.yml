@@ -71,6 +71,7 @@ jobs:
           npx playwright test anonymous.spec.ts device-error-messages.spec.ts \
             device-errors.spec.ts ics.spec.ts machines.spec.ts meeting-chrome.spec.ts \
             new-room.spec.ts recording-off.spec.ts room-page.spec.ts transcripts-off.spec.ts
+      - name: Generate API types
         run: make gen
       - name: Check generated type drift
         run: git diff --exit-code -- web/src/lib/api/types.gen.ts

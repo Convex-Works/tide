@@ -237,6 +237,12 @@ export class RoomState {
   private projectionHeartbeat?: ReturnType<typeof setInterval>;
   private connectionEpoch = 0;
   private readonly mediumTargets = new Map<ToggledMedium, boolean>();
+  // The change loop that currently owns each control. Disconnecting disowns
+  // them all, so a loop still awaiting LiveKit from the last session cannot
+  // keep a control busy, or swallow a click, in the next one.
+  private readonly mediumLoops = new Map<ToggledMedium, object>();
+  // Date.now() ties within a millisecond; this does not.
+  private mediaErrorOrder = 0;
   private readonly deviceSwitches: Record<DeviceKind, number> = {
     audioinput: 0,
     videoinput: 0,
@@ -414,9 +420,10 @@ export class RoomState {
     } catch (error) {
       this.recordHandlerFault('join-media', error);
     }
-    // Not for a session that ended while its devices were starting.
+    // Not for a session that ended while its devices were starting. Deferred,
+    // so a sound that throws cannot reject a join that already succeeded.
     if (epoch === this.connectionEpoch && this.room.state === ConnectionState.Connected) {
-      playParticipantEnteredSound();
+      this.deferSideEffect('join', playParticipantEnteredSound);
     }
   }
 
@@ -432,6 +439,10 @@ export class RoomState {
    * specific to the chosen device, so it is reported without trying another
    * one — a different camera than the one picked is not opened behind the
    * user's back.
+   *
+   * This runs outside requestMedium's per-control queue. That is safe only
+   * because the page mounts the control bar after connect() resolves; a
+   * control reachable during join would need to go through the queue.
    */
   private async startJoinMedium(
     medium: 'microphone' | 'camera',
@@ -501,7 +512,7 @@ export class RoomState {
   get mediaError(): MediaErrorView | undefined {
     let latest: MediaErrorView | undefined;
     for (const view of Object.values(this.mediaErrors)) {
-      if (view && (!latest || view.at >= latest.at)) latest = view;
+      if (view && (!latest || view.order > latest.order)) latest = view;
     }
     return latest;
   }
@@ -524,19 +535,25 @@ export class RoomState {
    */
   private async requestMedium(medium: ToggledMedium, enabled: boolean): Promise<void> {
     this.mediumTargets.set(medium, enabled);
-    if (this.mediaBusy[medium]) return;
+    if (this.mediumLoops.has(medium)) return;
+    const loop = {};
+    this.mediumLoops.set(medium, loop);
     this.mediaBusy = { ...this.mediaBusy, [medium]: true };
     try {
       let applied: boolean | undefined;
       let target = this.mediumTargets.get(medium);
-      while (target !== undefined && target !== applied) {
+      while (target !== undefined && target !== applied && this.mediumLoops.get(medium) === loop) {
         applied = target;
         await this.setMedium(medium, target, this.connectionEpoch);
         target = this.mediumTargets.get(medium);
       }
     } finally {
-      this.mediaBusy = { ...this.mediaBusy, [medium]: false };
-      this.mediumTargets.delete(medium);
+      // A disowned loop leaves the control to whoever owns it now.
+      if (this.mediumLoops.get(medium) === loop) {
+        this.mediumLoops.delete(medium);
+        this.mediumTargets.delete(medium);
+        this.mediaBusy = { ...this.mediaBusy, [medium]: false };
+      }
     }
   }
 
@@ -578,7 +595,10 @@ export class RoomState {
     if (epoch !== this.connectionEpoch || this.room.state === ConnectionState.Disconnected) return;
     const message = describeMediaError(medium, error, currentMediaEnvironment(), action);
     if (message === undefined) return;
-    this.mediaErrors = { ...this.mediaErrors, [medium]: { kind: medium, message, at: Date.now() } };
+    this.mediaErrors = {
+      ...this.mediaErrors,
+      [medium]: { kind: medium, message, order: ++this.mediaErrorOrder }
+    };
   }
 
   private clearMediaError(medium: MediaErrorKind, epoch: number): void {
@@ -1017,6 +1037,8 @@ export class RoomState {
     this.connectionEpoch += 1;
     this.mediaErrors = {};
     this.mediumTargets.clear();
+    this.mediumLoops.clear();
+    this.mediaBusy = { microphone: false, camera: false, screen: false };
     setConnectionChrome('offline');
   }
 

@@ -11,7 +11,8 @@ export type MediaErrorKind = 'microphone' | 'camera' | 'screen' | 'speaker';
 export interface MediaErrorView {
   kind: MediaErrorKind;
   message: string;
-  at: number;
+  /** When it happened relative to the others: higher is newer. */
+  order: number;
 }
 
 /** Whether the failure came from turning a medium on or from switching its device. */
