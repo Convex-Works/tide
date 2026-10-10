@@ -15,7 +15,8 @@ import { fakeSfuURL } from './mock-api';
 // is answered by a second RTCPeerConnection inside the same page, so ICE
 // completes locally and livekit-client sees a really connected transport.
 // Nobody else is in the room and nothing is forwarded: media behaviour
-// belongs to the real-SFU suite (`make media`), not here.
+// belongs to the real-SFU suite (`make media`), not here. Local publications
+// are acknowledged, so a spec can turn a camera or microphone on.
 
 /**
  * Chromium hides host candidates behind mDNS names that two peers in one page
@@ -137,7 +138,26 @@ export async function fakeSfu(page: Page, { metadata = '' } = {}): Promise<FakeS
       if (typeof message === 'string') return;
       const signal = SignalRequest.fromBinary(new Uint8Array(message)).message;
       if (signal.case === 'offer') answer(signal.value);
-      else if (signal.case === 'trickle')
+      else if (signal.case === 'addTrack') {
+        // Acknowledges a local publication so publishing a camera or
+        // microphone completes; the track itself goes nowhere.
+        const track = signal.value;
+        send(ws, {
+          case: 'trackPublished',
+          value: {
+            cid: track.cid,
+            track: {
+              sid: `TR_${track.cid}`,
+              type: track.type,
+              name: track.name,
+              source: track.source,
+              muted: track.muted,
+              width: track.width,
+              height: track.height
+            }
+          }
+        });
+      } else if (signal.case === 'trickle')
         later(() => addCandidateInPage(page, signal.value.candidateInit));
       else if (signal.case === 'leave') void ws.close();
     });

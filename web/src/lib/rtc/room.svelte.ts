@@ -20,8 +20,19 @@ import {
 } from '$lib/sounds';
 import { setConnectionChrome } from './connection.svelte';
 import { projectParticipants, type MediaSubscriptionFailure, type ParticipantView } from './media';
+import {
+  DeviceSwitchError,
+  currentMediaEnvironment,
+  describeMediaError,
+  isMissingDevice,
+  mediaErrorDetail,
+  type MediaAction,
+  type MediaErrorKind,
+  type MediaErrorView
+} from './mediaErrors';
 
 export type { MediaSubscriptionFailure, MediaTrackView, ParticipantView } from './media';
+export type { MediaErrorKind, MediaErrorView } from './mediaErrors';
 
 export type DeviceKind = 'audioinput' | 'videoinput' | 'audiooutput';
 
@@ -76,7 +87,10 @@ const maximumHandlerFaults = 50;
 // event is a blink rather than a reload.
 const projectionHeartbeatInterval = 2_000;
 
-/** What this client observed LiveKit emit. Bounded, local, never auto-shipped. */
+/**
+ * What this client observed LiveKit emit, plus the local capture failures tide
+ * caught itself (`LocalMediaFailed`). Bounded, local, never auto-shipped.
+ */
 export interface MediaLedgerEntry {
   at: number;
   event: string;
@@ -139,6 +153,12 @@ function projectionSignature(views: ParticipantView[]): string {
     .join('\n');
 }
 
+function mediumOf(kind: MediaDeviceKind): MediaErrorKind {
+  if (kind === 'audioinput') return 'microphone';
+  if (kind === 'videoinput') return 'camera';
+  return 'speaker';
+}
+
 export class RoomState {
   // Both layer-pausing optimisations are OFF, for one reason: a paused video
   // layer that never resumes is indistinguishable from a broken one, and tide
@@ -171,6 +191,13 @@ export class RoomState {
   canPlaybackAudio = $state(true);
   canPlaybackVideo = $state(true);
   mediaPlaybackError = $state('');
+  /**
+   * The last local device failure (camera in use, access blocked, device
+   * gone…), shown in the meeting chrome until that medium next works, the
+   * user dismisses it, or the meeting ends. A failed device never ends the
+   * meeting: the user stays connected with that medium off.
+   */
+  mediaError = $state<MediaErrorView>();
   subscriptionFailures = $state<Record<string, MediaSubscriptionFailure>>({});
   devices = $state<DeviceLists>({ audioinput: [], videoinput: [], audiooutput: [] });
   activeDeviceIds = $state<ActiveDeviceIds>({
@@ -307,6 +334,15 @@ export class RoomState {
     this.listen(RoomEvent.MediaDevicesChanged, () => {
       void this.refreshDevices().catch(() => undefined);
     });
+    // LiveKit emits this when it could not create a camera or microphone
+    // track. tide's own calls catch the rejection too; the event covers any
+    // capture LiveKit starts by itself. Screen share arrives here without a
+    // kind and is reported by toggleScreenShare, which can tell a cancelled
+    // picker from a failure.
+    this.listen(RoomEvent.MediaDevicesError, (error, kind) => {
+      if (kind === 'audioinput') this.showMediaError('microphone', error);
+      else if (kind === 'videoinput') this.showMediaError('camera', error);
+    });
 
     if (typeof window !== 'undefined') {
       if (import.meta.env.DEV || import.meta.env.VITE_TIDE_TEST === 'true') {
@@ -331,6 +367,10 @@ export class RoomState {
     this.mediaPlaybackRecoveryAttempted = false;
     this.mediaPlaybackAttemptInFlight = false;
     this.subscriptionFailures = {};
+    this.mediaError = undefined;
+    // Only the room connection can fail the join. Devices are attempted after
+    // it, each on its own: a camera in use or a revoked permission leaves the
+    // user in the meeting with that medium off and a message saying why.
     try {
       await this.room.connect(wsURL, token);
       this.applyConnectionState(this.room.state);
@@ -338,25 +378,77 @@ export class RoomState {
       this.canPlaybackVideo = this.room.canPlaybackVideo;
       if (!this.canPlaybackAudio || !this.canPlaybackVideo) this.recoverMediaPlayback();
       this.syncRoomMetadata();
-
-      if (media.audioDeviceId) {
-        await this.switchDevice('audioinput', media.audioDeviceId);
-      }
-      if (media.videoDeviceId) {
-        await this.switchDevice('videoinput', media.videoDeviceId);
-      }
-
-      await Promise.all([
-        this.room.localParticipant.setMicrophoneEnabled(media.micEnabled),
-        this.room.localParticipant.setCameraEnabled(media.camEnabled)
-      ]);
-      this.syncAllMediaState();
-      await this.refreshDevices().catch(() => undefined);
-      playParticipantEnteredSound();
     } catch (error) {
       await this.leave().catch(() => undefined);
       throw error;
     }
+
+    await Promise.all([
+      this.startJoinMedium('microphone', media.micEnabled, media.audioDeviceId),
+      this.startJoinMedium('camera', media.camEnabled, media.videoDeviceId)
+    ]);
+    this.syncAllMediaState();
+    await this.refreshDevices().catch(() => undefined);
+    playParticipantEnteredSound();
+  }
+
+  /**
+   * Applies the device chosen in pre-join and, if asked, turns the medium on.
+   * Never rejects. With no tracks yet, choosing a device only sets LiveKit's
+   * capture constraint; the device is opened by the enable that follows. A
+   * device unplugged between pre-join and join therefore fails that enable
+   * as "not found", and the medium falls back to the default device rather
+   * than staying off: the user asked for it on, and the device menu shows
+   * which one it is. Any other failure (in use, blocked) is not specific to
+   * the chosen device, so it is reported without trying another one — a
+   * different camera than the one picked is not opened behind the user's
+   * back.
+   */
+  private async startJoinMedium(
+    medium: 'microphone' | 'camera',
+    enabled: boolean,
+    deviceId?: string
+  ): Promise<void> {
+    const kind = medium === 'microphone' ? 'audioinput' : 'videoinput';
+    let chosen = false;
+    if (deviceId) {
+      try {
+        chosen = await this.room.switchActiveDevice(kind, deviceId);
+      } catch (error) {
+        this.recordMediaFailure(medium, error);
+      }
+      if (!chosen) await this.useDefaultDevice(kind);
+    }
+    if (!enabled) return;
+    const enable = (): Promise<unknown> =>
+      medium === 'microphone'
+        ? this.room.localParticipant.setMicrophoneEnabled(true)
+        : this.room.localParticipant.setCameraEnabled(true);
+    try {
+      await enable();
+      this.clearMediaError(medium);
+      return;
+    } catch (error) {
+      if (!chosen || !isMissingDevice(error)) {
+        this.reportMediaError(medium, error);
+        return;
+      }
+      this.recordMediaFailure(medium, error);
+    }
+    await this.useDefaultDevice(kind);
+    try {
+      await enable();
+      this.clearMediaError(medium);
+    } catch (error) {
+      this.reportMediaError(medium, error);
+    }
+  }
+
+  /** Points capture back at the browser's default device, LiveKit's own default constraint. */
+  private async useDefaultDevice(kind: 'audioinput' | 'videoinput'): Promise<void> {
+    await this.room
+      .switchActiveDevice(kind, 'default', false)
+      .catch((error: unknown) => this.recordMediaFailure(mediumOf(kind), error));
   }
 
   /** True while the browser is refusing to play media and is waiting for a gesture. */
@@ -364,19 +456,74 @@ export class RoomState {
     return this.mediaPlaybackError !== '';
   }
 
+  // The media controls never reject: a failure becomes `mediaError`, and the
+  // control state is re-read from LiveKit afterwards either way.
+
   async toggleMic(): Promise<void> {
-    await this.room.localParticipant.setMicrophoneEnabled(!this.micEnabled);
-    this.syncAllMediaState();
+    await this.runMediaAction('microphone', () =>
+      this.room.localParticipant.setMicrophoneEnabled(!this.micEnabled)
+    );
   }
 
   async toggleCam(): Promise<void> {
-    await this.room.localParticipant.setCameraEnabled(!this.camEnabled);
-    this.syncAllMediaState();
+    await this.runMediaAction('camera', () =>
+      this.room.localParticipant.setCameraEnabled(!this.camEnabled)
+    );
   }
 
+  /** A cancelled screen picker is not an error and shows nothing (see describeMediaError). */
   async toggleScreenShare(): Promise<void> {
-    await this.room.localParticipant.setScreenShareEnabled(!this.screenShareEnabled);
-    this.syncAllMediaState();
+    await this.runMediaAction('screen', () =>
+      this.room.localParticipant.setScreenShareEnabled(!this.screenShareEnabled)
+    );
+  }
+
+  dismissMediaError(): void {
+    this.mediaError = undefined;
+  }
+
+  private async runMediaAction(
+    medium: MediaErrorKind,
+    action: () => Promise<unknown>
+  ): Promise<void> {
+    try {
+      await action();
+      this.clearMediaError(medium);
+    } catch (error) {
+      this.reportMediaError(medium, error);
+    } finally {
+      this.syncAllMediaState();
+    }
+  }
+
+  /** Records the failure for diagnostics, then shows it unless it needs no telling. */
+  private reportMediaError(
+    medium: MediaErrorKind,
+    error: unknown,
+    action: MediaAction = 'start'
+  ): void {
+    this.recordMediaFailure(medium, error);
+    this.showMediaError(medium, error, action);
+  }
+
+  private showMediaError(
+    medium: MediaErrorKind,
+    error: unknown,
+    action: MediaAction = 'start'
+  ): void {
+    // A capture that settles after the meeting ended has nothing to report to.
+    if (this.room.state === ConnectionState.Disconnected) return;
+    const message = describeMediaError(medium, error, currentMediaEnvironment(), action);
+    if (message === undefined) return;
+    this.mediaError = { kind: medium, message, at: Date.now() };
+  }
+
+  private clearMediaError(medium: MediaErrorKind): void {
+    if (this.mediaError?.kind === medium) this.mediaError = undefined;
+  }
+
+  private recordMediaFailure(medium: MediaErrorKind, error: unknown): void {
+    this.recordLedger('LocalMediaFailed', { detail: mediaErrorDetail(medium, error) });
   }
 
   isParticipantCameraHidden(identity: string): boolean {
@@ -501,12 +648,50 @@ export class RoomState {
     return participant.role === 'host';
   }
 
+  /**
+   * Never rejects. When the new device fails to open, LiveKit has already
+   * stopped the old one, so a published medium would sit "on" sending
+   * nothing. It goes back to the device it had; if that fails too it is
+   * turned off, so the control shows what is really happening.
+   */
   async switchDevice(kind: DeviceKind, deviceId: string): Promise<void> {
-    const switched = await this.room.switchActiveDevice(kind, deviceId);
-    if (!switched) {
-      throw new Error('Could not switch media device.');
+    const medium = mediumOf(kind);
+    const previous = this.room.getActiveDevice(kind);
+    try {
+      const switched = await this.room.switchActiveDevice(kind, deviceId);
+      if (!switched) throw new DeviceSwitchError('The device in use is not the one chosen.');
+      this.activeDeviceIds = { ...this.activeDeviceIds, [kind]: deviceId };
+      this.clearMediaError(medium);
+      return;
+    } catch (error) {
+      this.reportMediaError(medium, error, 'switch');
     }
-    this.activeDeviceIds = { ...this.activeDeviceIds, [kind]: deviceId };
+    if (kind !== 'audiooutput') await this.restoreDevice(kind, previous);
+    this.syncAllMediaState();
+    await this.refreshDevices().catch(() => undefined);
+  }
+
+  private async restoreDevice(
+    kind: 'audioinput' | 'videoinput',
+    previous: string | undefined
+  ): Promise<void> {
+    const medium = mediumOf(kind);
+    // LiveKit reports 'default' until a track tells it the real id; only
+    // Chrome has a device by that name, so it is asked for loosely.
+    const known = previous && previous !== 'default' ? previous : undefined;
+    try {
+      if (await this.room.switchActiveDevice(kind, known ?? 'default', known !== undefined)) {
+        return;
+      }
+    } catch (error) {
+      this.recordMediaFailure(medium, error);
+    }
+    const participant = this.room.localParticipant;
+    await (
+      kind === 'audioinput'
+        ? participant.setMicrophoneEnabled(false)
+        : participant.setCameraEnabled(false)
+    ).catch((error: unknown) => this.recordMediaFailure(medium, error));
   }
 
   async refreshDevices(): Promise<void> {
@@ -735,6 +920,7 @@ export class RoomState {
     this.mediaPlaybackRecoveryAttempted = false;
     this.markPlaybackHealthy();
     this.subscriptionFailures = {};
+    this.mediaError = undefined;
     setConnectionChrome('offline');
   }
 
@@ -1043,11 +1229,14 @@ export class RoomState {
    * cannot distinguish "never told" from "told and mishandled"; the sequence
    * can, and that is what an incident report is read from.
    */
+  private recordLedger(event: string, entry: Omit<MediaLedgerEntry, 'at' | 'event'> = {}): void {
+    this.eventLedger.push({ at: Date.now(), event, ...entry });
+    if (this.eventLedger.length > maximumLedgerEntries) this.eventLedger.shift();
+  }
+
   private installEventLedger(): void {
-    const record = (event: string, entry: Omit<MediaLedgerEntry, 'at' | 'event'> = {}): void => {
-      this.eventLedger.push({ at: Date.now(), event, ...entry });
-      if (this.eventLedger.length > maximumLedgerEntries) this.eventLedger.shift();
-    };
+    const record = (event: string, entry: Omit<MediaLedgerEntry, 'at' | 'event'> = {}): void =>
+      this.recordLedger(event, entry);
     this.listen(RoomEvent.ConnectionStateChanged, (state) =>
       record('ConnectionStateChanged', { detail: state })
     );
@@ -1105,6 +1294,11 @@ export class RoomState {
     this.listen(RoomEvent.Reconnecting, () => record('Reconnecting'));
     this.listen(RoomEvent.SignalReconnecting, () => record('SignalReconnecting'));
     this.listen(RoomEvent.Reconnected, () => record('Reconnected'));
+    this.listen(RoomEvent.MediaDevicesError, (error, kind) =>
+      record('MediaDevicesError', {
+        detail: mediaErrorDetail(kind ? mediumOf(kind) : 'screen', error)
+      })
+    );
   }
 
   private installMediaTestHooks(): void {

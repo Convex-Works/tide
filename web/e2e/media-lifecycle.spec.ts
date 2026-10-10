@@ -137,6 +137,48 @@ test('an existing participant converges even when told nothing', async ({ browse
   }
 });
 
+test('a camera that cannot open leaves the participant in the meeting', async ({ browser }) => {
+  const meeting = await Meeting.open(browser);
+  try {
+    const host = await meeting.join({ name: 'host-capture', as: 'owner' });
+    // Microphone only: the camera is what fails.
+    const guest = await meeting.join({ name: 'guest-no-camera', camera: false });
+    await expectMeshHealthy([host, guest]);
+
+    // The sealed stack serves plain http off localhost, so the page has no
+    // navigator.mediaDevices and turning the camera on cannot open anything:
+    // the same path a revoked permission or a camera in use takes.
+    const capture = await guest.captureDiagnostics();
+    test.skip(
+      capture.hasMediaDevices === true,
+      'needs a page without navigator.mediaDevices, as the sealed stack serves it'
+    );
+    await guest.clearLedger();
+
+    const bar = guest.page.getByRole('navigation', { name: 'Meeting controls' });
+    await bar.getByRole('button', { name: 'Turn camera on' }).click();
+    await expect(bar.getByRole('alert')).toHaveText(
+      'Your browser only allows the camera on https pages. Open the meeting over https.'
+    );
+    await expect(bar.getByRole('button', { name: 'Turn camera on' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    );
+
+    // Still connected: the existing participant still sees and hears the
+    // guest, and the guest still has the host.
+    await expectMeshHealthy([host, guest]);
+    await expectNoUncaughtErrors(guest);
+    const failures = (await guest.ledger()).filter((entry) => entry.event === 'LocalMediaFailed');
+    expect(
+      failures.map((entry) => entry.detail?.split(':')[0]),
+      'the capture failure must be recorded for tideDiagnostics()'
+    ).toContain('camera');
+  } finally {
+    await meeting.close();
+  }
+});
+
 test('a guest reload re-converges for everyone', async ({ browser }) => {
   const meeting = await Meeting.open(browser);
   try {
