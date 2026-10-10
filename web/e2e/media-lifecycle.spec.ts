@@ -296,15 +296,12 @@ test('a departing participant is dropped by everyone', async ({ browser }) => {
  * discarded then was gone. A full restart is harsher still: LiveKit tears
  * down every remote participant, then re-adds them from the join response.
  * Someone arriving during either window is the shape of the reported incident.
+ *
+ * 'node-failure' and 'disconnect-signal-on-resume' were parked until
+ * livekit-client 2.22.4 + server 1.13.9: before that pair the host ended with
+ * zero remote participants, livekit-client itself not recovering. On the old
+ * pair they failed 4/4, on the new one they pass 4/4, so they gate now.
  */
-// 'node-failure' and 'disconnect-signal-on-resume' are deliberately not gated
-// yet: on those the host ends up with *zero* remote participants, meaning
-// livekit-client itself did not recover, not that tide mis-projected. The
-// media stack is single-node, so there may be nowhere to fail over to and the
-// result may be an artifact of the harness rather than a product bug. They are
-// listed so the gap stays visible; triage before enabling.
-const triageOnly = new Set(['node-failure', 'disconnect-signal-on-resume']);
-
 for (const scenario of [
   'signal-reconnect',
   'full-reconnect',
@@ -312,10 +309,6 @@ for (const scenario of [
   'disconnect-signal-on-resume'
 ]) {
   test(`a ${scenario} while someone joins still converges`, async ({ browser }) => {
-    test.skip(
-      triageOnly.has(scenario),
-      'Needs triage: SDK-level non-recovery on a single-node SFU'
-    );
     test.slow();
     const meeting = await Meeting.open(browser);
     try {
