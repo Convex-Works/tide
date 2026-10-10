@@ -8,6 +8,9 @@ export default defineConfig({
     host: true,
     // Egress's headless Chrome loads /egress-template from inside Docker.
     allowedHosts: ['host.docker.internal'],
+    // CI's browser specs need no hot reload, and the Forgejo runner's
+    // containers run out of file watches before Vite can start (EMFILE).
+    watch: process.env.CI ? null : undefined,
     proxy: {
       '/api': 'http://localhost:8080',
       // moil machines pair and keep their WebSocket here (ARCHITECTURE.md §8.1).
