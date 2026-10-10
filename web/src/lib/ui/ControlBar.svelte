@@ -507,6 +507,14 @@
     opacity: 0.6;
   }
 
+  /* Still clickable (a click while busy sets the next request), but visibly
+     waiting — on the permission prompt, usually. Static: §10 allows no
+     ambient motion here. */
+  button[aria-busy='true'] {
+    cursor: progress;
+    opacity: 0.75;
+  }
+
   .record-group,
   .record-confirm,
   .leave-group,
