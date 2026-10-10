@@ -46,6 +46,10 @@ jobs:
         # The mock API and fake SFU need no Docker, no tide and no sign-in.
         # Specs that need a live server are not listed here.
         working-directory: web
+        # This runner doesn't set CI, which turns off Vite's file watcher
+        # (vite.config.ts); its containers run out of watches without that.
+        env:
+          CI: "true"
         run: |
           npx playwright install --with-deps chromium
           npx playwright test anonymous.spec.ts device-error-messages.spec.ts \
