@@ -16,13 +16,13 @@
   "dependencies": {
     "bits-ui": "^2.18.1",
     "cuelume": "file:vendor/cuelume-0.1.2-14a71236.tgz",
-    "livekit-client": "2.20.1",
+    "livekit-client": "2.22.4",
     "phosphor-svelte": "^3.0.1"
   },
   "devDependencies": {
     "@fontsource-variable/inter": "^5.2.6",
     "@fontsource/geist-mono": "^5.2.6",
-    "@livekit/protocol": "1.46.6",
+    "@livekit/protocol": "1.52.1",
     "@playwright/test": "^1.61.1",
     "@sveltejs/adapter-static": "^3.0.8",
     "@sveltejs/kit": "^2.20.0",

@@ -629,9 +629,11 @@ export class RoomState {
       // legitimately need a fresh one.
       this.mediaPlaybackRecoveryAttempted = false;
       // The exact moment reconciliation becomes legal again is the moment to
-      // re-derive: a resume flushes LiveKit's buffered events *before* this
-      // transition, and Reconnected is not emitted when the state did not
-      // actually change.
+      // re-derive. Since livekit-client 2.21 a resume emits its buffered
+      // events *after* this transition, so they would usually mark the
+      // projection dirty themselves; this does not rely on it, since a resume
+      // may have buffered nothing and Reconnected is not emitted when the
+      // state did not actually change.
       this.markProjectionDirty(true);
     } else {
       this.stopProjectionHeartbeat();

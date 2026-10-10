@@ -20,7 +20,7 @@ Redis, and S3-compatible storage.
 
 ## Quickstart
 
-Requires Go 1.26 or later and Node 22 or later. From the repository root:
+Requires Go 1.26.8 or later and Node 22 or later. From the repository root:
 
 ```sh
 npm ci --prefix web
