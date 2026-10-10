@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
       - uses: actions/setup-node@v4
         with:
@@ -62,7 +62,15 @@ jobs:
             echo "Production build contains media test instrumentation."
             exit 1
           fi
-      - name: Generate API types
+      - name: Browser specs against mocks
+        # The mock API and fake SFU need no Docker, no tide and no sign-in.
+        # Specs that need a live server are not listed here.
+        working-directory: web
+        run: |
+          npx playwright install --with-deps chromium
+          npx playwright test anonymous.spec.ts device-error-messages.spec.ts \
+            device-errors.spec.ts ics.spec.ts machines.spec.ts meeting-chrome.spec.ts \
+            new-room.spec.ts recording-off.spec.ts room-page.spec.ts transcripts-off.spec.ts
         run: make gen
       - name: Check generated type drift
         run: git diff --exit-code -- web/src/lib/api/types.gen.ts

@@ -61,6 +61,28 @@ test('camera and microphone failures say what happened and what to do', () => {
       'camera',
       browserError('AbortError', 'Starting videoinput failed'),
       "Your camera didn't start. Try again, or choose another one."
+    ],
+    // Chrome, when the permission prompt was closed rather than answered.
+    [
+      'camera',
+      browserError('NotAllowedError', 'Permission dismissed'),
+      'The camera prompt was closed. Turn the camera on again and allow access.'
+    ],
+    [
+      'microphone',
+      browserError('NotAllowedError', 'Permission dismissed'),
+      'The microphone prompt was closed. Unmute again and allow access.'
+    ],
+    // Captured fine, then livekit-client could not publish it: not the device's fault.
+    [
+      'camera',
+      browserError('PublishTrackError', 'publication of local track timed out'),
+      "Your camera couldn't be sent to the meeting. Check your connection, then turn the camera on."
+    ],
+    [
+      'microphone',
+      browserError('UnexpectedConnectionState', 'cannot publish track when not connected'),
+      "Your microphone couldn't be sent to the meeting. Check your connection, then unmute."
     ]
   ];
   for (const [kind, error, message] of cases) {
@@ -98,7 +120,7 @@ test('capture without https is explained, whatever the error says', () => {
     'Your browser only allows screen sharing on https pages. Open the meeting over https.'
   );
   expect(describeMediaError('camera', missing, { secureContext: true, mediaDevices: false })).toBe(
-    "This browser can't use a camera."
+    "This browser can't use a camera. Open the meeting in another browser."
   );
 });
 
@@ -126,7 +148,7 @@ test('a cancelled screen picker is not an error; other screen failures are', () 
   );
   // livekit-client's error when the browser has no getDisplayMedia (phones).
   expect(describeMediaError('screen', browserError('DeviceUnsupportedError'), https)).toBe(
-    "This browser can't share its screen."
+    "This browser can't share its screen. Share from a desktop browser instead."
   );
 });
 
@@ -138,6 +160,21 @@ test('a wrapped browser error is read through its cause', () => {
     'Your camera is in use by another app. Close that app, then turn the camera on.'
   );
   expect(mediaErrorDetail('camera', wrapped)).toBe('camera: NotReadableError: Device in use');
+});
+
+test('a rejection that is not an error object is described, not thrown on', () => {
+  // livekit-client's MediaDeviceFailure.getFailure does `'name' in error`,
+  // which throws on a primitive.
+  for (const rejection of ['boom', undefined, null, 42]) {
+    expect(describeMediaError('camera', rejection, https)).toBe(
+      "Your camera didn't start. Try again, or choose another one."
+    );
+    expect(describeMediaError('screen', rejection, https)).toBe(
+      "Screen sharing didn't start. Try again, or share a different window."
+    );
+    expect(isMissingDevice(rejection)).toBe(false);
+  }
+  expect(mediaErrorDetail('microphone', 'boom')).toBe('microphone: string: boom');
 });
 
 test('only a missing device is worth retrying on the default one', () => {

@@ -196,6 +196,7 @@
       class:off={!rtc.micEnabled}
       aria-label={rtc.micEnabled ? 'Mute microphone' : 'Unmute microphone'}
       aria-pressed={rtc.micEnabled}
+      aria-busy={rtc.mediaBusy.microphone}
       title={rtc.micEnabled ? 'Mute microphone' : 'Unmute microphone'}
       onclick={() => void rtc.toggleMic()}
     >
@@ -231,6 +232,7 @@
       class:off={!rtc.camEnabled}
       aria-label={rtc.camEnabled ? 'Turn camera off' : 'Turn camera on'}
       aria-pressed={rtc.camEnabled}
+      aria-busy={rtc.mediaBusy.camera}
       title={rtc.camEnabled ? 'Turn camera off' : 'Turn camera on'}
       onclick={() => void rtc.toggleCam()}
     >
@@ -265,6 +267,7 @@
     class:active={rtc.screenShareEnabled}
     aria-label={rtc.screenShareEnabled ? 'Stop sharing' : 'Share screen'}
     aria-pressed={rtc.screenShareEnabled}
+    aria-busy={rtc.mediaBusy.screen}
     title={rtc.screenShareEnabled ? 'Stop sharing' : 'Share screen'}
     onclick={() => void rtc.toggleScreenShare()}
   >
@@ -370,7 +373,7 @@
         title="Dismiss"
         onclick={dismissNotice}
       >
-        <X size={12} weight="regular" aria-hidden="true" />
+        <X size={16} weight="regular" aria-hidden="true" />
       </button>
     </div>
   {/if}

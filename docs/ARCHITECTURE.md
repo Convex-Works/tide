@@ -942,7 +942,8 @@ signalling too).
 Forgejo Actions (`.forgejo/workflows/ci.yml`), on every push/PR:
 
 1. **server** — `go vet`, `go test ./...`
-2. **web** — `svelte-check`, prettier check, `vite build`
+2. **web** — `svelte-check`, prettier check, `vite build`, and the browser
+   specs that run against the mock API and fake SFU alone (no server)
 3. **typesync** — `make gen && git diff --exit-code` (§11)
 4. **media-e2e** — the full real-SFU gate (below), against the sealed stack
 5. **build** — full binary build (SPA embed included) as the merge gate
