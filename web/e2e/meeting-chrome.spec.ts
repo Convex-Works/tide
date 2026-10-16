@@ -97,6 +97,33 @@ test('a guest has microphone and camera in the same place as a host, and no reco
   ]);
 });
 
+test('a long name stays on one line and keeps "(You)" inside a phone-width tile', async ({
+  page
+}) => {
+  await page.setViewportSize({ width: 390, height: 800 });
+  await mockApi(page, state({ signedIn: false, lobby: false }));
+  await fakeSfu(page);
+  await enter(page, 'Filippos Taprantzis-Papadopoulos Konstantinopoulou');
+
+  const tile = page.locator('[data-testid="participant-tile"]').first();
+  const label = tile.locator('.name-label');
+  const box = await tile.locator('.video-box').boundingBox();
+  const name = await label.locator('.name').boundingBox();
+  const you = await label.getByText('(You)').boundingBox();
+  expect(box && name && you).toBeTruthy();
+  // One line: "(You)" sits beside the name, not under it, and inside the tile.
+  expect(Math.abs(you!.y - name!.y)).toBeLessThan(2);
+  expect(you!.x + you!.width).toBeLessThanOrEqual(box!.x + box!.width - 8);
+  expect(
+    await label.locator('.name').evaluate((element) => element.scrollWidth > element.clientWidth)
+  ).toBe(true);
+  // The full name is a hover away.
+  await expect(label).toHaveAttribute(
+    'title',
+    'Filippos Taprantzis-Papadopoulos Konstantinopoulou'
+  );
+});
+
 test('the clock shows the time and turns over on the minute', async ({ page }) => {
   await page.clock.install({ time: new Date('2026-10-04T23:58:00Z') });
   await mockApi(page, state());
