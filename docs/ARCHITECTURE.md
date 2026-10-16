@@ -627,6 +627,13 @@ Meeting chrome:
   with its device caret), screen share, record (hosts only), then view,
   people and chat, then leave. Hosts and guests see mic and camera in the
   same place; record never sits between them.
+- **Speaker view** (the view toggle): the most recent remote speaker fills
+  the stage and everyone else, you included, lines a rail on the right in
+  uniform 16:9 thumbnails (a portrait camera is shown whole between bars). In a
+  call of two there is no rail: your self-view floats in the speaker's
+  bottom-right corner, as in Meet, and the call opens in this view; once you
+  pick a view yourself it stays as people come and go. Names on tiles stay on one line and
+  ellipsize; "(You)" and the muted icon never give way.
 
 The typed API client (`lib/api/client.ts`) is a small hand-written fetch
 wrapper importing only generated types (§11).

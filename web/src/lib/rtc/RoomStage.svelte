@@ -50,7 +50,11 @@
 
   const meetingURL = $derived(`${location.origin}/m/${encodeURIComponent(roomSlug)}`);
   let focusParticipant = $derived(rtc.participants.find((participant) => participant.screenShare));
-  let view = $state<'grid' | 'speaker'>('grid');
+  // A call of two opens in speaker view, with your self-view floating over
+  // the other person, as Meet does; bigger calls open in the grid. Once you
+  // pick a view yourself it stays put as people come and go.
+  let chosenView = $state<'grid' | 'speaker'>();
+  let view = $derived(chosenView ?? (rtc.participants.length === 2 ? 'speaker' : 'grid'));
   let lastSpeakerIdentity = $state<string>();
   let participantMenuIdentity = $state<string>();
   // The header can take a second row on a phone; the side panels start below it.
@@ -93,8 +97,21 @@
         ? 'speaker'
         : 'grid'
   );
-  let speakerRailCount = $derived(
-    Math.max(1, rtc.participants.filter((participant) => participant !== promoted).length)
+  // Speaker view: the promoted tile fills the pane and everyone else lines
+  // the rail. In a call of two, as in Meet, there is no rail: your self-view
+  // floats in the promoted tile's corner instead.
+  let pipIdentity = $derived(
+    rtc.participants.length === 2
+      ? rtc.participants.find(
+          (participant) => participant.isLocal && participant.identity !== promoted?.identity
+        )?.identity
+      : undefined
+  );
+  let railParticipants = $derived(
+    rtc.participants.filter(
+      (participant) =>
+        participant.identity !== promoted?.identity && participant.identity !== pipIdentity
+    )
   );
   let previousPendingCount = 0;
   let chatOpen = $state(false);
@@ -133,11 +150,7 @@
   }
 
   function railRow(identity: string): number {
-    return (
-      rtc.participants
-        .filter((participant) => participant.identity !== promoted?.identity)
-        .findIndex((participant) => participant.identity === identity) + 1
-    );
+    return railParticipants.findIndex((participant) => participant.identity === identity) + 1;
   }
 
   function setParticipantMenu(identity: string, open: boolean): void {
@@ -224,20 +237,24 @@
       class="participant-list"
       aria-label="Participant cameras"
       data-count={rtc.participants.length}
+      data-rail={railParticipants.length > 0}
       data-testid={layoutMode === 'speaker' ? 'speaker-pane' : undefined}
-      style={`--grid-columns: ${gridColumns}; --grid-rows: ${gridRows}; --speaker-rows: ${speakerRailCount}`}
+      style={`--grid-columns: ${gridColumns}; --grid-rows: ${gridRows}; --speaker-rows: ${Math.max(1, railParticipants.length)}`}
     >
       {#each rtc.participants as participant (participant.identity)}
         {@const isPromoted =
           layoutMode === 'speaker' &&
           rtc.participants.length > 1 &&
           participant.identity === promoted?.identity}
+        {@const isPip = layoutMode === 'speaker' && participant.identity === pipIdentity}
         <ParticipantTile
           {participant}
-          fit={layoutMode === 'grid' || isPromoted ? 'contain' : 'width'}
+          fit={layoutMode === 'grid' || isPromoted ? 'contain' : isPip ? 'width' : 'rail'}
           speaking={rtc.activeSpeakerIdentities.includes(participant.identity)}
           promoted={isPromoted}
-          rail={layoutMode === 'speaker' && !isPromoted}
+          pip={isPip}
+          waveform={!isPip}
+          rail={layoutMode === 'speaker' && !isPromoted && !isPip}
           railRow={railRow(participant.identity)}
           videoHidden={rtc.isParticipantCameraHidden(participant.identity)}
           menuOpen={participantMenuIdentity === participant.identity}
@@ -269,7 +286,7 @@
     {roomSlug}
     ontogglepeople={togglePeople}
     ontogglechat={toggleChat}
-    ontoggleview={() => (view = view === 'grid' ? 'speaker' : 'grid')}
+    ontoggleview={() => (chosenView = view === 'grid' ? 'speaker' : 'grid')}
   />
 </main>
 
@@ -411,9 +428,15 @@
   .speaker-mode .participant-list {
     display: grid;
     height: 100%;
-    grid-template-columns: minmax(0, 1fr) 160px;
-    grid-template-rows: repeat(var(--speaker-rows), minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
+    /* The rail stacks from the top; the last row takes what is left, so the
+       promoted tile, spanning every row, still fills the height. */
+    grid-template-rows: repeat(var(--speaker-rows), minmax(0, max-content)) minmax(0, 1fr);
     gap: 8px;
+  }
+
+  .speaker-mode .participant-list[data-rail='true'] {
+    grid-template-columns: minmax(0, 1fr) 160px;
   }
 
   .focus-label {
@@ -467,6 +490,7 @@
 
     .grid-mode .participant-list,
     .speaker-mode .participant-list,
+    .speaker-mode .participant-list[data-rail='true'],
     .screen-mode .participant-list {
       grid-template-columns: 1fr;
       grid-template-rows: none;
@@ -489,7 +513,7 @@
       overflow: visible;
     }
 
-    :global(.speaker-mode .cell) {
+    :global(.speaker-mode .cell.rail) {
       grid-row: auto;
       grid-column: 1;
     }

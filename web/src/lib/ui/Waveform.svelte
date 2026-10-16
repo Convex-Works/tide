@@ -41,10 +41,8 @@
 
 <style>
   .waveform {
-    position: absolute;
-    right: 8px;
-    bottom: 8px;
     display: flex;
+    flex: none;
     gap: 2px;
     align-items: center;
     padding: 5px;

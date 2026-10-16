@@ -725,7 +725,8 @@ test('seeded model-based media lifecycle fuzzing', async ({ page }, testInfo) =>
                     microphonePublished: true,
                     microphoneMuted: false,
                     screenPublished: false,
-                    view: 'grid' as const
+                    // Publisher and receiver: a call of two opens in speaker view.
+                    view: 'speaker' as const
                   },
                   real: {
                     publisher,
