@@ -1,6 +1,6 @@
 <script lang="ts">
   import { MicrophoneSlash } from 'phosphor-svelte';
-  import Waveform from '$lib/ui/Waveform.svelte';
+  import Waveform from '#lib/ui/Waveform.svelte';
   import { clampAspect, observeAspect } from './aspect';
   import type { ParticipantView } from './media';
   import { attachMediaTrack } from './mediaElement';

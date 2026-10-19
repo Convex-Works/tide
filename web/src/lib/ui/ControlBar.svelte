@@ -17,8 +17,8 @@
     VideoCameraSlash,
     X
   } from 'phosphor-svelte';
-  import type { RoomState } from '$lib/rtc/room.svelte';
-  import { endMeeting, startRecording, stopRecording } from '$lib/api/client';
+  import type { RoomState } from '#lib/rtc/room.svelte.js';
+  import { endMeeting, startRecording, stopRecording } from '#lib/api/client.js';
 
   let {
     rtc,

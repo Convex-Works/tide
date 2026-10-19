@@ -23,7 +23,7 @@ const alphabet = 'abcdefghijklmnopqrstuvwxyz';
 // redrawn, so every letter is equally likely (no modulo bias).
 const byteLimit = 256 - (256 % alphabet.length);
 
-export type RandomFill = (bytes: Uint8Array) => Uint8Array;
+export type RandomFill = (bytes: Uint8Array<ArrayBuffer>) => Uint8Array<ArrayBuffer>;
 
 const cryptoFill: RandomFill = (bytes) => crypto.getRandomValues(bytes);
 

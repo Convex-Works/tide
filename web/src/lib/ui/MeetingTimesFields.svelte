@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { MeetingTimes } from '$lib/schedule';
+  import type { MeetingTimes } from '#lib/schedule.js';
 
   // Date, start and end of a meeting in the viewer's local time, for a
   // calendar invite. Shared by the New dialog and a card's Add to calendar.

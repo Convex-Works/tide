@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { RoomState } from '$lib/rtc/room.svelte';
+  import type { RoomState } from '#lib/rtc/room.svelte.js';
 
   let { rtc }: { rtc: RoomState } = $props();
 

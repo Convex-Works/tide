@@ -22,7 +22,7 @@
     me,
     pairing,
     removeMachine
-  } from '$lib/api/client';
+  } from '#lib/api/client.js';
   import {
     AuthLoginPath,
     MachineBusy,
@@ -31,8 +31,8 @@
     type MachineInfo,
     type MachinesResponse,
     type PairingInfo
-  } from '$lib/api/types.gen';
-  import { compactAgo, osLabel, shortHash, systemLabel } from '$lib/format';
+  } from '#lib/api/types.gen.js';
+  import { compactAgo, osLabel, shortHash, systemLabel } from '#lib/format.js';
 
   // One route, two jobs (ARCHITECTURE.md §8.1): with ?code= the moil app sent
   // the host here to confirm a pairing; without one it lists their machines.
@@ -166,7 +166,7 @@
   /** Drops a spent code from the address, so a reload shows the list. */
   function leaveCode(): void {
     shownCode = '';
-    void goto('/machines', { replaceState: true, keepFocus: true, noScroll: true });
+    void goto('/machines', { replace: true, reset: false });
   }
 
   function showList(): void {

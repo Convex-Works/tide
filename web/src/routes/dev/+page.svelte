@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { getDevToken } from '$lib/api/client';
-  import PreJoin from '$lib/rtc/PreJoin.svelte';
-  import RoomStage from '$lib/rtc/RoomStage.svelte';
-  import { setConnectionChrome } from '$lib/rtc/connection.svelte';
-  import { RoomState, type PreJoinOptions } from '$lib/rtc/room.svelte';
+  import { getDevToken } from '#lib/api/client.js';
+  import PreJoin from '#lib/rtc/PreJoin.svelte';
+  import RoomStage from '#lib/rtc/RoomStage.svelte';
+  import { setConnectionChrome } from '#lib/rtc/connection.svelte.js';
+  import { RoomState, type PreJoinOptions } from '#lib/rtc/room.svelte.js';
 
   type MeetingState = 'prejoin' | 'connecting' | 'stage';
 

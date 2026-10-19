@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { RoomInfo } from '$lib/api/types.gen';
-  import { compactAgo } from '$lib/format';
+  import type { RoomInfo } from '#lib/api/types.gen.js';
+  import { compactAgo } from '#lib/format.js';
 
   let { room }: { room: RoomInfo } = $props();
 

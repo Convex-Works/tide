@@ -8,12 +8,12 @@
     me,
     rateLimited,
     rateLimitedMessage
-  } from '$lib/api/client';
-  import { AuthLoginPath, type Me, type RoomInfo } from '$lib/api/types.gen';
-  import AddToCalendarDialog from '$lib/ui/AddToCalendarDialog.svelte';
-  import Button from '$lib/ui/Button.svelte';
-  import NewRoomDialog from '$lib/ui/NewRoomDialog.svelte';
-  import RoomStatus from '$lib/ui/RoomStatus.svelte';
+  } from '#lib/api/client.js';
+  import { AuthLoginPath, type Me, type RoomInfo } from '#lib/api/types.gen.js';
+  import AddToCalendarDialog from '#lib/ui/AddToCalendarDialog.svelte';
+  import Button from '#lib/ui/Button.svelte';
+  import NewRoomDialog from '#lib/ui/NewRoomDialog.svelte';
+  import RoomStatus from '#lib/ui/RoomStatus.svelte';
 
   type DashboardState = 'loading' | 'signed-out' | 'ready' | 'error';
 
