@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { HairlineState } from '$lib/rtc/connection.svelte';
+  import type { HairlineState } from '#lib/rtc/connection.svelte.js';
 
   let { mode }: { mode: HairlineState } = $props();
 </script>

@@ -1,10 +1,10 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
   import { Room, RoomEvent } from 'livekit-client';
-  import ParticipantTile from '$lib/rtc/ParticipantTile.svelte';
-  import RemoteAudioRenderer from '$lib/rtc/RemoteAudioRenderer.svelte';
-  import { projectParticipants, type ParticipantView } from '$lib/rtc/media';
-  import { attachMediaTrack } from '$lib/rtc/mediaElement';
+  import ParticipantTile from '#lib/rtc/ParticipantTile.svelte';
+  import RemoteAudioRenderer from '#lib/rtc/RemoteAudioRenderer.svelte';
+  import { projectParticipants, type ParticipantView } from '#lib/rtc/media.js';
+  import { attachMediaTrack } from '#lib/rtc/mediaElement.js';
 
   const rtc = new Room({ adaptiveStream: false, dynacast: false });
   let participants = $state<ParticipantView[]>([]);

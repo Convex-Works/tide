@@ -27,7 +27,7 @@
     requestTranscript,
     transcriptDownloadURL,
     updateRoom
-  } from '$lib/api/client';
+  } from '#lib/api/client.js';
   import {
     TranscriptAvailable,
     TranscriptCompleted,
@@ -40,10 +40,10 @@
     type RecordingInfo,
     type RoomInfo,
     type TranscriptInfo
-  } from '$lib/api/types.gen';
-  import { dateTimeLabel, durationLabel, isoDate, sizeLabel } from '$lib/format';
-  import Button from '$lib/ui/Button.svelte';
-  import RoomStatus from '$lib/ui/RoomStatus.svelte';
+  } from '#lib/api/types.gen.js';
+  import { dateTimeLabel, durationLabel, isoDate, sizeLabel } from '#lib/format.js';
+  import Button from '#lib/ui/Button.svelte';
+  import RoomStatus from '#lib/ui/RoomStatus.svelte';
 
   type LoadState = 'loading' | 'signed-out' | 'not-found' | 'ready' | 'error';
 
@@ -232,7 +232,7 @@
       slugDraft = updated.slug;
       slugInvalid = false;
       recordings = recordings.map((recording) => ({ ...recording, room_slug: updated.slug }));
-      await goto(`/rooms/${updated.slug}`, { replaceState: true });
+      await goto(`/rooms/${updated.slug}`, { replace: true });
       slugSaved = true;
       if (slugSavedTimer) clearTimeout(slugSavedTimer);
       slugSavedTimer = setTimeout(() => (slugSaved = false), 1600);

@@ -11,7 +11,7 @@
   import type { PreJoinOptions } from './room.svelte';
   import { clampAspect, observeAspect } from './aspect';
   import { attachMediaTrack } from './mediaElement';
-  import Button from '$lib/ui/Button.svelte';
+  import Button from '#lib/ui/Button.svelte';
 
   let {
     room = $bindable(),

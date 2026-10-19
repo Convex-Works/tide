@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { kick, muteParticipant } from '$lib/api/client';
-  import type { LobbyRequestInfo } from '$lib/api/types.gen';
-  import ChatPanel from '$lib/ui/ChatPanel.svelte';
-  import ControlBar from '$lib/ui/ControlBar.svelte';
-  import MeetingDetails from '$lib/ui/MeetingDetails.svelte';
-  import ParticipantPanel from '$lib/ui/ParticipantPanel.svelte';
-  import WallClock from '$lib/ui/WallClock.svelte';
+  import { kick, muteParticipant } from '#lib/api/client.js';
+  import type { LobbyRequestInfo } from '#lib/api/types.gen.js';
+  import ChatPanel from '#lib/ui/ChatPanel.svelte';
+  import ControlBar from '#lib/ui/ControlBar.svelte';
+  import MeetingDetails from '#lib/ui/MeetingDetails.svelte';
+  import ParticipantPanel from '#lib/ui/ParticipantPanel.svelte';
+  import WallClock from '#lib/ui/WallClock.svelte';
   import ParticipantTile from './ParticipantTile.svelte';
   import RemoteAudioRenderer from './RemoteAudioRenderer.svelte';
   import { ConnectionState } from 'livekit-client';

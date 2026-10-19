@@ -12,21 +12,21 @@
     me,
     roomInfo,
     roomLobby
-  } from '$lib/api/client';
+  } from '#lib/api/client.js';
   import {
     AuthLoginPath,
     type LobbyAdmittedSSE,
     type LobbyRequestInfo,
     type Me,
     type PublicRoomInfo
-  } from '$lib/api/types.gen';
+  } from '#lib/api/types.gen.js';
   import { SignIn, SignOut } from 'phosphor-svelte';
   import { ConnectionState, DisconnectReason } from 'livekit-client';
-  import PreJoin from '$lib/rtc/PreJoin.svelte';
-  import RoomStage from '$lib/rtc/RoomStage.svelte';
-  import { setConnectionChrome } from '$lib/rtc/connection.svelte';
-  import { RoomState, type PreJoinOptions } from '$lib/rtc/room.svelte';
-  import { playLobbyKnockSound } from '$lib/sounds';
+  import PreJoin from '#lib/rtc/PreJoin.svelte';
+  import RoomStage from '#lib/rtc/RoomStage.svelte';
+  import { setConnectionChrome } from '#lib/rtc/connection.svelte.js';
+  import { RoomState, type PreJoinOptions } from '#lib/rtc/room.svelte.js';
+  import { playLobbyKnockSound } from '#lib/sounds.js';
 
   type MeetingState =
     | 'loading'

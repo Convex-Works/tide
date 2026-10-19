@@ -17,7 +17,7 @@ import {
   playParticipantEnteredSound,
   playParticipantExitedSound,
   playRecordingStartedSound
-} from '$lib/sounds';
+} from '#lib/sounds.js';
 import { setConnectionChrome } from './connection.svelte';
 import { projectParticipants, type MediaSubscriptionFailure, type ParticipantView } from './media';
 import {

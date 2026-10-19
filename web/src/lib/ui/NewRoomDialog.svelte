@@ -1,11 +1,11 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import { Shuffle } from 'phosphor-svelte';
-  import { ApiError, createRoom, errorMessage } from '$lib/api/client';
-  import type { RoomInfo } from '$lib/api/types.gen';
-  import { buildIcs, downloadIcs } from '$lib/ics';
-  import { defaultTimes, resolveTimes, type MeetingTimes } from '$lib/schedule';
-  import { normalizeSlug, slugError, slugMaxLength, suggestSlug } from '$lib/slug';
+  import { ApiError, createRoom, errorMessage } from '#lib/api/client.js';
+  import type { RoomInfo } from '#lib/api/types.gen.js';
+  import { buildIcs, downloadIcs } from '#lib/ics.js';
+  import { defaultTimes, resolveTimes, type MeetingTimes } from '#lib/schedule.js';
+  import { normalizeSlug, slugError, slugMaxLength, suggestSlug } from '#lib/slug.js';
   import Button from './Button.svelte';
   import Dialog from './Dialog.svelte';
   import MeetingTimesFields from './MeetingTimesFields.svelte';

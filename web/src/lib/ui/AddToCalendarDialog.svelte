@@ -1,7 +1,7 @@
 <script lang="ts">
-  import type { RoomInfo } from '$lib/api/types.gen';
-  import { buildIcs, downloadIcs } from '$lib/ics';
-  import { defaultTimes, resolveTimes, type MeetingTimes } from '$lib/schedule';
+  import type { RoomInfo } from '#lib/api/types.gen.js';
+  import { buildIcs, downloadIcs } from '#lib/ics.js';
+  import { defaultTimes, resolveTimes, type MeetingTimes } from '#lib/schedule.js';
   import Button from './Button.svelte';
   import Dialog from './Dialog.svelte';
   import MeetingTimesFields from './MeetingTimesFields.svelte';

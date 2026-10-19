@@ -591,7 +591,9 @@ itself travels as files.
 
 ## 9. Frontend
 
-SvelteKit (Svelte 5 runes) + `adapter-static`, embedded in the Go binary. Vite
+SvelteKit 3 (Svelte 5 runes) + `adapter-static`, embedded in the Go binary. The
+SvelteKit configuration lives in `web/vite.config.ts`, and `#lib/*` subpath
+imports in `web/package.json` resolve the frontend's library modules. Vite
 dev server proxies `/api` and `/moil` (including the machines' WebSocket) to the
 Go server during development.
 

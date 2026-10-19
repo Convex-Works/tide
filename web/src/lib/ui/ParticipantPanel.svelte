@@ -1,8 +1,8 @@
 <script lang="ts">
   import { MicrophoneSlash, VideoCameraSlash } from 'phosphor-svelte';
-  import { kick, muteParticipant } from '$lib/api/client';
-  import type { LobbyRequestInfo } from '$lib/api/types.gen';
-  import type { ParticipantView, RoomState } from '$lib/rtc/room.svelte';
+  import { kick, muteParticipant } from '#lib/api/client.js';
+  import type { LobbyRequestInfo } from '#lib/api/types.gen.js';
+  import type { ParticipantView, RoomState } from '#lib/rtc/room.svelte.js';
 
   let {
     rtc,

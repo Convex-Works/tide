@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Track } from 'livekit-client';
-  import { createMeter } from '$lib/rtc/audioLevel';
+  import { createMeter } from '#lib/rtc/audioLevel.js';
 
   let { track }: { track?: Track } = $props();
 
