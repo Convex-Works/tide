@@ -33,7 +33,7 @@ export const docPages: DocPage[] = [
     path: '/docs/compare',
     title: 'Compare',
     documentTitle: 'Jitsi, Zoom and Google Meet alternative',
-    summary: 'tide next to Jitsi Meet, Zoom and Google Meet, axis by axis.',
+    summary: 'tide next to Jitsi Meet, Galène, MiroTalk, Zoom and Google Meet, axis by axis.',
     group: 'reference'
   },
   {

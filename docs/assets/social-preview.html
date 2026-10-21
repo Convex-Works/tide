@@ -1,0 +1,110 @@
+<!doctype html>
+<!--
+  tide's link preview and GitHub social preview (1200 × 630), composed from a
+  real meeting screenshot (meeting.png: four browsers in one room on ./bin/tide,
+  each with a still photo as its fake camera). From the repository root, after
+  installing site dependencies, render it with Chromium:
+    chrome --headless --hide-scrollbars --window-size=1200,630 \
+      --screenshot=docs/assets/social-preview.png docs/assets/social-preview.html
+  Copy the result to site/static/og.png and web/static/og.png.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>tide · social preview</title>
+    <style>
+      @font-face {
+        font-family: "Geist Variable";
+        src: url("../../site/node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2")
+          format("woff2");
+        font-weight: 100 900;
+        font-display: block;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        width: 1200px;
+        height: 630px;
+        overflow: hidden;
+      }
+      body {
+        position: relative;
+        color: #171717;
+        background: #f5f5f0;
+        font-family: "Geist Variable", sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      /* The hairline across the top of the app chrome (ARCHITECTURE.md §10). */
+      body::before {
+        content: "";
+        position: absolute;
+        inset: 0 0 auto;
+        height: 4px;
+        background: #2320e6;
+      }
+      .copy {
+        position: absolute;
+        left: 64px;
+        top: 0;
+        bottom: 0;
+        width: 330px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
+      .wordmark {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        font-size: 60px;
+        line-height: 1;
+        font-weight: 600;
+        letter-spacing: -0.03em;
+      }
+      .wordmark img {
+        width: 64px;
+        height: 64px;
+      }
+      h1 {
+        margin: 28px 0 0;
+        font-size: 34px;
+        line-height: 1.15;
+        font-weight: 500;
+        letter-spacing: -0.02em;
+      }
+      p {
+        margin: 20px 0 0;
+        color: #6e6e64;
+        font-size: 21px;
+        line-height: 1.4;
+      }
+      .shot {
+        position: absolute;
+        left: 430px;
+        top: 112px;
+        width: 720px;
+        border: 1px solid #d8d8ce;
+        border-radius: 8px;
+        overflow: hidden;
+        background: #0f0f0e;
+      }
+      .shot img {
+        display: block;
+        width: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="copy">
+      <div class="wordmark">
+        <img src="../../site/static/brand/tide-mark.svg" alt="" />tide
+      </div>
+      <h1>Simple, self-hosted video meetings</h1>
+      <p>One Go binary. Media stays on your server.</p>
+    </div>
+    <div class="shot"><img src="meeting.png" alt="A tide meeting with four people" /></div>
+  </body>
+</html>
