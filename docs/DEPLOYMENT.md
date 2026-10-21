@@ -262,7 +262,7 @@ services:
     restart: unless-stopped
 
   recorder:
-    image: livekit/egress:v1.13.0
+    image: livekit/egress:v1.15.0
     network_mode: service:tide
     # The recorder checks Redis once at startup and exits without it.
     depends_on:

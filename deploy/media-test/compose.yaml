@@ -91,13 +91,14 @@ services:
     # tide's image has no shell for a healthcheck, so the recorder waits for
     # tide's /healthz, which tide serves only once its media server is up: the
     # runner, which waits for a healthy recorder, then starts against a tide
-    # that serves.
+    # that serves. It then execs the image's own entrypoint, tini included, so
+    # SIGTERM still reaches the recorder.
     entrypoint:
       - /bin/sh
       - -c
       - >-
         until wget -q -O /dev/null http://localhost:8080/healthz; do sleep 1; done;
-        exec /entrypoint.sh
+        exec /tini -- /entrypoint.sh
     cap_add:
       - SYS_ADMIN
     security_opt:
