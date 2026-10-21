@@ -1,0 +1,46 @@
+# Weekly version updates. Minor and patch bumps arrive as one grouped pull
+# request per ecosystem and directory; majors stay separate so each gets its
+# own review. Security updates are not limited by this schedule.
+
+version: 2
+
+updates:
+  - package-ecosystem: gomod
+    directory: /server
+    schedule:
+      interval: weekly
+    groups:
+      go:
+        update-types: [minor, patch]
+
+  - package-ecosystem: npm
+    directories: [/web, /site]
+    schedule:
+      interval: weekly
+    groups:
+      npm:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker
+    directories: [/, /site, /deploy, /deploy/media-test]
+    schedule:
+      interval: weekly
+    groups:
+      docker:
+        update-types: [minor, patch]
+
+  - package-ecosystem: docker-compose
+    directories: [/deploy, /deploy/media-test]
+    schedule:
+      interval: weekly
+    groups:
+      compose:
+        update-types: [minor, patch]

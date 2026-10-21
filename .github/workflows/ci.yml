@@ -76,6 +76,30 @@ jobs:
       - name: Check generated type drift
         run: git diff --exit-code -- web/src/lib/api/types.gen.ts
 
+  site:
+    # The documentation site in site/: type and config-reference checks,
+    # formatting, then the prerendered build its Dockerfile serves.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+      - name: Install site dependencies
+        working-directory: site
+        run: npm ci
+      - name: Site checks
+        working-directory: site
+        run: npm run check
+      - name: Site formatting
+        working-directory: site
+        run: npm run lint
+      - name: Build site
+        working-directory: site
+        run: npm run build
+
   media-e2e:
     # Lifecycle and recording scenarios, reliability, the seeded fuzzer and a
     # network-chaos rerun, against the real media server and recorder.
