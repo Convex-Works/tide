@@ -1,8 +1,9 @@
 name: CI
 
 # The same gate as .forgejo/workflows/ci.yml, on GitHub's hosted runners:
-# the checks, then the whole real-SFU media suite. Images are built and
-# pushed from Forgejo only.
+# the checks, then the whole real-SFU media suite. Forgejo pushes an image of
+# every main commit to its own registry; release.yml publishes v* tags to
+# ghcr.io/convex-works/tide.
 
 on:
   push:
