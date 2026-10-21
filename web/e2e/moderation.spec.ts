@@ -55,7 +55,7 @@ test('participants hide remote video locally while host moderation stays gated',
 
     const guest = await (await newContext()).newPage();
     await joinAsGuestThroughLobby(guest, host, slug, 'Moderated guest');
-    await host.getByRole('button', { name: 'Close people' }).click();
+    await host.getByRole('button', { name: 'People', exact: true, pressed: true }).click();
 
     // Every viewer can opt out of a remote camera. This is a real LiveKit
     // unsubscribe, not merely a hidden DOM element, so it saves bandwidth.
@@ -144,7 +144,9 @@ test('participants hide remote video locally while host moderation stays gated',
     await hostMenu.getByRole('menuitem', { name: 'Mute' }).click();
 
     await expect(hostTileForGuest.getByLabel('Microphone muted')).toBeVisible({ timeout: 20_000 });
-    await expect(guest.getByRole('button', { name: 'Unmute microphone' })).toBeVisible({
+    await expect(
+      guest.getByRole('button', { name: 'Microphone', exact: true, pressed: false })
+    ).toBeVisible({
       timeout: 20_000
     });
 
@@ -156,7 +158,7 @@ test('participants hide remote video locally while host moderation stays gated',
     });
     await expect(hostTileForGuest).toHaveCount(0, { timeout: 20_000 });
 
-    const openPeople = host.getByRole('button', { name: 'Open people' });
+    const openPeople = host.getByRole('button', { name: 'People', exact: true, pressed: false });
     if (await openPeople.isVisible()) await openPeople.click();
     const people = host.getByRole('complementary', { name: 'People' });
     await guest.getByRole('button', { name: 'Request to rejoin' }).click();

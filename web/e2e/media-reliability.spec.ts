@@ -68,7 +68,7 @@ test('media ownership converges across the deterministic lifecycle corpus', asyn
       room.emit('activeSpeakersChanged', []);
     });
     await expectMediaElementTags(page, persistentTags);
-    await page.getByRole('button', { name: 'Grid view' }).click();
+    await page.getByRole('button', { name: 'Speaker view', pressed: true }).click();
 
     // Repeated screen publication must only mount/unmount the focus element.
     for (let cycle = 0; cycle < 2; cycle += 1) {

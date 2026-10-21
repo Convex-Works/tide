@@ -114,7 +114,7 @@ test('remote feeds survive starting and ending a screen share', async () => {
     await assertRemoteMediaAlive(alice, 'alice (during)');
     await assertRemoteMediaAlive(bob, 'bob (during)');
 
-    await alice.getByRole('button', { name: 'Stop sharing' }).click();
+    await alice.getByRole('button', { name: 'Share screen', pressed: true }).click();
     await expect(bob.getByTestId('focus-pane')).toHaveCount(0, { timeout: 20_000 });
     await expect(alice.getByTestId('focus-pane')).toHaveCount(0, { timeout: 20_000 });
     await alice.waitForTimeout(2_000);

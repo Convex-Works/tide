@@ -116,9 +116,11 @@ export async function joinMediaTestRoom(
   await page.fill('input[name="name"]', name);
 
   if (!localMedia) {
-    const cameraToggle = page.getByRole('button', { name: 'Turn camera off' });
+    const cameraToggle = page.getByRole('button', { name: 'Camera', exact: true, pressed: true });
     if (await cameraToggle.isVisible().catch(() => false)) await cameraToggle.click();
-    const microphoneToggle = page.getByRole('button', { name: 'Mute microphone' }).first();
+    const microphoneToggle = page
+      .getByRole('button', { name: 'Microphone', exact: true, pressed: true })
+      .first();
     if (await microphoneToggle.isVisible().catch(() => false)) await microphoneToggle.click();
   }
 
