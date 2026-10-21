@@ -58,15 +58,15 @@ test('a host has microphone and camera side by side, and record after screen sha
   await enter(page);
 
   expect(await controlLabels(page)).toEqual([
-    'Unmute microphone',
+    'Microphone',
     'Choose microphone',
-    'Turn camera on',
+    'Camera',
     'Choose camera',
     'Share screen',
     'Start recording',
     'Speaker view',
-    'Open people',
-    'Open chat',
+    'People',
+    'Chat',
     'Leave or end meeting'
   ]);
 
@@ -85,16 +85,53 @@ test('a guest has microphone and camera in the same place as a host, and no reco
   await enter(page, 'Grace Guest');
 
   expect(await controlLabels(page)).toEqual([
-    'Unmute microphone',
+    'Microphone',
     'Choose microphone',
-    'Turn camera on',
+    'Camera',
     'Choose camera',
     'Share screen',
     'Speaker view',
-    'Open people',
-    'Open chat',
+    'People',
+    'Chat',
     'Leave room'
   ]);
+});
+
+test('toggles keep their names and say their state with aria-pressed', async ({ page }) => {
+  await mockApi(page, state());
+  await fakeSfu(page);
+  await enter(page);
+  const bar = page.getByRole('navigation', { name: 'Meeting controls' });
+
+  for (const name of ['Speaker view', 'People', 'Chat']) {
+    const toggle = bar.getByRole('button', { name, exact: true });
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  }
+  // Microphone and camera were turned off at pre-join.
+  await expect(bar.getByRole('button', { name: 'Microphone', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'false'
+  );
+  await expect(bar.getByRole('button', { name: 'Camera', exact: true })).toHaveAttribute(
+    'aria-pressed',
+    'false'
+  );
+});
+
+test('a guest knocking is announced to the host politely', async ({ page }) => {
+  await mockApi(page, {
+    ...state(),
+    lobbyPending: [{ id: 'knock-1', name: 'Grace Guest', requested_at: 0 }]
+  });
+  await fakeSfu(page);
+  await enter(page);
+  await expect(page.locator('[aria-live="polite"]', { hasText: 'is waiting' })).toHaveText(
+    'Grace Guest is waiting in the lobby'
+  );
 });
 
 test('a long name stays on one line and keeps "(You)" inside a phone-width tile', async ({
@@ -289,7 +326,7 @@ test('on a phone the header keeps every chip on screen and clears the panels', a
   expect(header.y + header.height).toBeLessThanOrEqual(media.y);
 
   // An open panel starts below the whole header, second row included.
-  await page.getByRole('button', { name: 'Open people' }).click();
+  await page.getByRole('button', { name: 'People', exact: true, pressed: false }).click();
   const panel = (await page.getByRole('complementary', { name: 'People' }).boundingBox())!;
   for (const box of boxes) expect(panel.y).toBeGreaterThanOrEqual(box.y + box.height);
 });

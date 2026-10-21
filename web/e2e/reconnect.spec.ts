@@ -26,7 +26,9 @@ test('signal loss recovers without reload and the hairline maps all states', asy
   // prejoin screen — waiting on it alone races Room.connect(): a simulate
   // fired mid-join aborts the join permanently. Gate on the control bar,
   // which only exists once the stage is truly connected.
-  await expect(page.getByRole('button', { name: 'Mute microphone' })).toBeVisible({
+  await expect(
+    page.getByRole('button', { name: 'Microphone', exact: true, pressed: true })
+  ).toBeVisible({
     timeout: 20_000
   });
   const hairline = page.locator('[data-testid="hairline"]');

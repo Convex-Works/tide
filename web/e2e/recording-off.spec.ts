@@ -39,14 +39,14 @@ test('a host in the meeting has no record control', async ({ page }) => {
 
   // Still the host: they can end the meeting, but not record it.
   expect(await controlLabels(page)).toEqual([
-    'Unmute microphone',
+    'Microphone',
     'Choose microphone',
-    'Turn camera on',
+    'Camera',
     'Choose camera',
     'Share screen',
     'Speaker view',
-    'Open people',
-    'Open chat',
+    'People',
+    'Chat',
     'Leave or end meeting'
   ]);
 });

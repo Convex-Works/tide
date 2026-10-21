@@ -63,6 +63,8 @@
   let closeWait: (() => void) | undefined;
   let closeHostLobby: (() => void) | undefined;
   const announcedLobbyRequestIDs = new Set<string>();
+  // The knock's words for screen readers, in a polite live region.
+  let lobbyAnnouncement = $state('');
 
   $effect(() => {
     if (meetingState !== 'connected') return;
@@ -203,11 +205,14 @@
   function subscribeToHostLobby(): void {
     closeHostLobby?.();
     closeHostLobby = roomLobby(slug, (event) => {
+      const knocks: string[] = [];
       for (const request of event.requests) {
         if (announcedLobbyRequestIDs.has(request.id)) continue;
         announcedLobbyRequestIDs.add(request.id);
         playLobbyKnockSound();
+        knocks.push(`${request.name} is waiting in the lobby`);
       }
+      if (knocks.length > 0) lobbyAnnouncement = knocks.join('. ');
       pending = event.requests;
     });
   }
@@ -234,6 +239,7 @@
     closeHostLobby?.();
     closeHostLobby = undefined;
     announcedLobbyRequestIDs.clear();
+    lobbyAnnouncement = '';
     pending = [];
     peopleOpen = false;
     setConnectionChrome('connected');
@@ -249,6 +255,7 @@
     closeHostLobby?.();
     closeHostLobby = undefined;
     announcedLobbyRequestIDs.clear();
+    lobbyAnnouncement = '';
     pending = [];
     peopleOpen = false;
     setConnectionChrome('connected');
@@ -392,6 +399,8 @@
     <button class="state-action" type="button" onclick={rejoin}>Rejoin</button>
   </main>
 {/if}
+
+<p class="sr-only" aria-live="polite">{lobbyAnnouncement}</p>
 
 <style>
   .meeting-state {

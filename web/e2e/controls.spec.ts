@@ -17,7 +17,7 @@ test('microphone control updates UI and the local publication', async () => {
     await page.fill('input[name="name"]', 'alice');
     await page.click('button[type="submit"]');
 
-    const microphone = page.getByRole('button', { name: 'Mute microphone' });
+    const microphone = page.getByRole('button', { name: 'Microphone', exact: true, pressed: true });
     await expect(microphone).toBeVisible({ timeout: 20_000 });
     await expect(microphone).toHaveAttribute('aria-pressed', 'true');
 
@@ -27,7 +27,7 @@ test('microphone control updates UI and the local publication', async () => {
     await expect(page.locator(`audio[aria-label="alice's audio"]`)).toHaveCount(0);
 
     await microphone.click();
-    await expect(page.getByRole('button', { name: 'Unmute microphone' })).toHaveAttribute(
+    await expect(page.getByRole('button', { name: 'Microphone', exact: true })).toHaveAttribute(
       'aria-pressed',
       'false'
     );
@@ -76,7 +76,9 @@ test('device menus list and switch cameras and microphones in-call', async () =>
     await page.fill('input[name="room"]', `devices-e2e-${Date.now()}`);
     await page.fill('input[name="name"]', 'alice');
     await page.click('button[type="submit"]');
-    await expect(page.getByRole('button', { name: 'Mute microphone' })).toBeVisible({
+    await expect(
+      page.getByRole('button', { name: 'Microphone', exact: true, pressed: true })
+    ).toBeVisible({
       timeout: 20_000
     });
 
