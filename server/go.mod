@@ -1,12 +1,12 @@
 module tide
 
-go 1.26.8
+go 1.26.10
 
 require (
 	github.com/alicebob/miniredis/v2 v2.39.0
 	github.com/coreos/go-oidc/v3 v3.14.1
-	github.com/livekit/livekit-server v1.13.9
-	github.com/livekit/protocol v1.52.2-0.20261007103317-a935cd67c29a
+	github.com/livekit/livekit-server v1.13.10
+	github.com/livekit/protocol v1.52.2-0.20261012065025-9bb708cdb819
 	github.com/livekit/server-sdk-go/v2 v2.19.0
 	github.com/minio/minio-go/v7 v7.0.95
 	github.com/twitchtv/twirp v8.1.3+incompatible
@@ -130,12 +130,12 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.28.0 // indirect
 	go.uber.org/zap/exp v0.3.0 // indirect
-	golang.org/x/crypto v0.57.0 // indirect
+	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/exp v0.0.0-20261005173118-76772065c9b0 // indirect
-	golang.org/x/net v0.59.0 // indirect
-	golang.org/x/sync v0.23.0 // indirect
-	golang.org/x/sys v0.48.0 // indirect
-	golang.org/x/text v0.42.0 // indirect
+	golang.org/x/net v0.61.0 // indirect
+	golang.org/x/sync v0.24.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/text v0.43.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20261005182115-fad411399dd8 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20261005182115-fad411399dd8 // indirect
 	google.golang.org/grpc v1.84.0 // indirect
@@ -151,7 +151,7 @@ replace git.convex.works/ConvexWorks/moil/sdk/go => ./third_party/moil
 // The embedded media server builds only against LiveKit's pion forks (they
 // add API it calls, such as SettingEngine.EnableSped). Replaces in a
 // dependency's go.mod don't apply here, so these mirror livekit-server
-// v1.13.9's; move them with it.
+// v1.13.10's; move them with it.
 replace github.com/pion/webrtc/v4 => github.com/livekit/webrtc-pion/v4 v4.2.18-warp.6
 
 replace github.com/pion/dtls/v3 => github.com/livekit/dtls/v3 v3.1.5-warp.3
