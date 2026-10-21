@@ -954,8 +954,10 @@ Forgejo Actions (`.forgejo/workflows/ci.yml`), on every push/PR:
 2. **web** — `svelte-check`, prettier check, `vite build`, and the browser
    specs that run against the mock API and fake SFU alone (no server)
 3. **typesync** — `make gen && git diff --exit-code` (§11)
-4. **media-e2e** — the full real-SFU gate (below), against the sealed stack
-5. **build** — full binary build (SPA embed included) as the merge gate
+4. **site** — the documentation site in `site/`: `npm run check`, prettier
+   check, prerendered build
+5. **media-e2e** — the full real-SFU gate (below), against the sealed stack
+6. **build** — full binary build (SPA embed included) as the merge gate
 
 The media gate runs in full on every pull request; nothing is deferred to a
 nightly job, because a regression only a nightly catches has already shipped.
