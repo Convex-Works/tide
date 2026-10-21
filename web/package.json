@@ -31,7 +31,7 @@
     "@sveltejs/kit": "^3.0.0",
     "@sveltejs/vite-plugin-svelte": "^7.0.0",
     "@tailwindcss/vite": "^4.3.3",
-    "@types/node": "^22.20.1",
+    "@types/node": "^26.6.5",
     "fast-check": "^4.9.0",
     "prettier": "^3.5.3",
     "prettier-plugin-svelte": "^3.3.3",
