@@ -5,7 +5,7 @@
 #
 #   docker build --file deploy/minio.Dockerfile --target minio deploy
 
-FROM golang:1.24-alpine AS source
+FROM golang:1.25-alpine AS source
 RUN apk add --no-cache git
 ENV CGO_ENABLED=0
 
@@ -22,12 +22,12 @@ WORKDIR /src
 RUN go build -trimpath -ldflags "-s -w" -o /out/mc .
 
 # curl for the compose health checks, as the published images had.
-FROM alpine:3.21 AS minio
+FROM alpine:3.24 AS minio
 RUN apk add --no-cache curl
 COPY --from=build-minio /out/minio /usr/bin/minio
 EXPOSE 9000 9001
 ENTRYPOINT ["minio"]
 
-FROM alpine:3.21 AS mc
+FROM alpine:3.24 AS mc
 COPY --from=build-mc /out/mc /usr/bin/mc
 ENTRYPOINT ["mc"]
