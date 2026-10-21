@@ -66,7 +66,7 @@ services:
   # falls back to 127.0.0.1, which the recorder can't reach: meetings work,
   # recordings don't.
   egress:
-    image: livekit/egress:v1.13.0
+    image: livekit/egress:v1.15.0
     environment:
       EGRESS_CONFIG_FILE: /etc/egress.yaml
     volumes:
@@ -95,7 +95,7 @@ services:
     networks: [tide]
 
   dex:
-    image: ghcr.io/dexidp/dex:v2.43.1
+    image: ghcr.io/dexidp/dex:v2.46.1
     command: dex serve /etc/dex/config.yaml
     volumes:
       - ./dex.yaml:/etc/dex/config.yaml:ro
