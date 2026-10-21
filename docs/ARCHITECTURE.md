@@ -957,6 +957,11 @@ Forgejo Actions (`.forgejo/workflows/ci.yml`), on every push/PR:
 4. **media-e2e** — the full real-SFU gate (below), against the sealed stack
 5. **build** — full binary build (SPA embed included) as the merge gate
 
+GitHub Actions runs the same gate (`.github/workflows/ci.yml`). A pushed `v*`
+tag runs `.github/workflows/release.yml`, which publishes the linux/amd64 and
+linux/arm64 image to `ghcr.io/convex-works/tide` and creates the GitHub
+release from `docs/releases/<tag>.md`.
+
 The media gate runs in full on every pull request; nothing is deferred to a
 nightly job, because a regression only a nightly catches has already shipped.
 It covers, in order: the lifecycle scenarios, recording, the reliability suite
