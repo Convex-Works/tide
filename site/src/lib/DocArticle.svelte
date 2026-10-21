@@ -6,6 +6,9 @@
   let { page, html, toc }: { page: DocPage; html: string; toc: { id: string; title: string }[] } =
     $props();
 
+  const title = $derived(
+    `${page.slug === 'index' ? 'Deploy tide' : (page.documentTitle ?? page.title)} · tide`
+  );
   let article = $state<HTMLElement>();
 
   // Code blocks carry a Copy button; one listener serves them all.
@@ -30,8 +33,10 @@
 </script>
 
 <svelte:head>
-  <title>{page.slug === 'index' ? 'Deploy tide' : (page.documentTitle ?? page.title)} · tide</title>
+  <title>{title}</title>
   <meta name="description" content={page.summary} />
+  <meta property="og:title" content={title} />
+  <meta property="og:description" content={page.summary} />
 </svelte:head>
 
 <div class="grid min-w-0 xl:grid-cols-[minmax(0,1fr)_13rem]">

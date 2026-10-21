@@ -1,4 +1,4 @@
-![tide — Simple, self-hosted video meetings](docs/assets/tide-banner.png)
+![A tide meeting with four people](docs/assets/meeting.png)
 
 <p align="center">
   <a href="https://tide.convex.works">Website</a> ·
@@ -17,6 +17,9 @@ Redis, and S3-compatible storage.
 - Per-participant video hiding for the current viewer
 - Ephemeral in-room chat
 - Optional audio and video recording, with download and delete controls
+- Optional transcripts of recordings, made by moil on the room owner's own
+  computer (macOS, alpha; [how it works](docs/ARCHITECTURE.md#81-transcripts)).
+  No AI runs on the server
 
 ## Quickstart
 
