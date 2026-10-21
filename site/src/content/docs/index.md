@@ -144,7 +144,7 @@ Recording needs sign-in.
      restart: unless-stopped
 
    recorder:
-     image: livekit/egress:v1.13.0
+     image: livekit/egress:v1.15.0
      network_mode: service:tide
      depends_on:
        redis:

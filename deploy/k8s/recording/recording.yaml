@@ -109,7 +109,7 @@ spec:
             - name: TIDE_RECORDER_TEMPLATE_URL
               value: http://localhost:8080/egress-template
         - name: recorder
-          image: livekit/egress:v1.13.0 # OVERLAY: Pin a release tested with tide's media server.
+          image: livekit/egress:v1.15.0 # OVERLAY: Pin a release tested with tide's media server.
           imagePullPolicy: IfNotPresent
           # The recorder checks Redis once at startup and exits without it;
           # the Redis sidecar is up before this container starts.
