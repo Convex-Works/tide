@@ -95,7 +95,7 @@ services:
     networks: [tide]
 
   dex:
-    image: ghcr.io/dexidp/dex:v2.43.1
+    image: ghcr.io/dexidp/dex:v2.46.1
     command: dex serve /etc/dex/config.yaml
     volumes:
       - ./dex.yaml:/etc/dex/config.yaml:ro
