@@ -21,7 +21,7 @@ jobs:
   checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with:
           go-version-file: server/go.mod
@@ -82,7 +82,7 @@ jobs:
     # formatting, then the prerendered build its Dockerfile serves.
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -108,7 +108,7 @@ jobs:
     needs: [checks]
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Full real-SFU media suite
         env:
           CI_RUN_ID: ${{ github.run_id }}
