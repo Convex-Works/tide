@@ -1,6 +1,6 @@
 # Local development
 
-You need Go 1.26.10 or later and Node 22 or later.
+You need Go 1.26.10 or later and Node 24 or later.
 
 ## Only tide
 
