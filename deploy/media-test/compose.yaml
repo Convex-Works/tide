@@ -13,7 +13,7 @@ name: tide-media-test
 
 services:
   redis:
-    image: redis:7.4.8-alpine3.21
+    image: redis:8.0.6-alpine3.21
     command: ["redis-server", "--requirepass", "tide-dev-recorder-redis-password-please-change", "--save", "", "--appendonly", "no"]
     environment:
       REDISCLI_AUTH: tide-dev-recorder-redis-password-please-change
