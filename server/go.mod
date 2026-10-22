@@ -10,6 +10,7 @@ require (
 	github.com/livekit/server-sdk-go/v2 v2.19.0
 	github.com/minio/minio-go/v7 v7.4.1
 	github.com/twitchtv/twirp v8.1.3+incompatible
+	golang.org/x/net v0.61.0
 	golang.org/x/oauth2 v0.37.0
 	modernc.org/sqlite v1.60.1
 )
@@ -132,7 +133,6 @@ require (
 	go.uber.org/zap/exp v0.3.0 // indirect
 	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/exp v0.0.0-20261005173118-76772065c9b0 // indirect
-	golang.org/x/net v0.61.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
