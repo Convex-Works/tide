@@ -18,7 +18,7 @@ RUN npm ci
 COPY web/ ./
 RUN npx vite build
 
-FROM --platform=$BUILDPLATFORM golang:1.26.10-alpine3.23 AS go-builder
+FROM --platform=$BUILDPLATFORM golang:1.27.2-alpine3.23 AS go-builder
 WORKDIR /src/server
 
 COPY server/go.mod server/go.sum ./
@@ -39,7 +39,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build \
     -o /out/tide \
     ./cmd/tide
 
-FROM --platform=$BUILDPLATFORM alpine:3.22.5 AS runtime-files
+FROM --platform=$BUILDPLATFORM alpine:3.24.0 AS runtime-files
 RUN apk add --no-cache ca-certificates tzdata \
     && mkdir -p /runtime/data \
     && chown 65532:65532 /runtime/data
