@@ -18,7 +18,7 @@ RUN npm ci
 COPY web/ ./
 RUN npx vite build
 
-FROM --platform=$BUILDPLATFORM golang:1.26.9-alpine3.23 AS go-builder
+FROM --platform=$BUILDPLATFORM golang:1.26.10-alpine3.23 AS go-builder
 WORKDIR /src/server
 
 COPY server/go.mod server/go.sum ./
