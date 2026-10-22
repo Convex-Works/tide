@@ -200,6 +200,7 @@ services:
         condition: service_started
     cap_add:
       - NET_ADMIN
+      - SYS_PTRACE
     init: true
     # Many concurrent Chromium contexts publishing canvas/oscillator media.
     shm_size: 2gb

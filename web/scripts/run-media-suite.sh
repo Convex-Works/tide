@@ -63,6 +63,8 @@ artifacts="${TIDE_MEDIA_ARTIFACTS:-/artifacts}"
 case "${TIDE_MEDIA_SUITE:-deterministic}" in
   deterministic | nightly)
     # EXPERIMENT (do not merge): sample the WebKit page hang.
+    mkdir -p "${artifacts}/deterministic"
+    sh ./scripts/webkit-watchdog.sh "${artifacts}/deterministic/watchdog.log" &
     TIDE_MEDIA_ARTIFACTS="${artifacts}/deterministic" npx playwright test media-lifecycle.spec.ts \
       --config=playwright.media.config.ts --project=webkit --repeat-each=3
     ;;
