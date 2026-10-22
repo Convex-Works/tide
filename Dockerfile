@@ -4,7 +4,7 @@
 # image is per-platform: the SPA and the CA and zone files are the same on
 # every architecture, and Go cross-compiles the static binary. A multi-arch
 # build (.github/workflows/release.yml) needs no emulation.
-FROM --platform=$BUILDPLATFORM node:22.17.0-alpine3.22 AS web-builder
+FROM --platform=$BUILDPLATFORM node:24.22.1-alpine3.23 AS web-builder
 WORKDIR /src/web
 ARG VITE_TIDE_TEST=false
 ENV VITE_TIDE_TEST=${VITE_TIDE_TEST}
