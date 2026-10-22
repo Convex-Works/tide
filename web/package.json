@@ -19,7 +19,7 @@
   "dependencies": {
     "bits-ui": "^2.19.5",
     "cuelume": "file:vendor/cuelume-0.1.2-14a71236.tgz",
-    "livekit-client": "2.23.0",
+    "livekit-client": "2.22.4",
     "phosphor-svelte": "^3.1.1"
   },
   "devDependencies": {
