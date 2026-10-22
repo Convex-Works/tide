@@ -7,7 +7,9 @@
     <!--
       Link previews. The SPA serves this same page for every path, so these
       stay generic: a shared meeting link never shows its room's name. The
-      image is relative because a self-hosted tide's origin isn't known here.
+      image is relative because a self-hosted tide's origin isn't known here;
+      tide makes it absolute (TIDE_BASE_URL) when it starts, so keep this tag
+      exactly as written (ogImageTag in server/internal/httpapi/handler.go).
     -->
     <title>tide</title>
     <meta name="description" content="Simple, self-hosted video meetings." />
