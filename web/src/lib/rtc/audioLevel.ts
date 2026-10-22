@@ -60,10 +60,7 @@ export function createMeter(track: MediaStreamTrack, onLevel: (level: number) =>
     if (meters.size === 0) {
       cancelAnimationFrame(frame);
       frame = 0;
-      if (context) {
-        void context.close().catch(() => undefined);
-        context = undefined;
-      }
+      // EXPERIMENT: keep the context for the page's lifetime instead of closing it.
     }
   };
 }
