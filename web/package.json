@@ -34,7 +34,7 @@
     "@types/node": "^26.6.5",
     "fast-check": "^4.10.2",
     "prettier": "^3.9.10",
-    "prettier-plugin-svelte": "^3.3.3",
+    "prettier-plugin-svelte": "^4.1.1",
     "svelte": "^5.57.1",
     "svelte-check": "^4.7.5",
     "tailwindcss": "^4.3.3",
