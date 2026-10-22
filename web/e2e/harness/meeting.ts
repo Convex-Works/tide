@@ -9,6 +9,7 @@ import {
   type MediaProbeSnapshot
 } from '../media-helpers';
 import { MEMBER, OWNER, sessionFor, type TestUser } from './session';
+import { installMediaTrace } from './media-trace';
 
 /**
  * A meeting with many actors over one browser and many contexts. One context
@@ -352,10 +353,15 @@ export class Meeting {
   // never call getUserMedia. WebKit also rejects the "camera" permission name
   // outright, so asking for it would fail the whole project.
   private async contextFor(role: ActorRole): Promise<BrowserContext> {
-    if (role === 'guest') return this.browser.newContext();
-    const user: TestUser = role === 'owner' ? OWNER : MEMBER;
-    const storageState = await sessionFor(this.browser, user);
-    return this.browser.newContext({ storageState });
+    let context: BrowserContext;
+    if (role === 'guest') context = await this.browser.newContext();
+    else {
+      const user: TestUser = role === 'owner' ? OWNER : MEMBER;
+      const storageState = await sessionFor(this.browser, user);
+      context = await this.browser.newContext({ storageState });
+    }
+    await context.addInitScript(installMediaTrace);
+    return context;
   }
 
   /** Creates an actor, connects it, and publishes its media. */
