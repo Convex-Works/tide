@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"html"
 	"io/fs"
 	"log"
 	"net/http"
@@ -32,7 +33,10 @@ import (
 var anonymousRoomCap = rooms.AnonymousRoomCap
 
 type Handler struct {
-	web         fs.FS
+	web fs.FS
+	// index is the SPA shell, index.html, with its link preview image made
+	// absolute (shellWithBaseURL); nil without an embedded SPA.
+	index       []byte
 	sessions    *auth.Sessions
 	oidc        *auth.OIDC // nil in anonymous mode
 	rooms       *rooms.Handler
@@ -165,8 +169,13 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 		roomsHandler.SetRoomCap(anonymousRoomCap)
 	}
 	transcriptsOn.attach(recordingHandler, roomsHandler)
+	index, err := shellWithBaseURL(web, cfg.BaseURL)
+	if err != nil {
+		return nil, nil, err
+	}
 	handler := &Handler{
 		web:         web,
+		index:       index,
 		sessions:    sessions,
 		rooms:       roomsHandler,
 		lobby:       lobby.NewHandler(roomStore, registry, minter),
@@ -427,7 +436,36 @@ func (h *Handler) spa(w http.ResponseWriter, r *http.Request) {
 	h.serveFile(w, r, requested)
 }
 
+// ogImageTag is the SPA shell's link preview image as web/src/app.html
+// writes it: relative, since the build doesn't know the origin it will be
+// served from. Open Graph wants an absolute URL, so tide rewrites this exact
+// tag once at startup; a test keeps it in step with app.html.
+const ogImageTag = `<meta property="og:image" content="/og.png" />`
+
+// shellWithBaseURL reads the SPA shell and points its og:image at baseURL.
+// It returns nil, nil without an embedded SPA, and the shell unchanged if
+// it has no such tag (the stub shells of tests).
+func shellWithBaseURL(web fs.FS, baseURL string) ([]byte, error) {
+	if web == nil {
+		return nil, nil
+	}
+	shell, err := fs.ReadFile(web, "index.html")
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	image := strings.TrimRight(baseURL, "/") + "/og.png"
+	absolute := `<meta property="og:image" content="` + html.EscapeString(image) + `" />`
+	return bytes.Replace(shell, []byte(ogImageTag), []byte(absolute), 1), nil
+}
+
 func (h *Handler) serveFile(w http.ResponseWriter, r *http.Request, name string) {
+	if name == "index.html" && h.index != nil {
+		http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(h.index))
+		return
+	}
 	contents, err := fs.ReadFile(h.web, name)
 	if err != nil {
 		http.NotFound(w, r)
