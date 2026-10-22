@@ -56,6 +56,13 @@ jobs:
       - name: Build SPA
         working-directory: web
         run: npx vite build
+      - name: Prove the shell's inline scripts are hashed into the CSP
+        # The policy allows SvelteKit's inline bootstrap by hash, not
+        # 'unsafe-inline'; this checks the shell just built still fits.
+        working-directory: server
+        env:
+          TIDE_REQUIRE_WEB_BUILD: "1"
+        run: go test ./internal/httpapi -run TestBuiltShellInlineScripts -count=1
       - name: Prove test hooks are absent
         working-directory: web
         run: |

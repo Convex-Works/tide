@@ -1080,6 +1080,13 @@ up between runs for iteration.
   never transmitted anywhere; treat an exported file as personal data.
 - CSP, clickjacking, MIME-sniffing, and referrer-policy headers wrap every
   response; the SPA makes no third-party requests (fonts are self-hosted).
+  Scripts come only from tide's origin, plus SvelteKit's inline bootstrap,
+  allowed by its sha256, which tide computes from the embedded shell at
+  startup (no `'unsafe-inline'`). Pages connect only to tide's origin and the
+  media server's public signaling origin (`TIDE_MEDIA_PUBLIC_URL`, or the
+  base URL's when embedded), named explicitly as `ws(s)://` and `http(s)://`.
+  The recorder's page (`/egress-template`) alone may open a WebSocket to any
+  host: the recorder gives it a media server address tide never sees.
 
 ## 16. Phased build
 
