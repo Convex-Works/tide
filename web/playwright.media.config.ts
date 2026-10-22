@@ -36,7 +36,15 @@ export default defineConfig({
     },
     {
       name: 'webkit',
-      use: { ...devices['Desktop Safari'] }
+      use: {
+        ...devices['Desktop Safari'],
+        launchOptions: {
+          env: {
+            ...process.env,
+            GST_PLUGIN_FEATURE_RANK: 'fakeaudiosink:512'
+          }
+        }
+      }
     },
     {
       name: 'firefox',
