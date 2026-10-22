@@ -5,7 +5,7 @@
 #
 #   docker build --file deploy/minio.Dockerfile --target minio deploy
 
-FROM golang:1.24-alpine AS source
+FROM golang:1.25-alpine AS source
 RUN apk add --no-cache git
 ENV CGO_ENABLED=0
 
