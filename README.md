@@ -34,7 +34,7 @@ docker run --rm --network host ghcr.io/convex-works/tide:0.1.0
 The image is for linux/amd64 and linux/arm64. It uses the host's network
 because browsers send media straight to tide on UDP 7882 and TCP 7881.
 
-To build from source instead, you need Go 1.26.10 or later and Node 22.17 or
+To build from source instead, you need Go 1.26.10 or later and Node 24 or
 later. From the repository root:
 
 ```sh

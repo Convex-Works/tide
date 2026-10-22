@@ -16,7 +16,7 @@ jobs:
           cache: false
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
       - name: Server vet
         working-directory: server
         run: go vet ./...
@@ -66,7 +66,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
       - name: Install site dependencies
         working-directory: site
         run: npm ci
@@ -116,7 +116,7 @@ jobs:
           cache: false
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
       - name: Install web dependencies
         working-directory: web
         run: npm ci
