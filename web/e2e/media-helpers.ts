@@ -85,6 +85,8 @@ type MediaTestWindow = Window &
         unpublishTrack(track: unknown, stopOnUnpublish?: boolean): Promise<unknown>;
       };
       emit(event: string, participants: unknown[]): void;
+      on(event: string, listener: () => void): unknown;
+      off(event: string, listener: () => void): unknown;
       simulateScenario(scenario: string, arg?: unknown): Promise<void>;
     };
     __tideMediaTest: {
@@ -385,6 +387,61 @@ export async function setPublicationMuted(
 
 export async function probe(page: Page): Promise<MediaProbeSnapshot> {
   return page.evaluate(() => (window as MediaTestWindow).__tideMediaTest.snapshot());
+}
+
+/**
+ * Drops the connection the way `scenario` describes and resolves once LiveKit
+ * has reconnected, then once tide's own state is back to connected.
+ *
+ * Waiting for "connected" alone proves nothing: simulateScenario resolves
+ * while the room is still connected, and the reconnect only starts when
+ * LiveKit's retry timer fires. Since livekit-client 2.23 that first retry is
+ * jittered by up to 500 ms rather than immediate, so a bare state poll passes
+ * before the outage has even begun and the next step lands mid-reconnect, with
+ * every remote participant torn down. The Reconnected event is registered
+ * before the drop, so it cannot be missed however fast the recovery is.
+ */
+export async function simulateReconnect(
+  page: Page,
+  scenario: 'signal-reconnect' | 'full-reconnect',
+  timeout = 45_000
+): Promise<void> {
+  await page.evaluate(
+    async ({ scenario, timeout }) => {
+      const room = (window as MediaTestWindow).__tideRoom;
+      let settle = (): void => undefined;
+      const reconnected = new Promise<void>((resolve, reject) => {
+        const onReconnected = (): void => {
+          settle();
+          resolve();
+        };
+        const onDisconnected = (): void => {
+          settle();
+          reject(new Error(`The room disconnected instead of recovering from ${scenario}.`));
+        };
+        const timer = setTimeout(() => {
+          settle();
+          reject(new Error(`The room did not reconnect within ${timeout} ms of ${scenario}.`));
+        }, timeout);
+        settle = () => {
+          clearTimeout(timer);
+          room.off('reconnected', onReconnected);
+          room.off('disconnected', onDisconnected);
+        };
+        room.on('reconnected', onReconnected);
+        room.on('disconnected', onDisconnected);
+      });
+      try {
+        await room.simulateScenario(scenario);
+      } catch (error) {
+        settle();
+        throw error;
+      }
+      await reconnected;
+    },
+    { scenario, timeout }
+  );
+  await expect.poll(async () => (await probe(page)).connectionState, { timeout }).toBe('connected');
 }
 
 /**
