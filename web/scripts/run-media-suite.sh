@@ -62,7 +62,9 @@ artifacts="${TIDE_MEDIA_ARTIFACTS:-/artifacts}"
 
 case "${TIDE_MEDIA_SUITE:-deterministic}" in
   deterministic | nightly)
-    full_suite
+    # EXPERIMENT (do not merge): sample the WebKit page hang.
+    TIDE_MEDIA_ARTIFACTS="${artifacts}/deterministic" npx playwright test media-lifecycle.spec.ts \
+      --config=playwright.media.config.ts --project=webkit --repeat-each=3
     ;;
   quick)
     # Local shortcut only; never what CI runs.
