@@ -6,6 +6,11 @@ name: Release
 # docs/releases/<tag>.md. Tag only a commit on main that CI passed; this
 # workflow doesn't run the checks again. A pre-release tag (v1.2.0-rc.1)
 # gets only its own image tag and a pre-release.
+#
+# GitHub makes a newly pushed container package private. After the first
+# release push, set Convex-Works -> Packages -> tide -> Package settings ->
+# visibility to Public, then check that
+# `docker pull ghcr.io/convex-works/tide:<version>` works logged out.
 
 on:
   push:

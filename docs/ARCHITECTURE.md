@@ -962,7 +962,10 @@ Forgejo Actions (`.forgejo/workflows/ci.yml`), on every push/PR:
 GitHub Actions runs the same gate (`.github/workflows/ci.yml`). A pushed `v*`
 tag runs `.github/workflows/release.yml`, which publishes the linux/amd64 and
 linux/arm64 image to `ghcr.io/convex-works/tide` and creates the GitHub
-release from `docs/releases/<tag>.md`.
+release from `docs/releases/<tag>.md`. GitHub makes a newly pushed container
+package private: after the first release push, set Convex-Works → Packages →
+tide → Package settings → visibility to Public, and check that
+`docker pull ghcr.io/convex-works/tide:<version>` works logged out.
 
 The media gate runs in full on every pull request; nothing is deferred to a
 nightly job, because a regression only a nightly catches has already shipped.
