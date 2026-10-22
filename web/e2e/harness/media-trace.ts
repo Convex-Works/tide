@@ -2,7 +2,8 @@
 // so the last console line before a WebKit web process deadlocks names the
 // JavaScript call that led into it.
 export function installMediaTrace(): void {
-  const log = (what: string) => console.info(`[media-trace] ${performance.now().toFixed(1)} ${what}`);
+  const log = (what: string) =>
+    console.info(`[media-trace] ${performance.now().toFixed(1)} ${what}`);
   const wrap = <T extends object>(proto: T, name: string, label: string) => {
     const original = (proto as Record<string, unknown>)[name];
     if (typeof original !== 'function') return;
@@ -33,8 +34,16 @@ export function installMediaTrace(): void {
     wrap(NativeAudioContext.prototype, 'close', 'AudioContext.close');
     wrap(NativeAudioContext.prototype, 'suspend', 'AudioContext.suspend');
     wrap(NativeAudioContext.prototype, 'resume', 'AudioContext.resume');
-    wrap(NativeAudioContext.prototype, 'createMediaStreamSource', 'AudioContext.createMediaStreamSource');
-    wrap(NativeAudioContext.prototype, 'createMediaStreamDestination', 'AudioContext.createMediaStreamDestination');
+    wrap(
+      NativeAudioContext.prototype,
+      'createMediaStreamSource',
+      'AudioContext.createMediaStreamSource'
+    );
+    wrap(
+      NativeAudioContext.prototype,
+      'createMediaStreamDestination',
+      'AudioContext.createMediaStreamDestination'
+    );
   }
   wrap(AudioNode.prototype, 'disconnect', 'AudioNode.disconnect');
   wrap(MediaStreamTrack.prototype, 'stop', 'MediaStreamTrack.stop');
@@ -44,7 +53,11 @@ export function installMediaTrace(): void {
   wrap(HTMLMediaElement.prototype, 'load', 'HTMLMediaElement.load');
   wrap(RTCRtpSender.prototype, 'replaceTrack', 'RTCRtpSender.replaceTrack');
   wrap(RTCPeerConnection.prototype, 'close', 'RTCPeerConnection.close');
-  wrap(RTCPeerConnection.prototype, 'setRemoteDescription', 'RTCPeerConnection.setRemoteDescription');
+  wrap(
+    RTCPeerConnection.prototype,
+    'setRemoteDescription',
+    'RTCPeerConnection.setRemoteDescription'
+  );
   wrap(RTCPeerConnection.prototype, 'setLocalDescription', 'RTCPeerConnection.setLocalDescription');
   wrap(RTCPeerConnection.prototype, 'addTransceiver', 'RTCPeerConnection.addTransceiver');
   wrap(RTCPeerConnection.prototype, 'removeTrack', 'RTCPeerConnection.removeTrack');
@@ -61,7 +74,12 @@ export function installMediaTrace(): void {
       ...descriptor,
       set(this: HTMLMediaElement, value: unknown) {
         const tag = `${label} on <${this.tagName.toLowerCase()} ${this.dataset.publicationSid ?? ''}> ${
-          value instanceof MediaStream ? `stream(${value.getTracks().map((t) => t.kind).join(',')})` : String(value)
+          value instanceof MediaStream
+            ? `stream(${value
+                .getTracks()
+                .map((t) => t.kind)
+                .join(',')})`
+            : String(value)
         }`;
         log(`${tag} begin`);
         setter.call(this, value);
