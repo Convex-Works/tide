@@ -13,7 +13,7 @@ name: tide-media-test
 
 services:
   redis:
-    image: redis:7.4.8-alpine3.21
+    image: redis:8.0.6-alpine3.21
     command: ["redis-server", "--requirepass", "tide-dev-recorder-redis-password-please-change", "--save", "", "--appendonly", "no"]
     environment:
       REDISCLI_AUTH: tide-dev-recorder-redis-password-please-change
@@ -91,13 +91,14 @@ services:
     # tide's image has no shell for a healthcheck, so the recorder waits for
     # tide's /healthz, which tide serves only once its media server is up: the
     # runner, which waits for a healthy recorder, then starts against a tide
-    # that serves.
+    # that serves. It then execs the image's own entrypoint, tini included, so
+    # SIGTERM still reaches the recorder.
     entrypoint:
       - /bin/sh
       - -c
       - >-
         until wget -q -O /dev/null http://localhost:8080/healthz; do sleep 1; done;
-        exec /entrypoint.sh
+        exec /tini -- /entrypoint.sh
     cap_add:
       - SYS_ADMIN
     security_opt:

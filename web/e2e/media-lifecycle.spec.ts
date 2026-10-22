@@ -156,11 +156,11 @@ test('a camera that cannot open leaves the participant in the meeting', async ({
     await guest.clearLedger();
 
     const bar = guest.page.getByRole('navigation', { name: 'Meeting controls' });
-    await bar.getByRole('button', { name: 'Turn camera on' }).click();
+    await bar.getByRole('button', { name: 'Camera', exact: true, pressed: false }).click();
     await expect(bar.getByRole('alert')).toHaveText(
       'Your browser only allows the camera on https pages. Open the meeting over https.'
     );
-    await expect(bar.getByRole('button', { name: 'Turn camera on' })).toHaveAttribute(
+    await expect(bar.getByRole('button', { name: 'Camera', exact: true })).toHaveAttribute(
       'aria-pressed',
       'false'
     );

@@ -1,0 +1,93 @@
+name: Release
+
+# A pushed v* tag publishes that commit: the image for linux/amd64 and
+# linux/arm64 at ghcr.io/convex-works/tide, tagged <version>, <major.minor>
+# and latest, then a GitHub release whose notes are
+# docs/releases/<tag>.md. Tag only a commit on main that CI passed; this
+# workflow doesn't run the checks again. A pre-release tag (v1.2.0-rc.1)
+# gets only its own image tag and a pre-release.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/convex-works/tide
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check the tag and its release notes
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if ! printf '%s\n' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::$TAG is not a vMAJOR.MINOR.PATCH tag."
+            exit 1
+          fi
+          if [ ! -s "docs/releases/$TAG.md" ]; then
+            echo "::error::docs/releases/$TAG.md is missing; write the release notes before tagging."
+            exit 1
+          fi
+      - id: meta
+        uses: docker/metadata-action@v5
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+          # source links the package to this repository on GitHub.
+          labels: |
+            org.opencontainers.image.title=tide
+            org.opencontainers.image.description=Self-hosted video meetings
+            org.opencontainers.image.source=https://github.com/Convex-Works/tide
+            org.opencontainers.image.url=https://tide.convex.works
+            org.opencontainers.image.documentation=https://github.com/Convex-Works/tide/blob/main/docs/DEPLOYMENT.md
+            org.opencontainers.image.licenses=MIT
+          annotations: |
+            org.opencontainers.image.title=tide
+            org.opencontainers.image.description=Self-hosted video meetings
+            org.opencontainers.image.source=https://github.com/Convex-Works/tide
+            org.opencontainers.image.licenses=MIT
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      # The Dockerfile cross-compiles, so arm64 needs no QEMU.
+      - name: Build and push the image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          prerelease=""
+          case "$TAG" in *-*) prerelease="--prerelease" ;; esac
+          gh release create "$TAG" --verify-tag --title "tide ${TAG#v}" \
+            --notes-file "docs/releases/$TAG.md" $prerelease

@@ -261,7 +261,7 @@ class ToggleLayout extends MediaCommand {
   async run(model: MediaModel, real: MediaReal): Promise<void> {
     real.trace.push(this.toString());
     await real.receiver
-      .getByRole('button', { name: model.view === 'grid' ? 'Speaker view' : 'Grid view' })
+      .getByRole('button', { name: 'Speaker view', pressed: model.view === 'speaker' })
       .click();
     model.view = model.view === 'grid' ? 'speaker' : 'grid';
     await this.converged(model, real);

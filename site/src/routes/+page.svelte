@@ -16,6 +16,9 @@
     'Zoom alternative',
     'Google Meet alternative'
   ];
+  const title = 'tide · Self-hosted alternative to Jitsi, Zoom and Google Meet';
+  const description =
+    'tide is a simple, self-hostable video conference service. One Go binary, server-side recording and OIDC sign-in. An alternative to Jitsi, Zoom and Google Meet that runs on your own server.';
   const features = [
     'One Go binary',
     'Media stays on your server',
@@ -25,11 +28,10 @@
 </script>
 
 <svelte:head>
-  <title>tide · Self-hosted alternative to Jitsi, Zoom and Google Meet</title>
-  <meta
-    name="description"
-    content="tide is a simple, self-hostable video conference service. One Go binary, server-side recording and OIDC sign-in. An alternative to Jitsi, Zoom and Google Meet that runs on your own server."
-  />
+  <title>{title}</title>
+  <meta name="description" content={description} />
+  <meta property="og:title" content={title} />
+  <meta property="og:description" content={description} />
 </svelte:head>
 
 <div class="flex min-h-dvh flex-col xl:h-dvh xl:min-h-[40rem]">

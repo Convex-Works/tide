@@ -232,7 +232,7 @@ TIDE_RECORDER_TEMPLATE_URL=http://127.0.0.1:8080/egress-template
 ```yaml
 services:
   tide:
-    image: registry.example.com/tide:1.0.0
+    image: ghcr.io/convex-works/tide:0.1.0
     env_file: .env
     network_mode: host
     volumes:
@@ -262,7 +262,7 @@ services:
     restart: unless-stopped
 
   recorder:
-    image: livekit/egress:v1.13.0
+    image: livekit/egress:v1.15.0
     network_mode: service:tide
     # The recorder checks Redis once at startup and exits without it.
     depends_on:
@@ -359,9 +359,8 @@ resources:
 components:
   - ../../k8s/recording # leave out for no recording
 images:
-  - name: registry.example.com/tide
-    newName: <registry>/tide
-    newTag: <version>
+  - name: ghcr.io/convex-works/tide
+    newTag: 0.1.0 # or newName: <registry>/tide for your own build
 patches:
   - path: tide.yaml # the OVERLAY values, and the media path
 ```

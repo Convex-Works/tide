@@ -60,6 +60,26 @@ jobs:
       - name: Check generated type drift
         run: git diff --exit-code -- web/src/lib/api/types.gen.ts
 
+  site:
+    runs-on: docker
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install site dependencies
+        working-directory: site
+        run: npm ci
+      - name: Site checks
+        working-directory: site
+        run: npm run check
+      - name: Site formatting
+        working-directory: site
+        run: npm run lint
+      - name: Build site
+        working-directory: site
+        run: npm run build
+
   media-e2e:
     runs-on: docker
     # The whole media gate blocks every pull request: lifecycle and recording

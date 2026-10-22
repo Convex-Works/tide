@@ -257,11 +257,11 @@ test('a camera in use at join leaves the user in the meeting with the microphone
 
   const bar = page.getByRole('navigation', { name: 'Meeting controls' });
   await expect(bar.getByRole('alert')).toHaveText(cameraInUse);
-  await expect(bar.getByRole('button', { name: 'Turn camera on' })).toHaveAttribute(
+  await expect(bar.getByRole('button', { name: 'Camera', exact: true })).toHaveAttribute(
     'aria-pressed',
     'false'
   );
-  await expect(bar.getByRole('button', { name: 'Mute microphone' })).toHaveAttribute(
+  await expect(bar.getByRole('button', { name: 'Microphone', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true'
   );
@@ -279,11 +279,11 @@ test("one medium's fallback at join does not hide another medium's failure", asy
   );
   const bar = page.getByRole('navigation', { name: 'Meeting controls' });
   await expect.poll(() => localSources(page), { timeout: 10_000 }).toEqual(['camera']);
-  await expect(bar.getByRole('button', { name: 'Turn camera off' })).toHaveAttribute(
+  await expect(bar.getByRole('button', { name: 'Camera', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true'
   );
-  await expect(bar.getByRole('button', { name: 'Unmute microphone' })).toHaveAttribute(
+  await expect(bar.getByRole('button', { name: 'Microphone', exact: true })).toHaveAttribute(
     'aria-pressed',
     'false'
   );
@@ -312,16 +312,16 @@ test('a camera that fails to turn on says why, and the message clears once it wo
   await expect(bar.getByRole('alert')).toHaveCount(0);
 
   await setCapture(page, { fail: { video: 'NotReadableError' } });
-  await bar.getByRole('button', { name: 'Turn camera on' }).click();
+  await bar.getByRole('button', { name: 'Camera', exact: true, pressed: false }).click();
   await expect(bar.getByRole('alert')).toHaveText(cameraInUse);
-  await expect(bar.getByRole('button', { name: 'Turn camera on' })).toHaveAttribute(
+  await expect(bar.getByRole('button', { name: 'Camera', exact: true })).toHaveAttribute(
     'aria-pressed',
     'false'
   );
 
   await setCapture(page, { fail: {} });
-  await bar.getByRole('button', { name: 'Turn camera on' }).click();
-  await expect(bar.getByRole('button', { name: 'Turn camera off' })).toHaveAttribute(
+  await bar.getByRole('button', { name: 'Camera', exact: true, pressed: false }).click();
+  await expect(bar.getByRole('button', { name: 'Camera', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true'
   );
@@ -331,11 +331,11 @@ test('a camera that fails to turn on says why, and the message clears once it wo
   // Turning an already published camera back on re-opens the device, a
   // different path in LiveKit; a refusal there is reported the same way and
   // can be dismissed.
-  await bar.getByRole('button', { name: 'Turn camera off' }).click();
+  await bar.getByRole('button', { name: 'Camera', exact: true, pressed: true }).click();
   await setCapture(page, { fail: { video: 'NotAllowedError' } });
-  await bar.getByRole('button', { name: 'Turn camera on' }).click();
+  await bar.getByRole('button', { name: 'Camera', exact: true, pressed: false }).click();
   await expect(bar.getByRole('alert')).toHaveText(cameraBlocked);
-  await expect(bar.getByRole('button', { name: 'Turn camera on' })).toHaveAttribute(
+  await expect(bar.getByRole('button', { name: 'Camera', exact: true })).toHaveAttribute(
     'aria-pressed',
     'false'
   );
@@ -351,12 +351,12 @@ test('a second click while the camera prompt is up does not clear the refusal la
   test.slow();
   await enter(page, { camera: false, microphone: false });
   const bar = page.getByRole('navigation', { name: 'Meeting controls' });
-  const camera = bar.getByRole('button', { name: 'Turn camera on' });
+  const camera = bar.getByRole('button', { name: 'Camera', exact: true, pressed: false });
 
   await setCapture(page, { hold: ['video'], requests: [] });
   await camera.click();
   await expect.poll(async () => (await captureRequests(page)).length).toBe(1);
-  // Impatient: the button still says "Turn camera on".
+  // Impatient: the button still says the camera is off.
   await camera.click();
 
   await releaseCapture(page, 'NotAllowedError');
@@ -375,8 +375,8 @@ test('a second click while the camera prompt is up does not clear the refusal la
 test('a camera turned off while it is still starting ends up off', async ({ page }) => {
   await enter(page, { camera: true, microphone: false });
   const bar = page.getByRole('navigation', { name: 'Meeting controls' });
-  await bar.getByRole('button', { name: 'Turn camera off' }).click();
-  await expect(bar.getByRole('button', { name: 'Turn camera on' })).toHaveAttribute(
+  await bar.getByRole('button', { name: 'Camera', exact: true, pressed: true }).click();
+  await expect(bar.getByRole('button', { name: 'Camera', exact: true })).toHaveAttribute(
     'aria-pressed',
     'false'
   );
@@ -384,14 +384,13 @@ test('a camera turned off while it is still starting ends up off', async ({ page
   // Turning it back on re-opens the device, which takes a while; the user
   // changes their mind as soon as the button says it is on.
   await setCapture(page, { hold: ['video'] });
-  await bar.getByRole('button', { name: 'Turn camera on' }).click();
+  await bar.getByRole('button', { name: 'Camera', exact: true, pressed: false }).click();
   await releaseCapture(page);
-  await bar.getByRole('button', { name: 'Turn camera off' }).click();
-  await expect(bar.getByRole('button', { name: 'Turn camera on' })).toHaveAttribute(
-    'aria-busy',
-    'false'
-  );
-  await expect(bar.getByRole('button', { name: 'Turn camera on' })).toHaveAttribute(
+  await bar.getByRole('button', { name: 'Camera', exact: true, pressed: true }).click();
+  await expect(
+    bar.getByRole('button', { name: 'Camera', exact: true, pressed: false })
+  ).toHaveAttribute('aria-busy', 'false');
+  await expect(bar.getByRole('button', { name: 'Camera', exact: true })).toHaveAttribute(
     'aria-pressed',
     'false'
   );
@@ -472,7 +471,7 @@ test('a camera unplugged after pre-join falls back to the default camera', async
     setCapture(page, { missing: ['cam-1'], requests: [] })
   );
   const bar = page.getByRole('navigation', { name: 'Meeting controls' });
-  await expect(bar.getByRole('button', { name: 'Turn camera off' })).toHaveAttribute(
+  await expect(bar.getByRole('button', { name: 'Camera', exact: true })).toHaveAttribute(
     'aria-pressed',
     'true'
   );
@@ -485,4 +484,41 @@ test('a camera unplugged after pre-join falls back to the default camera', async
     .map((request) => (request.video as MediaTrackConstraints).deviceId);
   expect(videoIds[0]).toEqual({ exact: 'cam-1' });
   expect(videoIds.at(-1)).not.toEqual({ exact: 'cam-1' });
+});
+
+test('the device menu works from the keyboard', async ({ page }) => {
+  await enter(page, { camera: true, microphone: false });
+  const bar = page.getByRole('navigation', { name: 'Meeting controls' });
+  await expect.poll(() => cameraDeviceId(page), { timeout: 10_000 }).toBe('cam-1');
+  const caret = bar.getByRole('button', { name: 'Choose camera' });
+  const menu = bar.getByRole('menu', { name: 'Choose camera' });
+  const option = (n: number) => menu.getByRole('menuitemradio', { name: `Test camera ${n}` });
+
+  // Opening moves focus to the device in use; arrows wrap, Home and End jump.
+  await caret.focus();
+  await page.keyboard.press('Enter');
+  await expect(option(1)).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(option(2)).toBeFocused();
+  await page.keyboard.press('End');
+  await expect(option(3)).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await expect(option(1)).toBeFocused();
+  await page.keyboard.press('ArrowUp');
+  await expect(option(3)).toBeFocused();
+  await page.keyboard.press('Home');
+  await expect(option(1)).toBeFocused();
+
+  // Escape closes it and gives focus back to the caret.
+  await page.keyboard.press('Escape');
+  await expect(menu).toBeHidden();
+  await expect(caret).toBeFocused();
+
+  // Picking a device closes the menu the same way.
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('ArrowUp');
+  await page.keyboard.press('Enter');
+  await expect(menu).toBeHidden();
+  await expect(caret).toBeFocused();
+  await expect.poll(() => cameraDeviceId(page), { timeout: 10_000 }).toBe('cam-3');
 });

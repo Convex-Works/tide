@@ -1,6 +1,10 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:22.17.0-alpine3.22 AS web-builder
+# Every build stage runs on the builder's own platform and only the final
+# image is per-platform: the SPA and the CA and zone files are the same on
+# every architecture, and Go cross-compiles the static binary. A multi-arch
+# build (.github/workflows/release.yml) needs no emulation.
+FROM --platform=$BUILDPLATFORM node:22.17.0-alpine3.22 AS web-builder
 WORKDIR /src/web
 ARG VITE_TIDE_TEST=false
 ENV VITE_TIDE_TEST=${VITE_TIDE_TEST}
@@ -14,7 +18,7 @@ RUN npm ci
 COPY web/ ./
 RUN npx vite build
 
-FROM golang:1.26.10-alpine3.23 AS go-builder
+FROM --platform=$BUILDPLATFORM golang:1.26.10-alpine3.23 AS go-builder
 WORKDIR /src/server
 
 COPY server/go.mod server/go.sum ./
@@ -27,14 +31,15 @@ COPY server/ ./
 # Go embed paths cannot cross module boundaries. Match the Makefile staging
 # path before compiling with the embed build tag.
 COPY --from=web-builder /src/web/build ./web/build
-RUN CGO_ENABLED=0 GOOS=linux go build \
+ARG TARGETARCH
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build \
     -trimpath \
     -tags embed \
     -ldflags="-s -w" \
     -o /out/tide \
     ./cmd/tide
 
-FROM alpine:3.22.5 AS runtime-files
+FROM --platform=$BUILDPLATFORM alpine:3.22.5 AS runtime-files
 RUN apk add --no-cache ca-certificates tzdata \
     && mkdir -p /runtime/data \
     && chown 65532:65532 /runtime/data

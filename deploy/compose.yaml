@@ -9,7 +9,7 @@ services:
   # it at its default address (TIDE_RECORDER_REDIS_ADDR=127.0.0.1:6379); the
   # recorder uses redis:6379 on the compose network. Nothing in it is durable.
   redis:
-    image: redis:7.4.8-alpine3.21
+    image: redis:8.0.6-alpine3.21
     command: ["redis-server", "--requirepass", "tide-dev-recorder-redis-password-please-change", "--save", "", "--appendonly", "no"]
     environment:
       REDISCLI_AUTH: tide-dev-recorder-redis-password-please-change
@@ -66,7 +66,7 @@ services:
   # falls back to 127.0.0.1, which the recorder can't reach: meetings work,
   # recordings don't.
   egress:
-    image: livekit/egress:v1.13.0
+    image: livekit/egress:v1.15.0
     environment:
       EGRESS_CONFIG_FILE: /etc/egress.yaml
     volumes:
@@ -95,7 +95,7 @@ services:
     networks: [tide]
 
   dex:
-    image: ghcr.io/dexidp/dex:v2.43.1
+    image: ghcr.io/dexidp/dex:v2.46.1
     command: dex serve /etc/dex/config.yaml
     volumes:
       - ./dex.yaml:/etc/dex/config.yaml:ro

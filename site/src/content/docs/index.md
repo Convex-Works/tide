@@ -144,7 +144,7 @@ Recording needs sign-in.
      restart: unless-stopped
 
    recorder:
-     image: livekit/egress:v1.13.0
+     image: livekit/egress:v1.15.0
      network_mode: service:tide
      depends_on:
        redis:
@@ -171,12 +171,12 @@ Recording needs sign-in.
 
 ## Kubernetes
 
-You need Kubernetes 1.29 or later, a node with a public IPv4 address, an ingress, and a registry.
+You need Kubernetes 1.29 or later, a node with a public IPv4 address, and an ingress.
 
-1. Build and push the image from the repository:
+1. Clone the repository for its manifests. The image is `ghcr.io/convex-works/tide:0.1.0`.
 
    ```sh
-   docker buildx build --platform linux/amd64 -t <registry>/tide:<version> --push .
+   git clone https://github.com/Convex-Works/tide.git && cd tide
    ```
 
 2. Make the namespace and the secrets. Keep nothing else in this namespace: tide uses host ports, and the recorder needs `SYS_ADMIN`. Also make a TLS secret `tide-tls` for the host.
@@ -211,9 +211,8 @@ You need Kubernetes 1.29 or later, a node with a public IPv4 address, an ingress
    components:
      - ../../k8s/recording # only for recording
    images:
-     - name: registry.example.com/tide
-       newName: <registry>/tide
-       newTag: <version>
+     - name: ghcr.io/convex-works/tide
+       newTag: 0.1.0
    patches:
      - path: tide.yaml
    ```
@@ -298,7 +297,7 @@ A restart ends all meetings. Upgrade when no meeting runs. Back up first: tide c
 git -C src pull && docker compose up -d --build
 ```
 
-On Kubernetes, push a new image, set its tag in `kustomization.yaml`, and apply.
+On Kubernetes, set the new tag in `kustomization.yaml` and apply.
 
 ## Back up
 

@@ -17,10 +17,25 @@ Redis, and S3-compatible storage.
 - Per-participant video hiding for the current viewer
 - Ephemeral in-room chat
 - Optional audio and video recording, with download and delete controls
+- Optional transcripts of recordings, made by moil on the room owner's own
+  computer (macOS, alpha; [how it works](docs/ARCHITECTURE.md#81-transcripts)).
+  No AI runs on the server
+
+![A tide meeting with four people](docs/assets/meeting.png)
 
 ## Quickstart
 
-Requires Go 1.26.10 or later and Node 22.17 or later. From the repository root:
+On Linux with Docker:
+
+```sh
+docker run --rm --network host ghcr.io/convex-works/tide:0.1.0
+```
+
+The image is for linux/amd64 and linux/arm64. It uses the host's network
+because browsers send media straight to tide on UDP 7882 and TCP 7881.
+
+To build from source instead, you need Go 1.26.10 or later and Node 22.17 or
+later. From the repository root:
 
 ```sh
 npm ci --prefix web
@@ -28,7 +43,7 @@ make build
 ./bin/tide
 ```
 
-With no `TIDE_*` environment variables set, tide runs in anonymous mode at
+Either way, with no `TIDE_*` environment variables set, tide runs in anonymous mode at
 `http://localhost:8080`. Create and join a room, then open its meeting link in
 a private window to join as a guest. Admit the guest from the host's People
 panel.
