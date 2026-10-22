@@ -2,7 +2,7 @@
 
 # The documentation site: build from this directory, e.g.
 #   docker build -t tide-site site
-FROM node:26.3.0-alpine3.22 AS build
+FROM node:24.22.1-alpine3.23 AS build
 WORKDIR /src
 COPY package.json package-lock.json ./
 RUN npm ci
