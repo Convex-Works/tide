@@ -9,6 +9,7 @@ import {
   publishSyntheticCameraAndAudio,
   publishSyntheticScreen,
   resubscribeSettleTimeout,
+  simulateReconnect,
   tagMediaElements,
   unpublishSynthetic
 } from './media-helpers';
@@ -198,17 +199,7 @@ test('media ownership converges across the deterministic lifecycle corpus', asyn
 
     // Full PC reconnect is authoritative and must converge without a reload or
     // changing any participant-owned media node.
-    await page.evaluate(() =>
-      (
-        window as Window &
-          typeof globalThis & {
-            __tideRoom: { simulateScenario(scenario: 'full-reconnect'): Promise<void> };
-          }
-      ).__tideRoom.simulateScenario('full-reconnect')
-    );
-    await expect
-      .poll(async () => (await probe(page)).connectionState, { timeout: 45_000 })
-      .toBe('connected');
+    await simulateReconnect(page, 'full-reconnect');
     await expectMediaInvariant(page);
     await expectMediaElementTags(page, persistentTags);
 

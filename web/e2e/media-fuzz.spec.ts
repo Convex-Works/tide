@@ -12,6 +12,7 @@ import {
   resetSyntheticMedia,
   resubscribeSettleTimeout,
   setPublicationMuted,
+  simulateReconnect,
   unpublishSynthetic
 } from './media-helpers';
 import { mediaRegressionSeeds } from './media-regression-seeds';
@@ -450,21 +451,7 @@ class SignalReconnect extends MediaCommand {
   }
   async run(model: MediaModel, real: MediaReal): Promise<void> {
     real.trace.push(this.toString());
-    await real.receiver.evaluate(() =>
-      (
-        window as Window &
-          typeof globalThis & {
-            __tideRoom: { simulateScenario(scenario: 'signal-reconnect'): Promise<void> };
-          }
-      ).__tideRoom.simulateScenario('signal-reconnect')
-    );
-    await real.receiver.waitForFunction(
-      () =>
-        (window as Window & typeof globalThis & { __tideRoom: { state: string } }).__tideRoom
-          .state === 'connected',
-      undefined,
-      { timeout: 30_000 }
-    );
+    await simulateReconnect(real.receiver, 'signal-reconnect', 30_000);
     await this.renegotiated(model, real);
   }
   toString(): string {
@@ -478,21 +465,7 @@ class FullReconnect extends MediaCommand {
   }
   async run(model: MediaModel, real: MediaReal): Promise<void> {
     real.trace.push(this.toString());
-    await real.receiver.evaluate(() =>
-      (
-        window as Window &
-          typeof globalThis & {
-            __tideRoom: { simulateScenario(scenario: 'full-reconnect'): Promise<void> };
-          }
-      ).__tideRoom.simulateScenario('full-reconnect')
-    );
-    await real.receiver.waitForFunction(
-      () =>
-        (window as Window & typeof globalThis & { __tideRoom: { state: string } }).__tideRoom
-          .state === 'connected',
-      undefined,
-      { timeout: 30_000 }
-    );
+    await simulateReconnect(real.receiver, 'full-reconnect', 30_000);
     await this.renegotiated(model, real);
   }
   toString(): string {
