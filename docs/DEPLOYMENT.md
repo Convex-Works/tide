@@ -105,15 +105,26 @@ or stopping in that moment may fail. Without recording, tide uses no Redis.
 The quickest real deployment: a Linux VM with a public IPv4 address, tide
 under systemd, and Caddy in front for HTTPS.
 
-Build the binary for the server's platform. `make build` writes `bin/tide`
-for the machine it runs on; from anywhere with Docker:
+Each [release](https://github.com/Convex-Works/tide/releases) has the static
+binary for linux/amd64 and linux/arm64, with a `SHA256SUMS` file. On the
+server (use `tide-linux-arm64` on arm64):
+
+```sh
+curl -fLO https://github.com/Convex-Works/tide/releases/latest/download/tide-linux-amd64
+curl -fLO https://github.com/Convex-Works/tide/releases/latest/download/SHA256SUMS
+sha256sum -c --ignore-missing SHA256SUMS
+sudo install -m 755 tide-linux-amd64 /usr/local/bin/tide
+```
+
+Or build it. `make build` writes `bin/tide` for the machine it runs on; from
+anywhere with Docker:
 
 ```sh
 docker buildx build --platform linux/amd64 --output type=local,dest=out .
 # out/tide is the static binary
 ```
 
-Copy it to `/usr/local/bin/tide`. Open 80/tcp and 443/tcp (Caddy and its
+and copy it to `/usr/local/bin/tide`. Open 80/tcp and 443/tcp (Caddy and its
 certificates), 7881/tcp and 7882/udp (media) in the server's firewall.
 
 Caddy's whole configuration, in `/etc/caddy/Caddyfile`:
