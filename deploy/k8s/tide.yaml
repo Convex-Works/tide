@@ -91,7 +91,7 @@ spec:
             - name: TIDE_ADMIN_GROUPS
               value: "" # OVERLAY: Optional comma-separated OIDC groups that administer every room.
             - name: TIDE_TRUSTED_PROXIES
-              value: "" # OVERLAY: Set ingress proxy IPs or CIDRs, comma-separated, if forwarded client IPs are needed.
+              value: "" # OVERLAY: The cluster's pod CIDR. Empty, every visitor shares the ingress's rate limit.
             - name: TIDE_DEV_MODE
               value: "false"
             - name: TIDE_TRANSCRIPTS

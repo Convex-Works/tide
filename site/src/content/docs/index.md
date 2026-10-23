@@ -17,6 +17,8 @@ This guide puts tide on one Linux server. For Kubernetes, see [Kubernetes](#kube
 | `7882/udp`          | audio and video                     |
 | `7881/tcp`          | audio and video when UDP is blocked |
 
+tide has no relay on port 443. On a network that allows only HTTPS, people can join but get no audio or video.
+
 ## 2. Get tide
 
 ```sh
@@ -217,7 +219,7 @@ You need Kubernetes 1.29 or later, a node with a public IPv4 address, and an ing
      - path: tide.yaml
    ```
 
-4. Make `tide.yaml` in the same folder. Without sign-in, set `TIDE_OIDC_ISSUER` to `""`. For recording, also set `TIDE_S3_ENDPOINT`, `TIDE_S3_PUBLIC_ENDPOINT`, `TIDE_S3_RECORDER_ENDPOINT`, `TIDE_S3_BUCKET` and `TIDE_S3_REGION`.
+4. Make `tide.yaml` in the same folder. Set `TIDE_TRUSTED_PROXIES` to the cluster's pod CIDR, for example `10.244.0.0/16`, or all visitors share one rate limit. Without sign-in, set `TIDE_OIDC_ISSUER` to `""`. For recording, also set `TIDE_S3_ENDPOINT`, `TIDE_S3_PUBLIC_ENDPOINT`, `TIDE_S3_RECORDER_ENDPOINT`, `TIDE_S3_BUCKET` and `TIDE_S3_REGION`.
 
    ```yaml
    apiVersion: apps/v1
@@ -245,6 +247,8 @@ You need Kubernetes 1.29 or later, a node with a public IPv4 address, and an ing
                  value: <issuer>
                - name: TIDE_OIDC_CLIENT_ID
                  value: <client id>
+               - name: TIDE_TRUSTED_PROXIES
+                 value: <pod CIDR>
    ---
    apiVersion: v1
    kind: PersistentVolumeClaim
@@ -287,7 +291,7 @@ You need Kubernetes 1.29 or later, a node with a public IPv4 address, and an ing
    kubectl -n tide rollout status deploy/tide
    ```
 
-Run one replica only. Set `TIDE_TRUSTED_PROXIES` to your ingress pods' addresses, or all visitors share one rate limit. Without a public node, use a UDP load balancer: see the end of `deploy/k8s/tide.yaml`.
+Run one replica only. Without a public node, use a UDP load balancer: see the end of `deploy/k8s/tide.yaml`.
 
 ## Upgrade
 
@@ -317,7 +321,7 @@ Read the log first: `docker compose logs`, or `kubectl -n tide logs deploy/tide 
 | Problem                              | Cause and fix                                                                                     |
 | ------------------------------------ | ------------------------------------------------------------------------------------------------- |
 | Sign-in shows 502                    | tide cannot reach the provider, or `TIDE_OIDC_ISSUER` is not exact.                               |
-| Calls connect, but there is no video | `7882/udp` is closed. Behind NAT, set `TIDE_MEDIA_NODE_IP` to the public IPv4 address.            |
+| Calls connect, but there is no video | `7882/udp` is closed. Open it. tide finds its public address: leave `TIDE_MEDIA_NODE_IP` unset.   |
 | A recording stays at "starting"      | The recorder cannot reach tide. Make sure that both use the same key, secret and Redis password.  |
 | A recording fails after a minute     | The recorder cannot reach the media. Set `TIDE_MEDIA_NODE_IP` only to an address that is local.   |
 | A download fails                     | Browsers cannot reach the bucket. Set `TIDE_S3_PUBLIC_ENDPOINT`.                                  |

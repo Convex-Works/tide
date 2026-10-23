@@ -1044,7 +1044,7 @@ up between runs for iteration.
   authenticating proves nothing). The reference deployments keep it off every
   network:
   in Kubernetes it runs in tide's pod bound to 127.0.0.1, in Compose on the
-  project's private network with no published port. It is a separate,
+  host's network bound to the host's loopback only. It is a separate,
   ordinary Redis, so nothing a client sends it can take tide down.
 - With no recorder, the media server's API key and secret are generated per
   start and never leave the process.
