@@ -56,6 +56,10 @@ requests without a body on `/rtc`, which is all signaling ever sends. Media does
 the address the media server advertises, on 7882/udp or 7881/tcp. Both are
 encrypted by WebRTC; neither is HTTP.
 
+tide has no TURN relay, so media never falls back to 443. A participant on a
+network that allows only HTTPS out (some corporate and hotel networks) can
+join the meeting but sends and receives no audio or video.
+
 ### The media address
 
 `TIDE_MEDIA_NODE_IP` is the address the media server advertises to browsers.
@@ -116,15 +120,19 @@ docker buildx build --platform linux/amd64 --output type=local,dest=out .
 Copy it to `/usr/local/bin/tide`. Open 80/tcp and 443/tcp (Caddy and its
 certificates), 7881/tcp and 7882/udp (media) in the server's firewall.
 
-Caddy's whole configuration, in `/etc/caddy/Caddyfile`:
+Point the DNS name (`meet.example.com` here) at the server's address before
+Caddy starts: it requests the certificate at startup and needs the name to
+resolve to this server. Install Caddy from its packages
+(<https://caddyserver.com/docs/install>), which run it under systemd. Its whole
+configuration, in `/etc/caddy/Caddyfile`:
 
 ```
 meet.example.com
 reverse_proxy 127.0.0.1:8080
 ```
 
-Caddy gets and renews the certificate, and passes WebSocket upgrades and
-streams through as they are.
+`systemctl reload caddy` applies it. Caddy gets and renews the certificate,
+and passes WebSocket upgrades and streams through as they are.
 
 ### Anonymous
 
@@ -177,13 +185,14 @@ TIDE_DB_PATH=/var/lib/tide/tide.db
 ```
 
 systemd reads only whole-line comments in an environment file: a `# …` after
-a value becomes part of it.
+a value becomes part of it. `systemctl restart tide` applies the change.
 
 Rooms now persist in SQLite under the service's state directory; back it up
 ([Back up state](#back-up-state)). Recording needs the recorder, which runs in
-Docker, and Redis: the next section runs both with Docker Compose. To keep
-tide under systemd instead, Redis can come from the distribution, configured
-like this and listening where tide looks by default:
+Docker, and Redis: the next section runs both with Docker Compose, and this
+guide documents recording only there. To keep tide under systemd instead,
+Redis can come from the distribution, configured like this and listening where
+tide looks by default:
 
 ```
 bind 127.0.0.1
@@ -364,6 +373,14 @@ images:
 patches:
   - path: tide.yaml # the OVERLAY values, and the media path
 ```
+
+Set `TIDE_TRUSTED_PROXIES` in the overlay. The base leaves it empty, and
+behind an ingress every visitor then arrives from the ingress controller's
+address: the whole installation shares one rate limit of 10 joins and 10
+sign-ins a minute. Set it to the cluster's pod CIDR (for example
+`10.244.0.0/16`; it's in the cluster's network configuration), since the
+controller's pods get new addresses when they restart. With an ingress
+controller on host networking, use the nodes' addresses instead.
 
 The ingress has one host and one route, to the `tide` Service on 8080. It
 must pass WebSocket upgrades (signaling is a GET with `Upgrade` on `/rtc`, and

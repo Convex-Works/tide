@@ -68,7 +68,8 @@ S3-compatible bucket, storage credentials, and shared media and Redis secrets.
 
 For production, serve tide behind an HTTPS proxy that forwards WebSocket
 upgrades. Media reaches the server directly over UDP 7882, with TCP 7881 as a
-fallback. The [deployment guide](docs/DEPLOYMENT.md) covers the binary, Docker
+fallback; there is no TURN relay on 443, so networks that allow only HTTPS out
+get no media. The [deployment guide](docs/DEPLOYMENT.md) covers the binary, Docker
 Compose, Kubernetes, and all required configuration.
 
 Restarting tide restarts its embedded media server and ends live meetings and
