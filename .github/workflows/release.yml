@@ -3,7 +3,8 @@ name: Release
 # A pushed v* tag publishes that commit: the image for linux/amd64 and
 # linux/arm64 at ghcr.io/convex-works/tide, tagged <version>, <major.minor>
 # and latest, then a GitHub release whose notes are
-# docs/releases/<tag>.md. Tag only a commit on main that CI passed; this
+# docs/releases/<tag>.md, with the static binaries for both platforms and
+# their SHA256SUMS attached. Tag only a commit on main that CI passed; this
 # workflow doesn't run the checks again. A pre-release tag (v1.2.0-rc.1)
 # gets only its own image tag and a pre-release.
 #
@@ -87,6 +88,24 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
+      # The same build again, from the builder's cache, exporting each
+      # platform's filesystem: out/linux_<arch>/tide is the static binary
+      # inside the image.
+      - name: Export the static binaries
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          outputs: type=local,dest=out
+      - name: Name the binaries and write their checksums
+        run: |
+          mkdir dist
+          for arch in amd64 arm64; do
+            cp "out/linux_$arch/tide" "dist/tide-linux-$arch"
+          done
+          cd dist
+          sha256sum tide-linux-amd64 tide-linux-arm64 > SHA256SUMS
+          cat SHA256SUMS
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -95,4 +114,5 @@ jobs:
           prerelease=""
           case "$TAG" in *-*) prerelease="--prerelease" ;; esac
           gh release create "$TAG" --verify-tag --title "tide ${TAG#v}" \
-            --notes-file "docs/releases/$TAG.md" $prerelease
+            --notes-file "docs/releases/$TAG.md" $prerelease \
+            dist/tide-linux-amd64 dist/tide-linux-arm64 dist/SHA256SUMS
