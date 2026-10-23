@@ -5,19 +5,27 @@
   import { repositoryURL } from './links.ts';
   import Logo from './Logo.svelte';
 
-  const configuration = resolve('/docs/[slug]', { slug: 'configuration' });
+  // Prerendered pages get relative hrefs from resolve(), so the current
+  // page is matched on plain paths.
   const links = [
     {
       href: resolve('/docs'),
       title: 'Docs',
-      current: (path: string) => path.startsWith('/docs') && path !== configuration
+      current: (path: string) =>
+        path.startsWith('/docs') && path !== '/docs/configuration' && path !== '/docs/compare'
     },
     {
-      href: configuration,
+      href: resolve('/docs/[slug]', { slug: 'configuration' }),
       title: 'Configuration',
-      current: (path: string) => path === configuration
+      current: (path: string) => path === '/docs/configuration'
     },
-    { href: '/llms.txt', title: 'llms.txt', current: () => false, reload: true }
+    {
+      href: resolve('/docs/[slug]', { slug: 'compare' }),
+      title: 'Compare',
+      current: (path: string) => path === '/docs/compare',
+      wide: true
+    },
+    { href: '/llms.txt', title: 'llms.txt', current: () => false, reload: true, wide: true }
   ];
 </script>
 
@@ -28,7 +36,7 @@
   <nav aria-label="Site">
     <ul class="flex items-center gap-5 text-[14px]">
       {#each links as link (link.href)}
-        <li class={link.reload ? 'hidden sm:block' : ''}>
+        <li class={link.wide ? 'hidden sm:block' : ''}>
           <a
             href={link.href}
             data-sveltekit-reload={link.reload ? '' : undefined}
