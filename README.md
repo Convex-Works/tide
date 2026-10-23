@@ -44,9 +44,11 @@ make build
 ```
 
 Either way, with no `TIDE_*` environment variables set, tide runs in anonymous mode at
-`http://localhost:8080`. Create and join a room, then open its meeting link in
-a private window to join as a guest. Admit the guest from the host's People
-panel.
+`http://localhost:8080`.
+
+**Next:** open http://localhost:8080, choose **New**, then **Create & join**.
+Open the meeting link in a private window to join as a guest, and admit the
+guest from the host's People panel.
 
 In anonymous mode, anyone who can reach the server can create a room. The
 browser that creates it owns it. Unused rooms expire after 24 hours; restarting
