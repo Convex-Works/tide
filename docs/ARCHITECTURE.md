@@ -264,7 +264,7 @@ on the server, and capabilities still travel only in tokens tide mints.
   sized by `TIDE_JOIN_RATE_LIMIT` (§15), since it no longer takes an account,
   and in total: with 10,000 rooms in memory, creating another answers 503
   ("This server has too many rooms. Try again later.") until the sweep frees
-  some. Many addresses are cheap (an IPv6 /48 is 65,536 of the /64s the
+  some. Many addresses are cheap (an IPv6 /48 is 256 of the /56s the
   limits count), so only a ceiling bounds memory.
 - **No recording, transcripts or machines.** Those routes answer 404 and
   `/api/me` reports `anonymous: true, recording: false, transcripts: false`.
@@ -336,6 +336,9 @@ guest                          tide server                       host
 - Owner joining their own room: token immediately, no lobby.
 - `lobby_enabled=false`: guests also get a token immediately.
 - Deny sends `event: denied`; guest request rows expire after 10 minutes.
+- A room's lobby holds at most 50 waiting guests; the next join answers 429
+  ("This lobby is full. Try again in a few minutes."). Join limits count per
+  client and addresses are cheap, so only this ceiling bounds the queue.
 - Reconnecting guests re-enter through the lobby only if their LiveKit session
   fully dropped (LiveKit resume covers blips without a new token).
 
@@ -866,7 +869,7 @@ parse means the default, off; tide logs at startup whether transcripts are
 on.
 
 The four rate limits are per-client ceilings over a one-minute window, an IPv6
-client counting by its /64. `TIDE_JOIN_RATE_LIMIT` also sizes the separate
+client counting by its /56. `TIDE_JOIN_RATE_LIMIT` also sizes the separate
 bucket for room lookups (§15), which a meeting page uses once per load. They are configuration because the right value
 depends on the deployment: a public install wants the defaults, while the media
 gate — where every browser shares one container IP — would throttle itself
@@ -1020,7 +1023,7 @@ up between runs for iteration.
   `POST /moil/v1/pair`, the one moil endpoint without credentials that creates
   state, which must be JSON so a web page can't post one without a CORS
   preflight; anything else is refused before it counts); stale buckets are
-  cleaned in memory. IPv6 clients are counted by their /64.
+  cleaned in memory. IPv6 clients are counted by their /56.
 - Anonymous mode (§4.1): anyone can mint a session, so nothing may be counted
   per anonymous `sub`. Room creation is limited per client address (10/min,
   sized by the join limit), room lookups count anonymous sessions per client
@@ -1054,7 +1057,13 @@ up between runs for iteration.
   attack, and the lobby (on by default) still stands between a guesser and
   the meeting. Owners who want more can set a longer slug.
 - JSON request bodies are limited to 1 MB before decoding; lobby requests
-  expire after 10 minutes.
+  expire after 10 minutes, and a room holds at most 50 at once (§6).
+- Every response carries a Content-Security-Policy (`default-src 'self'`,
+  scripts by hash, `frame-ancestors 'none'`, `base-uri 'none'`,
+  `form-action 'self'`), `X-Content-Type-Options: nosniff`,
+  `Referrer-Policy: strict-origin-when-cross-origin` and
+  `X-Frame-Options: DENY`; with an https base URL, also
+  `Strict-Transport-Security: max-age=31536000`.
 - Presigned download URLs are short-lived (5 min) and minted per request after
   an ownership check.
 - Machines (§8.1): pairing is confirmed only by a signed-in session with the

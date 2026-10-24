@@ -299,7 +299,8 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 	if cfg.Anonymous {
 		background.sweeper = rooms.NewSweeper(roomStore, liveRooms, meetings, rooms.AnonymousRoomIdle)
 	}
-	return securityHeaders(policies, handler.withSession(mux)), background, nil
+	https := strings.HasPrefix(strings.ToLower(cfg.BaseURL), "https://")
+	return securityHeaders(policies, https, handler.withSession(mux)), background, nil
 }
 
 func registerMethodFallback(mux *http.ServeMux, pattern, allow string) {

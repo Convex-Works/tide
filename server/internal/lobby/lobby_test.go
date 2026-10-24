@@ -1,6 +1,7 @@
 package lobby
 
 import (
+	"errors"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -66,6 +67,32 @@ func TestWaitSSEApproveDenyAndExpiry(t *testing.T) {
 			t.Fatalf("SSE body = %q", body)
 		}
 	})
+}
+
+func TestLobbyCapIsPerRoomAndFreedByDecisions(t *testing.T) {
+	registry := NewRegistry(time.Minute)
+	var first Request
+	for i := range MaxPending {
+		request, err := registry.Add("calm-otter-412", "Guest")
+		if err != nil {
+			t.Fatalf("request %d: %v", i+1, err)
+		}
+		if i == 0 {
+			first = request
+		}
+	}
+	if _, err := registry.Add("calm-otter-412", "Guest"); !errors.Is(err, ErrLobbyFull) {
+		t.Fatalf("request past the cap: err = %v, want ErrLobbyFull", err)
+	}
+	if _, err := registry.Add("quiet-fox-713", "Guest"); err != nil {
+		t.Fatalf("another room's lobby must not be full: %v", err)
+	}
+	if err := registry.Deny(first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := registry.Add("calm-otter-412", "Guest"); err != nil {
+		t.Fatalf("a decided request must free its place: %v", err)
+	}
 }
 
 func TestStreamCaps(t *testing.T) {

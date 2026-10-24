@@ -19,7 +19,7 @@ import (
 const (
 	// The policy's directives other than script-src and connect-src.
 	policyFonts  = "font-src 'self' data:; img-src 'self' data:; media-src 'self' blob:"
-	policyStyles = "style-src 'self' 'unsafe-inline'; frame-ancestors 'none'"
+	policyStyles = "style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 )
 
 func wantPolicy(scriptSrc, connectSrc string) string {
@@ -123,6 +123,22 @@ func TestSecurityHeadersArePresentOnAllResponses(t *testing.T) {
 				if got := response.Header.Get(name); got != value {
 					t.Errorf("%s = %q, want %q", name, got, value)
 				}
+			}
+		})
+	}
+}
+
+// Strict-Transport-Security is sent only when tide is served over https, since
+// over plain http a browser ignores it and a local install has no TLS to pin.
+func TestStrictTransportSecurityOnlyOverHTTPS(t *testing.T) {
+	for baseURL, want := range map[string]string{
+		"https://meet.example.com": "max-age=31536000",
+		"http://localhost:8080":    "",
+	} {
+		t.Run(baseURL, func(t *testing.T) {
+			handler := newSecurityTestHandler(t, config.Config{BaseURL: baseURL}, testShell)
+			if got := get(handler, "/").Header.Get("Strict-Transport-Security"); got != want {
+				t.Errorf("Strict-Transport-Security = %q, want %q", got, want)
 			}
 		})
 	}

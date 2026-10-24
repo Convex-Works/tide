@@ -140,6 +140,10 @@ func (h *Handler) Join(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	pending, err := h.registry.Add(room.Slug, name)
+	if errors.Is(err, ErrLobbyFull) {
+		httpx.WriteError(w, http.StatusTooManyRequests, "This lobby is full. Try again in a few minutes.")
+		return
+	}
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not enter the lobby. Try again.")
 		return
