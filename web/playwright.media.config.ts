@@ -36,6 +36,11 @@ export default defineConfig({
     },
     {
       name: 'webkit',
+      // Playwright's Linux WebKit intermittently deadlocks a page's main
+      // thread in its GStreamer media backend, which Safari does not use, and
+      // the lifecycle scenarios hit it often enough to redden the gate. See
+      // https://github.com/Convex-Works/tide/issues/55.
+      testIgnore: /media-lifecycle\.spec\.ts/,
       use: { ...devices['Desktop Safari'] }
     },
     {

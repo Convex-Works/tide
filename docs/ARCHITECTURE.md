@@ -975,6 +975,9 @@ The media gate runs in full on every pull request; nothing is deferred to a
 nightly job, because a regression only a nightly catches has already shipped.
 It covers, in order: the lifecycle scenarios, recording, the reliability suite
 (chromium + webkit), the seeded fuzzer, and a rerun under `netem` loss/latency.
+The lifecycle scenarios run on chromium only: Playwright's Linux WebKit
+deadlocks in its GStreamer media backend under them (issue #55), a code path
+Safari does not have.
 
 **The rule the lifecycle suite encodes.** Assertions must prove *presence*
 before they prove flow. `expectMediaInvariant` only checks that whatever a
