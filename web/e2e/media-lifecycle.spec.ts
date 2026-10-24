@@ -20,8 +20,9 @@ import { expectMediaElementTags, tagMediaElements } from './media-helpers';
  * Every incident so far has been an *existing* client failing to notice a
  * change, so that is what these cover.
  *
- * Actors use the project's browser, so the whole file runs on chromium, webkit
- * and firefox. Nothing here calls getUserMedia (see harness/meeting.ts), so no
+ * Actors use the project's browser, so the file runs on chromium and firefox;
+ * the webkit project skips it (issue #55, see playwright.media.config.ts).
+ * Nothing here calls getUserMedia (see harness/meeting.ts), so no
  * browser-specific capture flags are involved.
  */
 
