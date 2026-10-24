@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"os/signal"
 	"strconv"
 	"strings"
@@ -45,7 +47,41 @@ var startMediaServer = media.Start
 // variable so that main's process tests can wait less.
 var redisWait = 30 * time.Second
 
+// version is the release this binary was built from, such as v0.2.0: the
+// release build sets it with -ldflags "-X main.version=<tag>".
+var version = "dev"
+
+const usage = `usage: tide [version]
+
+tide takes no other arguments: it is configured through TIDE_ environment
+variables (docs/DEPLOYMENT.md). With none, it serves.
+`
+
+// command handles tide's arguments. It reports whether tide should go on to
+// serve and, if not, the status to exit with.
+func command(args []string, stdout, stderr io.Writer) (serve bool, status int) {
+	if len(args) == 0 {
+		return true, 0
+	}
+	if len(args) == 1 {
+		switch args[0] {
+		case "version", "-version", "--version":
+			fmt.Fprintf(stdout, "tide %s\n", version)
+			return false, 0
+		case "help", "-h", "-help", "--help":
+			fmt.Fprint(stdout, usage)
+			return false, 0
+		}
+	}
+	fmt.Fprintf(stderr, "tide: unknown arguments %q\n\n%s", args, usage)
+	return false, 2
+}
+
 func main() {
+	if serve, status := command(os.Args[1:], os.Stdout, os.Stderr); !serve {
+		os.Exit(status)
+	}
+	log.Printf("tide %s", version)
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatal(err)
