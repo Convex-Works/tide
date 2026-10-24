@@ -120,6 +120,9 @@ sha256sum -c --ignore-missing SHA256SUMS
 sudo install -m 755 tide-linux-amd64 /usr/local/bin/tide
 ```
 
+`tide version` prints the release a binary is, and tide's first log line
+names it too.
+
 Or build it. `make build` writes `bin/tide` for the machine it runs on; from
 anywhere with Docker:
 

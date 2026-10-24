@@ -50,10 +50,82 @@ func TestMain(m *testing.M) {
 				return nil, fmt.Errorf("media: start: %w", ctx.Err())
 			}
 		}
+		// The test binary's own flags are not tide's.
+		os.Args = append(os.Args[:1], strings.Fields(os.Getenv("TIDE_TEST_ARGS"))...)
 		main()
 		os.Exit(0)
 	}
 	os.Exit(m.Run())
+}
+
+func TestCommand(t *testing.T) {
+	for _, test := range []struct {
+		args   []string
+		serve  bool
+		status int
+		stdout string
+		stderr string
+	}{
+		{args: nil, serve: true},
+		{args: []string{"version"}, stdout: "tide dev\n"},
+		{args: []string{"--version"}, stdout: "tide dev\n"},
+		{args: []string{"-version"}, stdout: "tide dev\n"},
+		{args: []string{"--help"}, stdout: "usage: tide"},
+		{args: []string{"--bogus"}, status: 2, stderr: "unknown arguments"},
+		{args: []string{"version", "extra"}, status: 2, stderr: "unknown arguments"},
+	} {
+		t.Run(strings.Join(test.args, " "), func(t *testing.T) {
+			var stdout, stderr strings.Builder
+			serve, status := command(test.args, &stdout, &stderr)
+			if serve != test.serve || status != test.status {
+				t.Fatalf("command(%q) = %v, %d, want %v, %d", test.args, serve, status, test.serve, test.status)
+			}
+			if !strings.HasPrefix(stdout.String(), test.stdout) || (test.stdout == "") != (stdout.Len() == 0) {
+				t.Errorf("stdout = %q, want it to start with %q", stdout.String(), test.stdout)
+			}
+			if !strings.Contains(stderr.String(), test.stderr) || (test.stderr == "") != (stderr.Len() == 0) {
+				t.Errorf("stderr = %q, want it to contain %q", stderr.String(), test.stderr)
+			}
+		})
+	}
+}
+
+// An argument tide doesn't know stops it before it listens, and the first
+// line a serving tide logs names its version.
+func TestUnknownArgumentsStopTideBeforeItListens(t *testing.T) {
+	k := launchMain(t, "TIDE_TEST_ARGS=--bogus")
+	select {
+	case <-k.exited:
+	case <-time.After(30 * time.Second):
+		t.Fatal("tide --bogus did not exit")
+	}
+	if code := k.cmd.ProcessState.ExitCode(); code != 2 {
+		t.Fatalf("exit status = %d, want 2", code)
+	}
+	for {
+		select {
+		case line := <-k.logs:
+			if strings.Contains(line, "listening") {
+				t.Fatalf("tide --bogus listened: %q", line)
+			}
+			continue
+		default:
+		}
+		break
+	}
+}
+
+func TestTideLogsItsVersionFirst(t *testing.T) {
+	k := launchMain(t)
+	var first string
+	select {
+	case first = <-k.logs:
+	case <-time.After(30 * time.Second):
+		t.Fatal("tide logged nothing")
+	}
+	if !strings.HasSuffix(first, "tide dev") {
+		t.Fatalf("first log line = %q, want it to end with %q", first, "tide dev")
+	}
 }
 
 func TestASignalStopsTideOnceItsRequestsFinish(t *testing.T) {

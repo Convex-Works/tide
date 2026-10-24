@@ -85,6 +85,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64
           push: true
+          build-args: TIDE_VERSION=${{ github.ref_name }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}
@@ -96,6 +97,7 @@ jobs:
         with:
           context: .
           platforms: linux/amd64,linux/arm64
+          build-args: TIDE_VERSION=${{ github.ref_name }}
           outputs: type=local,dest=out
       - name: Name the binaries and write their checksums
         run: |
@@ -103,6 +105,8 @@ jobs:
           for arch in amd64 arm64; do
             cp "out/linux_$arch/tide" "dist/tide-linux-$arch"
           done
+          # The binary must name the release it is part of.
+          test "$(dist/tide-linux-amd64 version)" = "tide $GITHUB_REF_NAME"
           cd dist
           sha256sum tide-linux-amd64 tide-linux-arm64 > SHA256SUMS
           cat SHA256SUMS

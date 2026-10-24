@@ -1,5 +1,9 @@
 .PHONY: dev gen server-check web-check typesync check media media-dev moil-e2e build clean
 
+# What `tide version` prints for `make build`: the nearest tag and how far
+# past it this checkout is.
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+
 # The signed-in deployment with recording, against the Compose stack: Dex for
 # sign-in, MinIO for storage, Redis and the recorder in Docker. tide (with its
 # media server) and Vite run on the host; tide finds Redis at its default
@@ -74,7 +78,7 @@ build:
 		mkdir -p server/web; \
 		cp -R web/build server/web/build; \
 		mkdir -p bin; \
-		(cd server && go build -tags embed -o ../bin/tide ./cmd/tide)
+		(cd server && go build -tags embed -ldflags "-X main.version=$(VERSION)" -o ../bin/tide ./cmd/tide)
 
 clean:
 	rm -rf bin web/build web/.svelte-kit server/web/build

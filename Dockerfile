@@ -32,10 +32,12 @@ COPY server/ ./
 # path before compiling with the embed build tag.
 COPY --from=web-builder /src/web/build ./web/build
 ARG TARGETARCH
+# The release workflow passes the tag; `tide version` prints it.
+ARG TIDE_VERSION=dev
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build \
     -trimpath \
     -tags embed \
-    -ldflags="-s -w" \
+    -ldflags="-s -w -X main.version=${TIDE_VERSION}" \
     -o /out/tide \
     ./cmd/tide
 
