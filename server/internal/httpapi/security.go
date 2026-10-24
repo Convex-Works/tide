@@ -27,12 +27,19 @@ const recorderTemplatePath = "/egress-template"
 
 // policy is the Content-Security-Policy with the given script-src and
 // connect-src sources. The bundled UI fonts are data URLs, and Svelte sets
-// inline styles.
+// inline styles. base-uri and form-action don't fall back to default-src, so
+// they are named: the SPA has no <base>, and its forms submit through script.
 func policy(scriptSources, connectSources []string) string {
 	return "default-src 'self'; script-src " + strings.Join(scriptSources, " ") +
 		"; font-src 'self' data:; img-src 'self' data:; media-src 'self' blob:; connect-src " +
-		strings.Join(connectSources, " ") + "; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'"
+		strings.Join(connectSources, " ") + "; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'" +
+		"; base-uri 'none'; form-action 'self'"
 }
+
+// strictTransportSecurity is the Strict-Transport-Security tide sends when
+// its base URL is https: a year, for this host only, so a subdomain served
+// over plain http keeps working.
+const strictTransportSecurity = "max-age=31536000"
 
 // contentSecurityPolicies is the Content-Security-Policy tide sends: one for
 // every page but the recorder's, and the recorder's.
@@ -133,7 +140,10 @@ func hasAttribute(token html.Token, name string) bool {
 	return false
 }
 
-func securityHeaders(policies contentSecurityPolicies, next http.Handler) http.Handler {
+// securityHeaders sets the security headers on every response, with
+// Strict-Transport-Security when https is true: when the base URL is https,
+// and so a browser only ever reaches tide through TLS.
+func securityHeaders(policies contentSecurityPolicies, https bool, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		policy := policies.page
 		if path.Clean(r.URL.Path) == recorderTemplatePath {
@@ -143,6 +153,9 @@ func securityHeaders(policies contentSecurityPolicies, next http.Handler) http.H
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
 		w.Header().Set("X-Frame-Options", "DENY")
+		if https {
+			w.Header().Set("Strict-Transport-Security", strictTransportSecurity)
+		}
 		next.ServeHTTP(w, r)
 	})
 }

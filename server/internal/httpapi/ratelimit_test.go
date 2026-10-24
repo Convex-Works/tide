@@ -213,14 +213,16 @@ func TestClientIPResolver(t *testing.T) {
 	}
 }
 
-func TestRateLimitKeyCountsIPv6ByItsSlash64(t *testing.T) {
+func TestRateLimitKeyCountsIPv6ByItsSlash56(t *testing.T) {
 	resolver := newClientIPResolver(nil)
 	for _, test := range []struct{ remote, want string }{
 		{"192.0.2.1:1234", "192.0.2.1"},
 		{"[::ffff:192.0.2.1]:1234", "192.0.2.1"},
-		{"[2001:db8:1:2:3:4:5:6]:1234", "2001:db8:1:2::/64"},
-		{"[2001:db8:1:2::9]:1234", "2001:db8:1:2::/64"},
-		{"[fe80::1%en0]:1234", "fe80::/64"},
+		{"[2001:db8:1:2:3:4:5:6]:1234", "2001:db8:1::/56"},
+		{"[2001:db8:1:2::9]:1234", "2001:db8:1::/56"},
+		{"[2001:db8:1:ff::9]:1234", "2001:db8:1::/56"},
+		{"[2001:db8:1:100::9]:1234", "2001:db8:1:100::/56"},
+		{"[fe80::1%en0]:1234", "fe80::/56"},
 		{"not-an-address", "not-an-address"},
 	} {
 		request := httptest.NewRequest(http.MethodGet, "/", nil)

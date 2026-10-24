@@ -194,10 +194,10 @@ func newClientIPResolver(trusted []*net.IPNet) *clientIPResolver {
 	return &clientIPResolver{trusted: trusted}
 }
 
-// key is the client's rate-limit bucket: its IPv4 address, or the /64 its
-// IPv6 address is in. A /64 is the smallest network an ISP assigns one
-// subscriber, who can use any address in it, so counting addresses would
-// give every client 2^64 buckets.
+// key is the client's rate-limit bucket: its IPv4 address, or the /56 its
+// IPv6 address is in. A subscriber can use any address in the prefix their
+// ISP delegates, and that is often a /56 (256 /64s), so counting addresses,
+// or /64s, would give one client many buckets.
 func (c *clientIPResolver) key(r *http.Request) string {
 	address := c.resolve(r)
 	ip, err := netip.ParseAddr(address)
@@ -208,7 +208,7 @@ func (c *clientIPResolver) key(r *http.Request) string {
 	if ip.Is4() {
 		return ip.String()
 	}
-	network, err := ip.Prefix(64)
+	network, err := ip.Prefix(56)
 	if err != nil {
 		return address
 	}

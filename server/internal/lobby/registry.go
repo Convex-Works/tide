@@ -10,9 +10,15 @@ import (
 
 const DefaultRequestTTL = 10 * time.Minute
 
+// MaxPending is how many guests may wait in one room's lobby at once. Join
+// limits count per client, and addresses are cheap, so only a ceiling bounds
+// the memory a flood takes and the list every host receives.
+const MaxPending = 50
+
 var (
 	ErrRequestNotFound = errors.New("lobby request not found")
 	ErrRequestResolved = errors.New("lobby request already resolved")
+	ErrLobbyFull       = errors.New("lobby is full")
 )
 
 type Status string
@@ -77,6 +83,10 @@ func (r *Registry) Add(roomSlug, name string) (Request, error) {
 		if _, exists := r.requests[id]; exists {
 			r.mu.Unlock()
 			continue
+		}
+		if r.pendingLocked(roomSlug) >= MaxPending {
+			r.mu.Unlock()
+			return Request{}, ErrLobbyFull
 		}
 		item := &entry{
 			id: id, roomSlug: roomSlug, name: name, created: r.now().Unix(),
@@ -156,12 +166,17 @@ func (r *Registry) Pending(roomSlug string) []Request {
 func (r *Registry) HasPending(roomSlug string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.pendingLocked(roomSlug) > 0
+}
+
+func (r *Registry) pendingLocked(roomSlug string) int {
+	count := 0
 	for _, item := range r.requests {
 		if item.roomSlug == roomSlug && item.status == StatusWaiting {
-			return true
+			count++
 		}
 	}
-	return false
+	return count
 }
 
 func (r *Registry) Subscribe(roomSlug string) (<-chan struct{}, func()) {

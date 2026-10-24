@@ -497,7 +497,7 @@ or equal to a value shipped in this repository refuses startup.
 | `TIDE_PAIR_RATE_LIMIT`         | `10`                                   | With transcripts, machines starting a moil pairing (`POST /moil/v1/pair`) per client per minute.                                                                                                                                                                  |
 | `TIDE_TRANSCRIPTS`             | `false`                                | Turns on transcripts and machine pairing ([Serve transcripts](#serve-transcripts)); needs recording. Read with `strconv.ParseBool`; anything else means off.                                                                                                      |
 
-Rate limits count an IPv6 client by its /64 and an IPv4 client by its
+Rate limits count an IPv6 client by its /56 and an IPv4 client by its
 address; both come from `X-Forwarded-For` only through `TIDE_TRUSTED_PROXIES`.
 Anonymous sessions cost nothing to make, so when anonymous, room lookups count
 them per client address as they do guests, and room creation is also capped

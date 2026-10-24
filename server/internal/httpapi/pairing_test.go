@@ -135,15 +135,15 @@ func TestIPv6ClientsAreCountedByTheirSlash64(t *testing.T) {
 		from string
 		want int
 	}{
-		// A subscriber's /64 is one client, whichever of its addresses it
+		// A subscriber's /56 is one client, whichever of its addresses it
 		// uses: two pairings, then no more.
 		{"2001:db8:5:6::1", http.StatusOK},
-		{"2001:db8:5:6:ffff:ffff:ffff:fffe", http.StatusOK},
-		{"2001:db8:5:6::abcd", http.StatusTooManyRequests},
-		// The next /64 is another subscriber.
-		{"2001:db8:5:7::1", http.StatusOK},
-		{"2001:db8:5:7::2", http.StatusOK},
-		{"2001:db8:5:7::3", http.StatusTooManyRequests},
+		{"2001:db8:5:7:ffff:ffff:ffff:fffe", http.StatusOK},
+		{"2001:db8:5:ff::abcd", http.StatusTooManyRequests},
+		// The next /56 is another subscriber.
+		{"2001:db8:5:100::1", http.StatusOK},
+		{"2001:db8:5:100::2", http.StatusOK},
+		{"2001:db8:5:1ff::3", http.StatusTooManyRequests},
 		// IPv4 clients count by address, even written as IPv6.
 		{"192.0.2.10", http.StatusOK},
 		{"::ffff:192.0.2.10", http.StatusOK},
