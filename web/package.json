@@ -17,7 +17,7 @@
     "media:chaos": "playwright test media-lifecycle.spec.ts media-reliability.spec.ts --config=playwright.media.config.ts --project=chromium"
   },
   "dependencies": {
-    "bits-ui": "^2.19.5",
+    "bits-ui": "^2.20.2",
     "cuelume": "file:vendor/cuelume-0.1.2-14a71236.tgz",
     "livekit-client": "2.23.0",
     "phosphor-svelte": "^3.1.1"
@@ -25,7 +25,7 @@
   "devDependencies": {
     "@fontsource-variable/inter": "^5.2.6",
     "@fontsource/geist-mono": "^5.2.6",
-    "@livekit/protocol": "1.52.1",
+    "@livekit/protocol": "1.53.0",
     "@playwright/test": "^1.64.1",
     "@sveltejs/adapter-static": "^4.0.0",
     "@sveltejs/kit": "^3.0.0",
@@ -39,7 +39,7 @@
     "svelte-check": "^4.7.5",
     "tailwindcss": "^4.3.3",
     "typescript": "^6.0.0",
-    "vite": "^8.0.12"
+    "vite": "^8.3.5"
   },
   "imports": {
     "#lib": "./src/lib/index.js",
