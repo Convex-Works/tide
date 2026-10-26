@@ -41,7 +41,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build \
     -o /out/tide \
     ./cmd/tide
 
-FROM --platform=$BUILDPLATFORM alpine:3.24.0 AS runtime-files
+FROM --platform=$BUILDPLATFORM alpine:3.24.3 AS runtime-files
 RUN apk add --no-cache ca-certificates tzdata \
     && mkdir -p /runtime/data \
     && chown 65532:65532 /runtime/data
