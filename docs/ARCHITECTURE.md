@@ -966,7 +966,9 @@ GitHub Actions runs the same gate (`.github/workflows/ci.yml`). A pushed `v*`
 tag runs `.github/workflows/release.yml`, which publishes the linux/amd64 and
 linux/arm64 image to `ghcr.io/convex-works/tide` and creates the GitHub
 release from `docs/releases/<tag>.md`, with the static binaries
-(`tide-linux-amd64`, `tide-linux-arm64`) and their `SHA256SUMS` attached. GitHub makes a newly pushed container
+(`tide-linux-amd64`, `tide-linux-arm64`) and their `SHA256SUMS` attached. A
+release tag fails unless the install docs and manifests already pin its
+version (`scripts/check-release-pins.sh`). GitHub makes a newly pushed container
 package private: after the first release push, set Convex-Works → Packages →
 tide → Package settings → visibility to Public, and check that
 `docker pull ghcr.io/convex-works/tide:<version>` works logged out.

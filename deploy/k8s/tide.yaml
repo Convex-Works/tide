@@ -38,7 +38,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: tide
-          image: ghcr.io/convex-works/tide:0.1.0 # An overlay's images: can pin another tag or your own build.
+          image: ghcr.io/convex-works/tide:0.1.1 # An overlay's images: can pin another tag or your own build.
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false

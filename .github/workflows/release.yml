@@ -5,8 +5,10 @@ name: Release
 # and latest, then a GitHub release whose notes are
 # docs/releases/<tag>.md, with the static binaries for both platforms and
 # their SHA256SUMS attached. Tag only a commit on main that CI passed; this
-# workflow doesn't run the checks again. A pre-release tag (v1.2.0-rc.1)
-# gets only its own image tag and a pre-release.
+# workflow doesn't run the checks again. The commit must also pin the new
+# version in the install docs and manifests (scripts/check-release-pins.sh).
+# A pre-release tag (v1.2.0-rc.1) gets only its own image tag and a
+# pre-release, and the docs keep pinning the last release.
 #
 # GitHub makes a newly pushed container package private. After the first
 # release push, set Convex-Works -> Packages -> tide -> Package settings ->
@@ -48,6 +50,15 @@ jobs:
             echo "::error::docs/releases/$TAG.md is missing; write the release notes before tagging."
             exit 1
           fi
+          case "$TAG" in
+            *-*) ;;
+            *)
+              if ! scripts/check-release-pins.sh "${TAG#v}"; then
+                echo "::error::The install docs don't pin ${TAG#v}; update them before tagging."
+                exit 1
+              fi
+              ;;
+          esac
       - id: meta
         uses: docker/metadata-action@v6
         env:
