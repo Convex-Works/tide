@@ -169,6 +169,12 @@ func Load() (Config, error) {
 		Transcripts:       envBool("TIDE_TRANSCRIPTS", false),
 	}
 	var problems []string
+	if dev && !localHost(baseURL) {
+		// Dev mode publishes its secrets and an unauthenticated token
+		// endpoint; anywhere but a developer's machine that is an open door.
+		problems = append(problems, fmt.Sprintf(
+			"TIDE_DEV_MODE=true needs a local TIDE_BASE_URL (localhost, a loopback or private address, or a one-label host), not %q", baseURL))
+	}
 	trusted, err := parseTrustedProxies(env("TIDE_TRUSTED_PROXIES", ""))
 	if err != nil {
 		problems = append(problems, "TIDE_TRUSTED_PROXIES: "+err.Error())
@@ -338,6 +344,25 @@ func signalingOrigin(baseURL string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("%q is not an absolute http or https URL", baseURL)
+}
+
+// localHost says baseURL names a developer's own machine or network:
+// localhost or a .localhost name, a loopback, private or link-local
+// address, or a one-label name such as a Compose service ("tide"). Any
+// other name or address may be reachable from the internet.
+func localHost(baseURL string) bool {
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return false
+	}
+	host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
+	if host == "" {
+		return false
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast()
+	}
+	return host == "localhost" || strings.HasSuffix(host, ".localhost") || !strings.Contains(host, ".")
 }
 
 // parseList returns a stable, deduplicated comma-separated configuration list.

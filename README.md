@@ -28,7 +28,7 @@ Redis, and S3-compatible storage.
 On Linux with Docker:
 
 ```sh
-docker run --rm --network host ghcr.io/convex-works/tide:0.1.0
+docker run --rm --network host ghcr.io/convex-works/tide:0.1.1
 ```
 
 The image is for linux/amd64 and linux/arm64. It uses the host's network

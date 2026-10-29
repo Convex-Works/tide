@@ -211,6 +211,32 @@ func TestClientIPResolver(t *testing.T) {
 	if got := behindProxy.resolve(newRequest("10.0.0.1:1234", "")); got != "10.0.0.1" {
 		t.Fatalf("expected peer, got %q", got)
 	}
+
+	// A proxy that adds its own header line, after the client's forged
+	// one: the proxy's line is the one that counts.
+	twoLines := newRequest("10.0.0.1:1234", "1.2.3.4")
+	twoLines.Header.Add("X-Forwarded-For", "198.51.100.9")
+	if got := behindProxy.resolve(twoLines); got != "198.51.100.9" {
+		t.Fatalf("expected the proxy's line to win, got %q", got)
+	}
+	// Ports, brackets, zones and mapped IPv4 don't make a hop malformed,
+	// or a separate bucket.
+	for forwarded, want := range map[string]string{
+		"198.51.100.9:5678":           "198.51.100.9",
+		"[2001:db8::1]:5678":          "2001:db8::1",
+		"[2001:db8::1]":               "2001:db8::1",
+		"fe80::1%eth0":                "fe80::1",
+		"::ffff:198.51.100.9":         "198.51.100.9",
+		"198.51.100.9:5678, 10.0.0.2": "198.51.100.9",
+	} {
+		if got := behindProxy.resolve(newRequest("10.0.0.1:1234", forwarded)); got != want {
+			t.Fatalf("X-Forwarded-For %q resolved to %q, want %q", forwarded, got, want)
+		}
+	}
+	// A trusted hop written with a port is still skipped.
+	if got := behindProxy.resolve(newRequest("10.0.0.1:1234", "198.51.100.9, 10.0.0.2:443")); got != "198.51.100.9" {
+		t.Fatalf("expected a trusted hop with a port to be skipped, got %q", got)
+	}
 }
 
 func TestRateLimitKeyCountsIPv6ByItsSlash56(t *testing.T) {

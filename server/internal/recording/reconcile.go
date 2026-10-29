@@ -79,7 +79,7 @@ func (h *Handler) reconcileRecording(ctx context.Context, recording store.Record
 		if err := h.store.UpdateRecordingByEgress(ctx, recording.EgressID, store.RecordingUpdate{Status: "failed"}); err != nil {
 			return err
 		}
-		_ = h.setRecordingMetadata(ctx, recording.RoomSlug, false)
+		h.recordingEnded(ctx, recording)
 		return nil
 	}
 	switch info.Status {
@@ -91,7 +91,7 @@ func (h *Handler) reconcileRecording(ctx context.Context, recording store.Record
 		if err := h.finishRecording(ctx, info); err != nil {
 			return err
 		}
-		_ = h.setRecordingMetadata(ctx, recording.RoomSlug, false)
+		h.recordingEnded(ctx, recording)
 		return nil
 	case protocol.EgressStatus_EGRESS_STARTING, protocol.EgressStatus_EGRESS_ACTIVE:
 		// A row in "finalizing" means a stop was requested; if the egress is

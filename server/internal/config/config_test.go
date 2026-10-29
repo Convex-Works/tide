@@ -472,6 +472,30 @@ func TestLoadDevModeSuppliesSecretsOnly(t *testing.T) {
 	}
 }
 
+// Dev mode's secrets are public, so it runs only where the internet can't
+// reach it.
+func TestLoadDevModeNeedsALocalBaseURL(t *testing.T) {
+	for _, baseURL := range []string{
+		"http://localhost:5173", "http://app.localhost:8080", "http://127.0.0.1:8080",
+		"http://[::1]:8080", "http://10.1.2.3", "http://192.168.1.20:8080",
+		"http://[fd00::1]:8080", "http://169.254.0.9", "http://tide:8080",
+	} {
+		cfg := load(t, map[string]string{"TIDE_DEV_MODE": "true", "TIDE_BASE_URL": baseURL})
+		if !cfg.DevMode {
+			t.Fatalf("%s: dev mode is off", baseURL)
+		}
+	}
+	for _, baseURL := range []string{
+		"https://meet.example.com", "http://meet.example.com:8080", "http://203.0.113.7:8080",
+		"http://[2001:db8::1]", "http://localhost.example.com",
+	} {
+		message := loadErr(t, map[string]string{"TIDE_DEV_MODE": "true", "TIDE_BASE_URL": baseURL})
+		if !strings.Contains(message, "TIDE_DEV_MODE=true needs a local TIDE_BASE_URL") {
+			t.Fatalf("%s: error = %s", baseURL, message)
+		}
+	}
+}
+
 func TestLoadParsesOIDCGroups(t *testing.T) {
 	cfg := load(t, map[string]string{
 		"TIDE_DEV_MODE":     "true",

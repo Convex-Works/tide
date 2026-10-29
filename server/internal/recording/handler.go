@@ -248,7 +248,7 @@ func (h *Handler) Stop(w http.ResponseWriter, r *http.Request) {
 		// a terminal row means the stop already succeeded.
 		if current, lookupErr := h.store.RecordingByEgressID(r.Context(), recording.EgressID); lookupErr == nil &&
 			(current.Status == "completed" || current.Status == "failed") {
-			_ = h.setRecordingMetadata(r.Context(), room.Slug, false)
+			h.recordingEnded(r.Context(), current)
 			httpx.WriteJSON(w, http.StatusOK, recordingInfo(current))
 			return
 		}
@@ -354,6 +354,23 @@ func (h *Handler) setRecordingMetadata(ctx context.Context, roomSlug string, act
 		Room: roomSlug, Metadata: metadata,
 	})
 	return err
+}
+
+// recordingEnded turns the room's recording indicator off after recording
+// ended, unless the room has another active recording: a late or replayed
+// egress_ended must not hide a recording that is running. When the store
+// can't say, the indicator stays on; a stale "recording" is the safe error.
+// A room may already have closed, so the update is best effort.
+func (h *Handler) recordingEnded(ctx context.Context, recording store.Recording) {
+	active, err := h.store.ActiveRecordingByRoomID(ctx, recording.RoomID)
+	if err == nil && active.EgressID != recording.EgressID {
+		return
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		log.Printf("recordings: room %s: keep the indicator on: %v", recording.RoomID, err)
+		return
+	}
+	_ = h.setRecordingMetadata(ctx, recording.RoomSlug, false)
 }
 
 func recordingInfo(recording store.Recording) api.RecordingInfo {

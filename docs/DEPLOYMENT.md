@@ -255,7 +255,7 @@ TIDE_RECORDER_TEMPLATE_URL=http://127.0.0.1:8080/egress-template
 ```yaml
 services:
   tide:
-    image: ghcr.io/convex-works/tide:0.1.0
+    image: ghcr.io/convex-works/tide:0.1.1
     env_file: .env
     network_mode: host
     volumes:
@@ -383,7 +383,7 @@ components:
   - ../../k8s/recording # leave out for no recording
 images:
   - name: ghcr.io/convex-works/tide
-    newTag: 0.1.0 # or newName: <registry>/tide for your own build
+    newTag: 0.1.1 # or newName: <registry>/tide for your own build
 patches:
   - path: tide.yaml # the OVERLAY values, and the media path
 ```
@@ -493,7 +493,7 @@ or equal to a value shipped in this repository refuses startup.
 | `TIDE_RECORDER_REDIS_ADDR`     | `127.0.0.1:6379`                       | The Redis tide's media server and the recorder share, as `host:port` (a name or an address), with recording and the embedded media server ([Redis, with recording](#redis-with-recording)). Keep it off public networks: recording jobs carry the S3 credentials. |
 | `TIDE_RECORDER_REDIS_PASSWORD` | none                                   | With recording and the embedded media server: required, at least 32 characters. Redis's `requirepass` (tide refuses a Redis without one), and the recorder's `redis.password`.                                                                                    |
 | `TIDE_TRUSTED_PROXIES`         | empty                                  | Comma-separated IPs or CIDRs of proxies whose `X-Forwarded-For` tide believes. Only your proxy or ingress. An invalid entry refuses startup.                                                                                                                      |
-| `TIDE_DEV_MODE`                | `false`                                | Supplies the publicly known development value for any secret left unset and exposes `/api/dev/token`. Turns nothing else on. Never in production.                                                                                                                 |
+| `TIDE_DEV_MODE`                | `false`                                | Supplies the publicly known development value for any secret left unset and exposes `/api/dev/token`. Turns nothing else on. Refused unless `TIDE_BASE_URL` is local: localhost, a loopback or private address, or a one-label host.                              |
 | `TIDE_JOIN_RATE_LIMIT`         | `10`                                   | Joins per client per minute. Also sizes, in buckets of their own, room lookups and, when anonymous, room creation.                                                                                                                                                |
 | `TIDE_WAIT_RATE_LIMIT`         | `20`                                   | Lobby wait streams per client per minute.                                                                                                                                                                                                                         |
 | `TIDE_LOGIN_RATE_LIMIT`        | `10`                                   | Sign-in redirects per client per minute; when anonymous, new anonymous sessions.                                                                                                                                                                                  |

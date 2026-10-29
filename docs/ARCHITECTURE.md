@@ -861,7 +861,9 @@ embedded (node IP discovered), recording off`.
 
 `TIDE_DEV_MODE=true` supplies the publicly-known dev value for any secret
 left unset, and exposes `/api/dev/token`. It turns nothing else on: the dev
-stack (§13) sets `TIDE_OIDC_ISSUER` and `TIDE_S3_ENDPOINT` itself.
+stack (§13) sets `TIDE_OIDC_ISSUER` and `TIDE_S3_ENDPOINT` itself. It refuses
+a `TIDE_BASE_URL` that may be public: the host must be localhost, a loopback,
+private or link-local address, or a one-label name like a Compose service.
 
 `TIDE_TRANSCRIPTS` turns on transcripts and machine pairing (§8.1). Like
 `TIDE_DEV_MODE` it is read with `strconv.ParseBool`, and a value it can't
@@ -966,7 +968,9 @@ GitHub Actions runs the same gate (`.github/workflows/ci.yml`). A pushed `v*`
 tag runs `.github/workflows/release.yml`, which publishes the linux/amd64 and
 linux/arm64 image to `ghcr.io/convex-works/tide` and creates the GitHub
 release from `docs/releases/<tag>.md`, with the static binaries
-(`tide-linux-amd64`, `tide-linux-arm64`) and their `SHA256SUMS` attached. GitHub makes a newly pushed container
+(`tide-linux-amd64`, `tide-linux-arm64`) and their `SHA256SUMS` attached. A
+release tag fails unless the install docs and manifests already pin its
+version (`scripts/check-release-pins.sh`). GitHub makes a newly pushed container
 package private: after the first release push, set Convex-Works → Packages →
 tide → Package settings → visibility to Public, and check that
 `docker pull ghcr.io/convex-works/tide:<version>` works logged out.

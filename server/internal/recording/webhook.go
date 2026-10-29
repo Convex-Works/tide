@@ -68,13 +68,10 @@ func (h *Handler) HandleWebhookEvent(r *http.Request, event *protocol.WebhookEve
 		return h.updateWebhookStatus(r.Context(), info, statusFromEgress(info.Status))
 	case "egress_ended":
 		err := h.finishRecording(r.Context(), info)
-		roomSlug := info.RoomName
+		// An egress with no row of its own (a Start that lost the race for
+		// the room's one active recording) never turned the indicator on.
 		if recording, lookupErr := h.store.RecordingByEgressID(r.Context(), info.EgressId); lookupErr == nil {
-			roomSlug = recording.RoomSlug
-		}
-		if roomSlug != "" {
-			// A room may already have closed by the time Egress ends.
-			_ = h.setRecordingMetadata(r.Context(), roomSlug, false)
+			h.recordingEnded(r.Context(), recording)
 		}
 		return err
 	default:
