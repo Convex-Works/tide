@@ -46,7 +46,7 @@ services:
     restart: unless-stopped
 
   tide:
-    image: ghcr.io/convex-works/tide:0.1.1
+    image: ghcr.io/convex-works/tide:0.1.2
     env_file: .env
     network_mode: host
     volumes:
@@ -172,10 +172,10 @@ Recording needs sign-in.
 
 You need Kubernetes 1.29 or later, a node with a public IPv4 address, and an ingress.
 
-1. Get the manifests of the release. The image is `ghcr.io/convex-works/tide:0.1.1`.
+1. Get the manifests of the release. The image is `ghcr.io/convex-works/tide:0.1.2`.
 
    ```sh
-   git clone --depth 1 --branch v0.1.1 https://github.com/Convex-Works/tide.git && cd tide
+   git clone --depth 1 --branch v0.1.2 https://github.com/Convex-Works/tide.git && cd tide
    ```
 
 2. Make the namespace and the secrets. Keep nothing else in this namespace: tide uses host ports, and the recorder needs `SYS_ADMIN`. Also make a TLS secret `tide-tls` for the host.
@@ -211,7 +211,7 @@ You need Kubernetes 1.29 or later, a node with a public IPv4 address, and an ing
      - ../../k8s/recording # only for recording
    images:
      - name: ghcr.io/convex-works/tide
-       newTag: 0.1.1
+       newTag: 0.1.2
    patches:
      - path: tide.yaml
    ```
