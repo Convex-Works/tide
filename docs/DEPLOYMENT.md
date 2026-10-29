@@ -255,7 +255,7 @@ TIDE_RECORDER_TEMPLATE_URL=http://127.0.0.1:8080/egress-template
 ```yaml
 services:
   tide:
-    image: ghcr.io/convex-works/tide:0.1.1
+    image: ghcr.io/convex-works/tide:0.1.2
     env_file: .env
     network_mode: host
     volumes:
@@ -383,7 +383,7 @@ components:
   - ../../k8s/recording # leave out for no recording
 images:
   - name: ghcr.io/convex-works/tide
-    newTag: 0.1.1 # or newName: <registry>/tide for your own build
+    newTag: 0.1.2 # or newName: <registry>/tide for your own build
 patches:
   - path: tide.yaml # the OVERLAY values, and the media path
 ```
