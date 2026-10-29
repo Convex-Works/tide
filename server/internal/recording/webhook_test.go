@@ -162,3 +162,38 @@ func TestWebhookRejectsOversizedBody(t *testing.T) {
 		t.Fatalf("expected 200 for a small body, got %d", response.Code)
 	}
 }
+
+func TestWebhookEndedKeepsIndicatorForAnotherRecording(t *testing.T) {
+	handler, _, rooms, room := recordingTestHandler(t)
+	db := handler.store.(*store.Store)
+	ended := int64(130)
+	for _, recording := range []store.Recording{
+		{ID: "earlier", RoomID: room.ID, RoomSlug: room.Slug, EgressID: "egress-earlier",
+			Status: "completed", StartedBy: "owner", StartedAt: 100, EndedAt: &ended},
+		{ID: "running", RoomID: room.ID, RoomSlug: room.Slug, EgressID: "egress-running",
+			Status: "recording", StartedBy: "owner", StartedAt: 140},
+	} {
+		if err := db.InsertRecording(context.Background(), recording); err != nil {
+			t.Fatal(err)
+		}
+	}
+	request := httptest.NewRequest("POST", "/webhook", nil)
+	for _, egressID := range []string{
+		"egress-earlier", // a replayed egress_ended for the finished recording
+		"egress-orphan",  // an egress whose Start lost the race for the room
+	} {
+		_ = handler.HandleWebhookEvent(request, &protocol.WebhookEvent{
+			Event: "egress_ended",
+			EgressInfo: &protocol.EgressInfo{
+				EgressId: egressID, RoomName: room.Slug, Status: protocol.EgressStatus_EGRESS_COMPLETE,
+			},
+		})
+	}
+	if len(rooms.updates) != 0 {
+		t.Fatalf("metadata updates = %#v, want the indicator left on", rooms.updates)
+	}
+	got, err := db.RecordingByID(context.Background(), "running")
+	if err != nil || got.Status != "recording" {
+		t.Fatalf("running recording = %#v, %v", got, err)
+	}
+}
