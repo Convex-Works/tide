@@ -212,7 +212,11 @@ func loadConfig(t *testing.T, env map[string]string) config.Config {
 	} {
 		t.Setenv(name, "")
 	}
-	t.Setenv("TIDE_DEV_MODE", "true")
+	// Dev mode would refuse the public base URLs; the media server's
+	// secrets are the only ones an anonymous deployment needs.
+	t.Setenv("TIDE_DEV_MODE", "false")
+	t.Setenv("TIDE_MEDIA_API_KEY", "csp-test-key")
+	t.Setenv("TIDE_MEDIA_API_SECRET", "csp-test-secret-of-at-least-32-characters")
 	for name, value := range env {
 		t.Setenv(name, value)
 	}

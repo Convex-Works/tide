@@ -44,7 +44,8 @@ export const envGroups: EnvGroup[] = [
       {
         name: 'TIDE_DEV_MODE',
         default: 'false',
-        description: 'For local development only. Do not use it in production.'
+        description:
+          'For local development only. tide refuses it unless TIDE_BASE_URL is on your own computer or network.'
       }
     ]
   },

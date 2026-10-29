@@ -861,7 +861,9 @@ embedded (node IP discovered), recording off`.
 
 `TIDE_DEV_MODE=true` supplies the publicly-known dev value for any secret
 left unset, and exposes `/api/dev/token`. It turns nothing else on: the dev
-stack (§13) sets `TIDE_OIDC_ISSUER` and `TIDE_S3_ENDPOINT` itself.
+stack (§13) sets `TIDE_OIDC_ISSUER` and `TIDE_S3_ENDPOINT` itself. It refuses
+a `TIDE_BASE_URL` that may be public: the host must be localhost, a loopback,
+private or link-local address, or a one-label name like a Compose service.
 
 `TIDE_TRANSCRIPTS` turns on transcripts and machine pairing (§8.1). Like
 `TIDE_DEV_MODE` it is read with `strconv.ParseBool`, and a value it can't
