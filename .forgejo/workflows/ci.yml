@@ -20,6 +20,8 @@ jobs:
       - name: Server vet
         working-directory: server
         run: go vet ./...
+      - name: LiveKit's pion forks match livekit-server's
+        run: ./scripts/check-livekit-replaces.sh
       - name: Server tests
         working-directory: server
         run: go test ./...

@@ -5,12 +5,12 @@ go 1.26.10
 require (
 	github.com/alicebob/miniredis/v2 v2.40.0
 	github.com/coreos/go-oidc/v3 v3.21.0
-	github.com/livekit/livekit-server v1.13.10
-	github.com/livekit/protocol v1.52.2-0.20261012065025-9bb708cdb819
+	github.com/livekit/livekit-server v1.13.11
+	github.com/livekit/protocol v1.53.1-0.20261023175527-46332a036e25
 	github.com/livekit/server-sdk-go/v2 v2.19.0
 	github.com/minio/minio-go/v7 v7.4.1
 	github.com/twitchtv/twirp v8.1.3+incompatible
-	golang.org/x/net v0.61.0
+	golang.org/x/net v0.62.0
 	golang.org/x/oauth2 v0.37.0
 	modernc.org/sqlite v1.60.1
 )
@@ -46,7 +46,7 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/puzpuzpuz/xsync/v4 v4.5.0 // indirect
 	github.com/quic-go/qpack v0.6.0 // indirect
-	github.com/quic-go/quic-go v0.61.0 // indirect
+	github.com/quic-go/quic-go v0.63.0 // indirect
 	github.com/quic-go/webtransport-go v0.12.0 // indirect
 	github.com/rs/cors v1.11.1 // indirect
 	github.com/thoas/go-funk v0.9.3 // indirect
@@ -78,11 +78,11 @@ require (
 	github.com/bep/debounce v1.2.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dennwc/iters v1.2.2 // indirect
-	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/frostbyte73/core v0.1.1 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/gammazero/deque v1.2.1 // indirect
-	github.com/go-jose/go-jose/v4 v4.1.4 // indirect
+	github.com/go-jose/go-jose/v4 v4.1.6 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
@@ -94,7 +94,7 @@ require (
 	github.com/klauspost/cpuid/v2 v2.4.0 // indirect
 	github.com/lithammer/shortuuid/v4 v4.3.0 // indirect
 	github.com/livekit/mageutil v0.0.0-20250511045019-0f1ff63f7731 // indirect
-	github.com/livekit/mediatransportutil v0.0.0-20260821083140-f234b534b095 // indirect
+	github.com/livekit/mediatransportutil v0.0.0-20261014192331-dd8e31a0adc0 // indirect
 	github.com/livekit/psrpc v0.8.2 // indirect
 	github.com/magefile/mage v1.17.2 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
@@ -151,8 +151,9 @@ replace git.convex.works/ConvexWorks/moil/sdk/go => ./third_party/moil
 // The embedded media server builds only against LiveKit's pion forks (they
 // add API it calls, such as SettingEngine.EnableSped). Replaces in a
 // dependency's go.mod don't apply here, so these mirror livekit-server
-// v1.13.10's; move them with it.
-replace github.com/pion/webrtc/v4 => github.com/livekit/webrtc-pion/v4 v4.2.18-warp.6
+// v1.13.11's; move them with it. scripts/check-livekit-replaces.sh, part of
+// make check, fails when they differ.
+replace github.com/pion/webrtc/v4 => github.com/livekit/webrtc-pion/v4 v4.2.18-warp.7
 
 replace github.com/pion/dtls/v3 => github.com/livekit/dtls/v3 v3.1.5-warp.3
 
