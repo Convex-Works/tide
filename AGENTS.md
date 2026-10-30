@@ -28,3 +28,8 @@ Rules that bite:
   4-6px radii, phosphor-svelte 16px regular icons, Inter 13px base, Geist Mono
   for slugs/timers. Light shell, dark meeting stage, one accent blue.
 - `make check` must pass before any commit.
+- Merging a `release/v*` PR and pushing its tag are one step. The release PR
+  pins the new image in the install docs, and that image doesn't exist until
+  `v<version>` is pushed, so whoever merges the PR pushes the tag right after
+  CI passes on main (`scripts/check-release-pins.sh <version>` first). Until
+  then the README's quickstart fails, and CI's `release-pin` job warns.

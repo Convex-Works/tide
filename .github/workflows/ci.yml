@@ -108,6 +108,26 @@ jobs:
         working-directory: site
         run: npm run build
 
+  release-pin:
+    # A release PR pins the next version in the install docs before its tag
+    # exists (scripts/check-release-pins.sh). Until the tag is pushed, the
+    # README's docker run fails with "manifest unknown", so main gets a
+    # warning. It doesn't fail: a ghcr outage shouldn't block merges.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Check that the pinned image is published
+        run: |
+          pin="$(grep -Eo 'ghcr\.io/convex-works/tide:[0-9][0-9A-Za-z.-]*' README.md | head -n 1)"
+          if [ -z "$pin" ]; then
+            echo "::warning title=Release pin::README.md pins no tide image."
+          elif ! docker manifest inspect "$pin" >/dev/null 2>&1; then
+            echo "::warning title=Release pin::The install docs pin $pin, which ghcr.io doesn't serve. Push the v${pin##*:} tag (or check whether ghcr.io is down)."
+          else
+            echo "$pin is published."
+          fi
+
   media-e2e:
     # Lifecycle and recording scenarios, reliability, the seeded fuzzer and a
     # network-chaos rerun, against the real media server and recorder.
