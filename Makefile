@@ -37,6 +37,7 @@ gen:
 
 server-check:
 	cd server && go vet ./...
+	./scripts/check-livekit-replaces.sh
 	cd server && go test ./...
 
 web-check:
