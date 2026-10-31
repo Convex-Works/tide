@@ -107,6 +107,9 @@ type UpdateRoomRequest struct {
 
 type JoinRequest struct {
 	Name string `json:"name"`
+	// Rejoin is the grant a guest admitted through the lobby was handed, to
+	// return to the same meeting without being admitted again.
+	Rejoin string `json:"rejoin,omitempty"`
 }
 
 type JoinResponse struct {
@@ -127,8 +130,9 @@ type LobbyWaitingSSE struct {
 }
 
 type LobbyAdmittedSSE struct {
-	Token string `json:"token"`
-	WSURL string `json:"ws_url"`
+	Token  string `json:"token"`
+	WSURL  string `json:"ws_url"`
+	Rejoin string `json:"rejoin,omitempty"`
 }
 
 type LobbyDeniedSSE struct{}

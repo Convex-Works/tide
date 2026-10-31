@@ -117,6 +117,11 @@ export interface UpdateRoomRequest {
 }
 export interface JoinRequest {
   name: string;
+  /**
+   * Rejoin is the grant a guest admitted through the lobby was handed, to
+   * return to the same meeting without being admitted again.
+   */
+  rejoin?: string;
 }
 export interface JoinResponse {
   status: string;
@@ -135,6 +140,7 @@ export interface LobbyWaitingSSE {
 export interface LobbyAdmittedSSE {
   token: string;
   ws_url: string;
+  rejoin?: string;
 }
 export interface LobbyDeniedSSE {
 }

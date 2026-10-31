@@ -38,6 +38,7 @@ type Request struct {
 	Status   Status
 	Token    string
 	WSURL    string
+	Rejoin   string
 	Decision <-chan struct{}
 }
 
@@ -49,6 +50,7 @@ type entry struct {
 	status   Status
 	token    string
 	wsURL    string
+	rejoin   string
 	decision chan struct{}
 	timer    *time.Timer
 }
@@ -112,19 +114,19 @@ func (r *Registry) Get(id string) (Request, bool) {
 	return requestView(item), true
 }
 
-func (r *Registry) Approve(id, token, wsURL string) error {
-	return r.resolve(id, StatusAdmitted, token, wsURL)
+func (r *Registry) Approve(id, token, wsURL, rejoin string) error {
+	return r.resolve(id, StatusAdmitted, token, wsURL, rejoin)
 }
 
 func (r *Registry) Deny(id string) error {
-	return r.resolve(id, StatusDenied, "", "")
+	return r.resolve(id, StatusDenied, "", "", "")
 }
 
 func (r *Registry) Expire(id string) error {
-	return r.resolve(id, StatusExpired, "", "")
+	return r.resolve(id, StatusExpired, "", "", "")
 }
 
-func (r *Registry) resolve(id string, status Status, token, wsURL string) error {
+func (r *Registry) resolve(id string, status Status, token, wsURL, rejoin string) error {
 	r.mu.Lock()
 	item, ok := r.requests[id]
 	if !ok {
@@ -138,6 +140,7 @@ func (r *Registry) resolve(id string, status Status, token, wsURL string) error 
 	item.status = status
 	item.token = token
 	item.wsURL = wsURL
+	item.rejoin = rejoin
 	if item.timer != nil {
 		item.timer.Stop()
 	}
@@ -215,7 +218,8 @@ func (r *Registry) remove(id string) {
 func requestView(item *entry) Request {
 	return Request{
 		ID: item.id, RoomSlug: item.roomSlug, Name: item.name, Created: item.created,
-		Status: item.status, Token: item.token, WSURL: item.wsURL, Decision: item.decision,
+		Status: item.status, Token: item.token, WSURL: item.wsURL, Rejoin: item.rejoin,
+		Decision: item.decision,
 	}
 }
 

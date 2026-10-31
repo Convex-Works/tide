@@ -20,7 +20,7 @@ func TestWaitSSEApproveDenyAndExpiry(t *testing.T) {
 		{
 			name: "approve",
 			act: func(registry *Registry, id string) error {
-				return registry.Approve(id, "signed-token", "ws://public.example")
+				return registry.Approve(id, "signed-token", "ws://public.example", "")
 			},
 			event: "event: admitted", data: `"token":"signed-token"`,
 		},
