@@ -3,6 +3,8 @@ package moderation
 import (
 	"sync"
 	"time"
+
+	"tide/internal/lobby"
 )
 
 // Denylist tracks kicked participants for as long as their cached admission
@@ -22,6 +24,13 @@ type Denylist struct {
 // least the admission-token TTL so a ban outlives every cached token.
 func NewDenylist(ttl time.Duration) *Denylist {
 	return &Denylist{ttl: ttl, entries: map[string]time.Time{}, now: time.Now}
+}
+
+// NewKickDenylist creates the denylist kicks ban into. A ban outlives every
+// credential a kicked guest may still hold: a cached admission token and the
+// lobby's rejoin grant, which would otherwise readmit them unasked.
+func NewKickDenylist() *Denylist {
+	return NewDenylist(max(lobby.TokenTTL, lobby.RejoinTTL))
 }
 
 func (d *Denylist) Ban(room, identity string) {

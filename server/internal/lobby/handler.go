@@ -41,6 +41,7 @@ type Handler struct {
 	registry *Registry
 	minter   *tidelivekit.Minter
 	streams  *streamCaps
+	rejoin   *rejoiner // nil unless EnableRejoin was called
 
 	// ending is closed by EndStreams.
 	ending    chan struct{}
@@ -137,6 +138,12 @@ func (h *Handler) Join(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.writeAdmission(w, r, identity, name, room, false)
+		return
+	}
+	// A guest the host already admitted returns to the same meeting as the
+	// same participant. Any grant that does not hold sends them to the lobby.
+	if identity, admittedName, ok := h.rejoin.redeem(r.Context(), room, request.Rejoin); ok {
+		h.writeAdmission(w, r, identity, admittedName, room, false)
 		return
 	}
 	pending, err := h.registry.Add(room.Slug, name)
@@ -259,7 +266,8 @@ func (h *Handler) Approve(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not admit the guest. Try again.")
 		return
 	}
-	if err := h.registry.Approve(request.ID, token, h.minter.PublicURL()); err != nil {
+	rejoin := h.rejoin.issue(r.Context(), room, identity, request.Name)
+	if err := h.registry.Approve(request.ID, token, h.minter.PublicURL(), rejoin); err != nil {
 		h.writeResolveError(w, err)
 		return
 	}
@@ -339,7 +347,9 @@ func (h *Handler) writeAdmission(w http.ResponseWriter, r *http.Request, identit
 func (h *Handler) writeTerminal(stream *sseStream, request Request) {
 	switch request.Status {
 	case StatusAdmitted:
-		_ = stream.send("admitted", api.LobbyAdmittedSSE{Token: request.Token, WSURL: request.WSURL})
+		_ = stream.send("admitted", api.LobbyAdmittedSSE{
+			Token: request.Token, WSURL: request.WSURL, Rejoin: request.Rejoin,
+		})
 	case StatusExpired:
 		_ = stream.send("expired", api.LobbyDeniedSSE{})
 	default:

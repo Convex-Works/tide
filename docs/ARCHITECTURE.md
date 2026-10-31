@@ -339,8 +339,18 @@ guest                          tide server                       host
 - A room's lobby holds at most 50 waiting guests; the next join answers 429
   ("This lobby is full. Try again in a few minutes."). Join limits count per
   client and addresses are cheap, so only this ceiling bounds the queue.
-- Reconnecting guests re-enter through the lobby only if their LiveKit session
-  fully dropped (LiveKit resume covers blips without a new token).
+- Reconnecting guests don't wait in the lobby again while their meeting runs
+  (LiveKit resume covers blips without a new token). `event: admitted`
+  carries a rejoin grant with the token: an HMAC, under a key that lives
+  only in the tide process, over the room's id, the LiveKit session the
+  guest was admitted to, their identity and name, and a 12-hour cap. The
+  meeting page keeps it in the tab's session storage, so after **Leave**, a
+  lost connection or a reload, joining with it mints a new token for the
+  same identity and name, without the lobby, as long as that LiveKit
+  session is still the one running and has somebody in it. Anything else
+  goes to the lobby as a new request: a kicked guest's grant (§7), one from
+  a meeting that has ended, another room's, one past its cap, or any grant
+  after tide restarts. The owner, and rooms without a lobby, need none.
 
 ## 7. Moderation
 
@@ -349,6 +359,11 @@ the LiveKit server SDK — so they hold at the SFU regardless of client behavior
 
 - `POST /api/rooms/:slug/participants/:identity/kick` → `RemoveParticipant`
 - `POST /api/rooms/:slug/participants/:identity/mute` → `MutePublishedTrack` (audio)
+
+Self-hosted LiveKit can't revoke a token, so a kick also bans the identity
+in the room, in memory, for 12 hours: as long as a rejoin grant (§6) lives,
+which outlasts any token. The media webhook removes a banned identity again
+the moment it joins, and the lobby refuses its grant.
 
 The participant list itself is client-side LiveKit state (join/leave/track
 events) — no polling, no server involvement.

@@ -27,6 +27,7 @@
   import { setConnectionChrome } from '#lib/rtc/connection.svelte.js';
   import { RoomState, type PreJoinOptions } from '#lib/rtc/room.svelte.js';
   import { playLobbyKnockSound } from '#lib/sounds.js';
+  import { clearRejoinGrant, readRejoinGrant, storeRejoinGrant } from '#lib/rejoin.js';
 
   type MeetingState =
     | 'loading'
@@ -79,6 +80,7 @@
       rtc.disconnectReason === DisconnectReason.ROOM_DELETED
     ) {
       leaveMeetingChrome();
+      clearRejoinGrant(slug);
       meetingState = 'ended';
       return;
     }
@@ -163,15 +165,19 @@
     mediaOptions = options;
     meetingState = 'joining';
     try {
-      const response = await joinRoom(slug, options.name.trim());
+      const grant = readRejoinGrant(slug);
+      const response = await joinRoom(slug, options.name.trim(), grant);
       if (response.status === 'admitted' && response.token && response.ws_url) {
         await connect({ token: response.token, ws_url: response.ws_url }, options);
         return;
       }
       if (response.status === 'waiting' && response.request_id) {
+        // The server sends a grant it no longer honours to the lobby.
+        if (grant) clearRejoinGrant(slug);
         meetingState = 'waiting';
         closeWait = lobbyWait(response.request_id, {
           admitted: (admission) => {
+            if (admission.rejoin) storeRejoinGrant(slug, admission.rejoin);
             if (mediaOptions) void connect(admission, mediaOptions);
           },
           denied: () => {
@@ -248,6 +254,7 @@
 
   function handleRemoved(): void {
     leaveMeetingChrome();
+    clearRejoinGrant(slug);
     meetingState = 'removed';
   }
 

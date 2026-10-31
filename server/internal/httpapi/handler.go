@@ -127,8 +127,8 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 	)
 	// Kick bans must outlive any cached admission token: self-hosted LiveKit
 	// can't revoke a token, so a kicked guest could rejoin with theirs until
-	// it expires. The denylist TTL is therefore the token TTL.
-	denylist := moderation.NewDenylist(lobby.TokenTTL)
+	// it expires. They must outlive the lobby's rejoin grant too.
+	denylist := moderation.NewKickDenylist()
 	moderationHandler := moderation.NewHandler(roomStore, moderation.NewRoomService(cfg), denylist)
 	// Recording needs storage (ARCHITECTURE.md §8): one storage client for
 	// every handler, which keeps its connections, and none without it.
@@ -169,6 +169,8 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 		roomsHandler.SetRoomCap(anonymousRoomCap)
 	}
 	transcriptsOn.attach(recordingHandler, roomsHandler)
+	lobbyHandler := lobby.NewHandler(roomStore, registry, minter)
+	lobbyHandler.EnableRejoin(lobby.NewLiveKitRooms(cfg), denylist)
 	index, err := shellWithBaseURL(web, cfg.BaseURL)
 	if err != nil {
 		return nil, nil, err
@@ -178,7 +180,7 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 		index:       index,
 		sessions:    sessions,
 		rooms:       roomsHandler,
-		lobby:       lobby.NewHandler(roomStore, registry, minter),
+		lobby:       lobbyHandler,
 		moderation:  moderationHandler,
 		recording:   recordingHandler,
 		transcripts: transcriptsOn,

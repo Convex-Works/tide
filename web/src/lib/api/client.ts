@@ -271,8 +271,8 @@ export function denyPairing(code: string): Promise<void> {
   });
 }
 
-export function joinRoom(slug: string, name: string): Promise<JoinResponse> {
-  const body: JoinRequest = { name };
+export function joinRoom(slug: string, name: string, rejoin?: string): Promise<JoinResponse> {
+  const body: JoinRequest = { name, rejoin };
   return requestJSON<JoinResponse>(pathWith(RoomJoinPath, 'slug', slug), jsonRequest('POST', body));
 }
 
