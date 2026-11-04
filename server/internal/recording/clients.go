@@ -204,15 +204,20 @@ func (s *MinIOStore) PresignedPut(ctx context.Context, key string, expiry time.D
 
 // Stat returns the size and entity tag of the object at key, or an error
 // wrapping fs.ErrNotExist if there is none: tide checks a transcript a
-// machine uploaded before copying it (ARCHITECTURE.md §8.1).
+// machine uploaded before copying it (ARCHITECTURE.md §8.1). An error wrapping
+// fs.ErrPermission means storage won't say, which S3 answers for a missing
+// object when the key lacks ListBucket.
 func (s *MinIOStore) Stat(ctx context.Context, key string) (int64, string, error) {
 	if s.server.err != nil {
 		return 0, "", s.server.err
 	}
 	info, err := s.server.client.StatObject(ctx, s.bucket, key, minio.StatObjectOptions{})
 	if err != nil {
-		if code := minio.ToErrorResponse(err).Code; code == "NoSuchKey" || code == "NotFound" {
+		switch minio.ToErrorResponse(err).Code {
+		case "NoSuchKey", "NotFound":
 			return 0, "", fmt.Errorf("%s: %w", key, fs.ErrNotExist)
+		case "AccessDenied":
+			return 0, "", fmt.Errorf("%s: %w", key, fs.ErrPermission)
 		}
 		return 0, "", err
 	}

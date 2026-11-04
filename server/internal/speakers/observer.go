@@ -113,8 +113,13 @@ type observer struct {
 	cancel      context.CancelFunc
 	// room is set before the observer joins, so every callback sees it.
 	room *lksdk.Room
-	// work is the audio being drained and the updates being read.
-	work sync.WaitGroup
+	// work is the audio being drained and the updates being read. workMu
+	// keeps new work from starting once the observer waits for it. It's apart
+	// from mu because the SDK calls back holding the room's lock, and refresh
+	// asks for the room's lock holding mu.
+	work    sync.WaitGroup
+	workMu  sync.Mutex
+	closing bool
 
 	mu       sync.Mutex
 	activity *Activity
@@ -158,6 +163,9 @@ func (o *observer) run(ctx context.Context, url, room string, mint Minter) {
 	}
 	<-ctx.Done()
 	o.room.Disconnect()
+	o.workMu.Lock()
+	o.closing = true
+	o.workMu.Unlock()
 	o.work.Wait()
 }
 
@@ -196,12 +204,12 @@ func (o *observer) subscribe(publication *lksdk.RemoteTrackPublication) {
 	}
 }
 
-// background runs f, unless the observer has stopped, and has it finish
-// before the observer is done.
+// background runs f, unless the observer is closing, and has it finish before
+// the observer is done. It must not take mu: see workMu.
 func (o *observer) background(f func()) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	if !o.stopped {
+	o.workMu.Lock()
+	defer o.workMu.Unlock()
+	if !o.closing {
 		o.work.Go(f)
 	}
 }

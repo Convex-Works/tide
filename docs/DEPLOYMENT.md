@@ -562,7 +562,8 @@ consistent; tide forces path-style bucket lookup.
 Recordings do not pass through tide. tide sends the recorder endpoint and the
 S3 credentials with each recording job, and the recorder writes the object
 directly to the bucket. The bucket key needs `GetObject`, `PutObject` and
-`DeleteObject` on `recordings/*`.
+`DeleteObject` on `recordings/*`, and `ListBucket` on the bucket, without which
+S3 answers 403 rather than 404 for an object that isn't there.
 
 ## Serve transcripts
 
@@ -598,7 +599,9 @@ own origin, under `/moil/`. For them to work, these must hold:
   the transcript to staging keys under `transcripts-staging/` with URLs tide
   presigns for one attempt; tide then copies the files beside the recording.
   The S3 key therefore needs `GetObject`, `PutObject` and `DeleteObject` on
-  `transcripts-staging/*` as well as on `recordings/*`. tide removes staging
+  `transcripts-staging/*` as well as on `recordings/*`, and `ListBucket` on the
+  bucket. Without it a recording with no speaker timeline, which is normal, gets
+  a transcript with unnamed speakers, and tide logs why. tide removes staging
   objects itself; a lifecycle rule that expires `transcripts-staging/` after 8
   days is a harmless backstop.
 - `TIDE_TRUSTED_PROXIES` names the proxy, so that the pairing rate limit

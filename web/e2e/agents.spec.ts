@@ -102,6 +102,35 @@ test('recording and an agent show together: neither hides the other', async ({ p
   await expect(page.getByTestId('hairline-agent')).toHaveCSS('animation-name', 'none');
 });
 
+test('a reconnect that clears the participants keeps the agent on the hairline', async ({
+  page
+}) => {
+  await mockApi(page, guest());
+  const sfu = await fakeSfu(page);
+  await enter(page, 'Grace Guest');
+  sfu.addAgent('agent:0001', 'Notes');
+  await expect(page.getByTestId('hairline-agent')).toBeVisible();
+
+  // What livekit-client does on a full reconnect, in order. It's enums by value,
+  // since this runs in the page.
+  await page.evaluate(() => {
+    const { __tideRoom: room } = window as unknown as {
+      __tideRoom: {
+        remoteParticipants: Map<string, unknown>;
+        emit(event: string, ...args: unknown[]): boolean;
+      };
+    };
+    room.emit('connectionStateChanged', 'reconnecting');
+    const agent = room.remoteParticipants.get('agent:0001');
+    room.remoteParticipants.clear();
+    room.emit('participantDisconnected', agent);
+  });
+  // The view stays frozen until the connection can answer, so nothing hides it.
+  await page.waitForTimeout(500);
+  await expect(agentTile(page)).toBeVisible();
+  await expect(page.getByTestId('hairline-agent')).toBeVisible();
+});
+
 test('leaving the meeting takes the agent off the hairline', async ({ page }) => {
   await mockApi(page, guest());
   const sfu = await fakeSfu(page);

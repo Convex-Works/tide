@@ -221,7 +221,7 @@ why the agent's time in the room ended:
 | `ROOM_DELETED`        | a host ended the meeting, or the room was deleted |
 | `PARTICIPANT_REMOVED` | a host removed the agent                          |
 | `DUPLICATE_IDENTITY`  | the same session connected again somewhere else   |
-| `SERVER_SHUTDOWN`     | tide restarted, which ends every meeting          |
+| `SERVER_SHUTDOWN`     | the media server restarted, ending every meeting  |
 
 An agent doesn't keep a room open. Once the last person leaves, the room closes
 after its departure timeout, 20 seconds, with the agent still in it, and any

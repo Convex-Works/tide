@@ -135,12 +135,15 @@ call them, so a timeline can't split, merge or move anyone's words.
 Each 10 ms frame of speech counts for the kept speaker the transcript would
 give it to, the likeliest one. For each speaker and each name, the job sums
 the seconds of that speech inside the name's spans. A speaker takes their
-best name only if both hold:
+best name only if all three hold:
 
-- at least `MIN_NAME_SECONDS` (2) of overlap with it, and
-- at least `MIN_NAME_SHARE` (60%) of their overlap with all names.
+- at least `MIN_NAME_SECONDS` (2) of overlap with it,
+- at least `MIN_NAME_SHARE` (60%) of their overlap with all names, and
+- at least `MIN_NAME_COVERAGE` (25%) of all their speech, so that a voice the
+  timeline never saw, such as a shared video's, can't take the name of someone
+  who talked over it.
 
-Otherwise they stay `Speaker N`: an unknown label beats a wrong name. Both
+Otherwise they stay `Speaker N`: an unknown label beats a wrong name. All three
 numbers are starting points, not yet tuned on real recordings.
 
 The match is for a whole speaker, never for a word. LiveKit samples who is

@@ -27,7 +27,7 @@ import (
 // and approve the new bundle before their machines transcribe anything again;
 // until they do, transcripts wait. So change the bundle only on purpose, and
 // update this pin with it.
-const pinnedBundleHash = "402cb29e79c94d32388fef532099283666557a73aa889768dc0227c4d76f6b1f"
+const pinnedBundleHash = "70fc4ffc268078e6b4fbcb377970ab03504fa7455442043a99a7f407e86bb85a"
 
 func TestBundleHashIsPinned(t *testing.T) {
 	bundle, err := transcripts.Bundle()
@@ -714,6 +714,21 @@ func TestAFailedStatOfTheTimelineIsAStorageFailure(t *testing.T) {
 	machine.Sync()
 	if offers := machine.Offers(); len(offers) != 3 {
 		t.Fatalf("the machine was offered %d attempts", len(offers))
+	}
+}
+
+// S3 answers 403 rather than 404 for a missing object when the key lacks
+// ListBucket. Names are decoration, so that costs the names and not the
+// transcript, however often it's tried.
+func TestATimelineStorageWontShowLeavesSpeakersUnnamed(t *testing.T) {
+	e := newEnv(t)
+	room := e.room("alice", "Standup")
+	machine := e.machine("alice")
+	e.s3.Forbid(opStatTimeline)
+	e.record(room, time.Now())
+	a := machine.NextAttempt()
+	if len(a.Inputs) != 1 {
+		t.Fatalf("inputs = %v", slices.Sorted(maps.Keys(a.Inputs)))
 	}
 }
 

@@ -169,3 +169,19 @@ func TestMinIOStoreNamesAnEndpointItCantUse(t *testing.T) {
 		t.Fatalf("PresignedPut() with no public endpoint = %v, want an error naming TIDE_S3_PUBLIC_ENDPOINT", err)
 	}
 }
+
+// S3 answers a HEAD of a missing object with 403 when the key lacks ListBucket.
+// tide can't tell that from a refusal, so Stat says only that storage refused.
+func TestMinIOStoreSaysWhenStorageRefusesToShowAnObject(t *testing.T) {
+	s3 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer s3.Close()
+	store := NewMinIOStore(config.Config{
+		S3Endpoint: s3.URL, S3PublicEndpoint: "https://s3.public.example", S3Bucket: "tide",
+		S3AccessKey: "key", S3SecretKey: "secret", S3Region: "us-east-1",
+	})
+	if _, _, err := store.Stat(context.Background(), "recordings/rec/speakers.json"); !errors.Is(err, fs.ErrPermission) {
+		t.Fatalf("Stat() = %v, want fs.ErrPermission", err)
+	}
+}

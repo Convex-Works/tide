@@ -37,7 +37,8 @@ type ObjectStore interface {
 	// a file called filename, served as contentType.
 	PresignedDownload(ctx context.Context, key string, expiry time.Duration, filename, contentType string) (string, error)
 	// Stat returns the size and entity tag of the object at key, or an
-	// error wrapping fs.ErrNotExist if there is none.
+	// error wrapping fs.ErrNotExist if there is none, or fs.ErrPermission if
+	// storage won't say.
 	Stat(ctx context.Context, key string) (size int64, etag string, err error)
 	// Copy copies src to dst within storage, stored as contentType, only
 	// while src's entity tag is still etag.
@@ -415,7 +416,12 @@ func (s *Service) files(ctx context.Context, j *job, a moil.Assignment) (map[str
 			return nil, nil, prepareError(err)
 		}
 		inputs[store.SpeakersFile] = moil.Download{URL: timeline}
-	case !errors.Is(err, fs.ErrNotExist):
+	case errors.Is(err, fs.ErrNotExist):
+	case errors.Is(err, fs.ErrPermission):
+		// S3 answers 403 for a missing object without ListBucket. Names aren't
+		// worth a transcript.
+		log.Printf("transcripts: recording %s: no speaker names, storage refused to show the timeline: %v", recording.ID, err)
+	default:
 		return nil, nil, prepareError(err)
 	}
 	outputs := make(map[string]moil.Upload, len(store.TranscriptFormats))

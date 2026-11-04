@@ -92,11 +92,14 @@ MAX_PAUSE = 1.5  # seconds of silence that end an utterance, even when the same 
 TIMELINE = "speakers.json"  # the input saying who was active when
 MAX_NAME_CHARACTERS = 64  # guests type their own names, so a name's length is theirs to abuse
 # What it takes for a speaker to get a name: this many seconds of their speech
-# overlapping the name's spans, and this share of all their overlap with any
-# name. An unknown label beats a wrong name. These are starting points, not
-# yet tuned on real recordings.
+# overlapping the name's spans, this share of all their overlap with any name,
+# and this share of all their speech, so that a voice the timeline never saw,
+# such as a shared video's, can't take the name of someone who talked over it.
+# An unknown label beats a wrong name. These are starting points, not yet tuned
+# on real recordings.
 MIN_NAME_SECONDS = 2.0
 MIN_NAME_SHARE = 0.6
+MIN_NAME_COVERAGE = 0.25
 
 # How far through the job each stage ends, for progress. Transcription
 # takes most of the time; the models load within their stages.
@@ -481,7 +484,8 @@ def match_names(activity, frame_seconds, speakers, timeline):
     Each frame of speech counts for the likeliest kept speaker, as words do
     in speaker_at, so a speaker is judged on the speech the transcript gives
     them, including that of anyone pick_speakers dropped. A speaker takes
-    their best name only if it clears MIN_NAME_SECONDS and MIN_NAME_SHARE.
+    their best name only if it clears MIN_NAME_SECONDS, MIN_NAME_SHARE and
+    MIN_NAME_COVERAGE.
 
     The match is per speaker, never per word: LiveKit samples who is active
     every 400 ms with smoothing, too coarse to say who said a word, but
@@ -500,14 +504,21 @@ def match_names(activity, frame_seconds, speakers, timeline):
         # connected twice. Clamping first keeps wild times in the array.
         active = np.zeros(len(activity), dtype=bool)
         for start, end in spans:
-            active[round(max(start, 0) / frame_seconds) : round(min(max(end, 0), length) / frame_seconds)] = True
+            first, last = (min(max(time, 0), length) for time in (start, end))
+            active[round(first / frame_seconds) : round(last / frame_seconds)] = True
         heard = owners[speaking & active]
         for speaker in speakers:
             overlaps[speaker][name] = int((heard == speaker).sum()) * frame_seconds
     names = {}
     for speaker, seconds in overlaps.items():
         best = max(seconds, key=seconds.get, default="")
-        if best and seconds[best] >= MIN_NAME_SECONDS and seconds[best] / sum(seconds.values()) >= MIN_NAME_SHARE:
+        speech = int((owners[speaking] == speaker).sum()) * frame_seconds
+        if (
+            best
+            and seconds[best] >= MIN_NAME_SECONDS
+            and seconds[best] / sum(seconds.values()) >= MIN_NAME_SHARE
+            and seconds[best] / speech >= MIN_NAME_COVERAGE
+        ):
             names[speaker] = best
     log(f"the timeline names {len(names)} of {len(speakers)} speakers")
     return names
