@@ -15,9 +15,11 @@ Rules that bite:
   grants minted by the server.
 - Feature list is frozen (see ARCHITECTURE.md §1). Do not add features
   (polls, whiteboard, server-side AI, RTMP, file transfer…) — this restraint is
-  the product. Transcripts are the one exception, and only because they run on
-  the room owner's own machine through moil (§8.1); nothing model-shaped runs
-  on the server.
+  the product. There are two exceptions. Transcripts, only because they run on
+  the room owner's own machine through moil (§8.1). Meeting agents, only because
+  they run outside the server, under the room owner's control, in view of
+  everyone (§1, docs/MEETING-AGENTS.md): tide mints the token and shows the
+  agent, and ships none. Nothing model-shaped runs on the server.
 - `server/third_party/moil` is a vendored copy of the moil Go SDK. Never edit
   it in place: fix moil upstream, then refresh with `scripts/vendor-moil.sh`.
 - The transcribe bundle's hash is pinned by a test. Changing any byte of

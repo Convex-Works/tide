@@ -161,6 +161,27 @@ func TestClientsSeeAgentsAndNeverTheObserver(t *testing.T) {
 	}
 }
 
+// A token only authorizes connecting: a connected agent stays past expires_at
+// for as long as the meeting runs (docs/MEETING-AGENTS.md).
+func TestAConnectedAgentOutlivesItsToken(t *testing.T) {
+	s := startServer(t, testOptions(t))
+	service := lksdk.NewRoomServiceClient(s.URL(), testKey, testSecret)
+	joinAs(t, s, "guest:person", tidelivekit.RoleGuest, nil)
+
+	const identity = "agent:program"
+	const ttl = 2 * time.Second
+	token, err := testMinter().MintToken(identity, "Notes", agentTestRoom, tidelivekit.RoleAgent, ttl)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent := connect(t, s, identity, token, nil)
+	time.Sleep(ttl + time.Second)
+
+	if agent.ConnectionState() != lksdk.ConnectionStateConnected || participants(t, service)[identity] == nil {
+		t.Fatalf("the agent's connection ended with its token: %v", agent.ConnectionState())
+	}
+}
+
 type oneRoom struct{ room store.Room }
 
 func (o oneRoom) RoomBySlug(context.Context, string) (store.Room, error) { return o.room, nil }
