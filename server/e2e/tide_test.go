@@ -87,10 +87,8 @@ func startTideWith(t *testing.T, bundle *moil.Bundle) *tide {
 			S3AccessKey:      objects.accessKey,
 			S3SecretKey:      objects.secretKey,
 			S3Region:         objects.region,
-			// What these tests are about (TIDE_TRANSCRIPTS), and the
-			// recording transcripts need.
-			Recording:   true,
-			Transcripts: true,
+			// What transcripts, which these tests are about, follow.
+			Recording: true,
 		},
 		bundle: bundle,
 		url:    "http://" + address,

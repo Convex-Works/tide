@@ -332,11 +332,10 @@ Read the log first: `docker compose logs`, or `kubectl -n tide logs deploy/tide 
 
 ## Transcripts
 
-Hosts can transcribe recordings on their own Mac with the moil app. Nothing runs on the server. moil is alpha and unsigned. Its jobs run with the host's permissions.
+With recording on, hosts can transcribe recordings on their own Mac with the moil app. tide accepts machine pairings at `/moil/`, and this can't be turned off. Nothing runs on the server. moil is alpha and unsigned. Its jobs run with the host's permissions.
 
 1. Let the bucket key also get, put and delete objects in `transcripts-staging/`.
 2. Make sure that `TIDE_S3_PUBLIC_ENDPOINT` (or `TIDE_S3_ENDPOINT`) is HTTPS.
-3. Set `TIDE_TRANSCRIPTS=true`.
 
 Hosts open `/machines` and select **Add a machine**, or use the command line:
 

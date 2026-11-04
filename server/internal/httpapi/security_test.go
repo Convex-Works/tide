@@ -207,7 +207,7 @@ func loadConfig(t *testing.T, env map[string]string) config.Config {
 	t.Helper()
 	for _, name := range []string{
 		"TIDE_BASE_URL", "TIDE_MEDIA_URL", "TIDE_MEDIA_PUBLIC_URL", "TIDE_OIDC_ISSUER", "TIDE_S3_ENDPOINT",
-		"TIDE_TRANSCRIPTS", "TIDE_USER_GROUPS", "TIDE_ADMIN_GROUPS", "TIDE_TRUSTED_PROXIES",
+		"TIDE_USER_GROUPS", "TIDE_ADMIN_GROUPS", "TIDE_TRUSTED_PROXIES",
 		"TIDE_MEDIA_API_PORT", "TIDE_MEDIA_TCP_PORT", "TIDE_MEDIA_UDP_PORT", "TIDE_MEDIA_NODE_IP",
 	} {
 		t.Setenv(name, "")

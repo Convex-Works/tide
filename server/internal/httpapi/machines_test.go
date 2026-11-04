@@ -346,7 +346,7 @@ type tideServer struct {
 	cfg    config.Config
 	url    string
 	client *http.Client
-	moil   *moil.Server // nil with transcripts off
+	moil   *moil.Server // nil with recording off
 	// db is tide's store, at dbPath.
 	db     *store.Store
 	dbPath string
@@ -397,14 +397,13 @@ func startTideOn(t *testing.T, db *store.Store, dbPath string, configure func(*c
 		t.Fatal(err)
 	}
 	url := "http://" + listener.Addr().String()
-	// Transcripts, and the recording they need, are on unless configure
-	// turns them off: most of these tests are about them.
+	// Recording, and the transcripts that follow it, are on unless configure
+	// turns it off: most of these tests are about them.
 	cfg := config.Config{
 		BaseURL: url, SessionSecret: "test-session-secret",
 		LiveKitURL: "ws://livekit.example", LiveKitAPIKey: "devkey",
 		LiveKitAPISecret: "test-livekit-secret-with-enough-bytes",
 		Recording:        true,
-		Transcripts:      true,
 	}
 	server := &http.Server{
 		ReadHeaderTimeout: 5 * time.Second,
@@ -437,7 +436,7 @@ func startTideOn(t *testing.T, db *store.Store, dbPath string, configure func(*c
 }
 
 // moilServer is the moil server machines connect to, or nil with
-// transcripts off.
+// recording off.
 func (f *transcriptsFeature) moilServer() *moil.Server {
 	if f == nil {
 		return nil

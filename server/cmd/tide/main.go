@@ -126,17 +126,15 @@ func run(ctx context.Context, cfg config.Config) error {
 			log.Printf("close database: %v", err)
 		}
 	}()
-	// Transcripts are off unless the operator turns them on
-	// (ARCHITECTURE.md §8.1); only then does tide need the bundle.
+	// Transcripts follow recording (ARCHITECTURE.md §8.1); only then does
+	// tide need the bundle.
 	var transcribe *moil.Bundle
-	if cfg.Transcripts {
+	if cfg.Recording {
 		log.Print("tide: transcripts are on: machines can pair through moil at /moil")
 		transcribe, err = transcripts.Bundle()
 		if err != nil {
 			return fmt.Errorf("load the transcribe bundle: %w", err)
 		}
-	} else {
-		log.Print("tide: transcripts are off (set TIDE_TRANSCRIPTS=true to turn them on)")
 	}
 	// The listener comes first: the media server's webhooks need its port.
 	listener, err := net.Listen("tcp", cfg.Addr)

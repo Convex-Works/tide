@@ -51,15 +51,11 @@ export interface Me {
   email: string;
   name: string;
   /**
-   * Transcripts is true when this deployment runs transcripts and machine
-   * pairing (TIDE_TRANSCRIPTS, ARCHITECTURE.md §8.1). When false the SPA
-   * hides /machines and every transcript control; the routes 404.
-   */
-  transcripts: boolean;
-  /**
    * Recording is true when this deployment records meetings: hosts sign in
-   * and object storage is configured (ARCHITECTURE.md §8). When false the
-   * SPA hides the record control and every recording list; the routes 404.
+   * and object storage is configured (ARCHITECTURE.md §8). Transcripts and
+   * machine pairing follow it (§8.1). When false the SPA hides the record
+   * control, every recording list, /machines and every transcript control;
+   * the routes 404.
    */
   recording: boolean;
   /**

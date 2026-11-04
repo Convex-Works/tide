@@ -229,16 +229,6 @@ export const envGroups: EnvGroup[] = [
         description: 'Machine pairings for each client in a minute.'
       }
     ]
-  },
-  {
-    title: 'Transcripts',
-    vars: [
-      {
-        name: 'TIDE_TRANSCRIPTS',
-        default: 'false',
-        description: 'Turns [transcripts](/docs#transcripts) on. Needs recording.'
-      }
-    ]
   }
 ];
 
