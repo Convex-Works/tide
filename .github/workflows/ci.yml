@@ -31,6 +31,9 @@ jobs:
           node-version: "24"
           cache: npm
           cache-dependency-path: web/package-lock.json
+      - uses: astral-sh/setup-uv@v10.3.3
+      - name: Transcribe bundle tests
+        run: make bundle-check
       - name: Server vet
         working-directory: server
         run: go vet ./...

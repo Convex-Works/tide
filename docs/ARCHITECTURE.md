@@ -183,7 +183,7 @@ tide/
                            and its speakers.json (§8)
       machines/            pairing and managing hosts' moil machines
       transcripts/         transcript jobs, reconciler; bundle/ is the
-                           embedded moil bundle
+                           moil bundle tide publishes
       store/               SQLite (modernc.org/sqlite, CGO-free); a file,
                            or :memory: in anonymous mode
     third_party/moil/      vendored moil Go SDK (scripts/vendor-moil.sh)
@@ -531,8 +531,8 @@ name, version and the hash prefix the app shows. A machine is `idle`, `busy`,
 could report, shows as `busy`, since moil offers jobs only to idle machines.
 
 **The bundle.** tide publishes one moil bundle, `transcribe` (Nemotron 3
-Diarization and Parakeet TDT 0.6B v3), vendored in
-`server/internal/transcripts/bundle/` and embedded in the binary. Machine
+Diarization and Parakeet TDT 0.6B v3). Its source is
+`server/internal/transcripts/bundle/`, and the binary embeds it. Machine
 owners read and approve it by hash in the moil app. A test pins that hash: a
 new hash asks every owner to review and approve again, so it only ever changes
 on purpose.
