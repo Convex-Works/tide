@@ -35,6 +35,11 @@ const (
 	// MoilBasePath is where the moil SDK serves machines: the moil base URL
 	// is the base URL plus this path.
 	MoilBasePath = "/moil"
+
+	// ChatTopic is the LiveKit data topic chat travels on, each message a
+	// ChatPayload (ARCHITECTURE.md §9). Agents read and write it too
+	// (docs/MEETING-AGENTS.md).
+	ChatTopic = "chat"
 )
 
 type TokenResponse struct {
@@ -145,6 +150,16 @@ type AgentSession struct {
 	// ExpiresAt is Unix seconds: the last moment Token can connect. It says
 	// nothing about how long a connected agent may stay.
 	ExpiresAt int64 `json:"expires_at"`
+}
+
+// ChatPayload is one chat message, as JSON in a LiveKit data packet on
+// ChatTopic. It deliberately carries no sender name: attribution comes only
+// from the authenticated LiveKit participant, so nobody can claim to be
+// someone else.
+type ChatPayload struct {
+	Text string `json:"text"`
+	// TS is the sender's clock, in Unix milliseconds.
+	TS int64 `json:"ts"`
 }
 
 type LobbyRequestInfo struct {

@@ -40,6 +40,12 @@ export const PairingDenyPath = "/api/machines/pairings/{code}/deny";
  * is the base URL plus this path.
  */
 export const MoilBasePath = "/moil";
+/**
+ * ChatTopic is the LiveKit data topic chat travels on, each message a
+ * ChatPayload (ARCHITECTURE.md §9). Agents read and write it too
+ * (docs/MEETING-AGENTS.md).
+ */
+export const ChatTopic = "chat";
 export interface TokenResponse {
   token: string;
   ws_url: string;
@@ -166,6 +172,19 @@ export interface AgentSession {
    * nothing about how long a connected agent may stay.
    */
   expires_at: number /* int64 */;
+}
+/**
+ * ChatPayload is one chat message, as JSON in a LiveKit data packet on
+ * ChatTopic. It deliberately carries no sender name: attribution comes only
+ * from the authenticated LiveKit participant, so nobody can claim to be
+ * someone else.
+ */
+export interface ChatPayload {
+  text: string;
+  /**
+   * TS is the sender's clock, in Unix milliseconds.
+   */
+  ts: number /* int64 */;
 }
 export interface LobbyRequestInfo {
   id: string;
