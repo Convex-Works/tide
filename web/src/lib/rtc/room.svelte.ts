@@ -126,6 +126,7 @@ function projectionSignature(views: ParticipantView[]): string {
         view.identity,
         view.name,
         view.role ?? '',
+        view.agent ? 'agent' : '',
         ...Object.values(view.publications).map((publication) =>
           [
             publication.publicationSid,
@@ -174,6 +175,7 @@ export class RoomState {
 
   connectionState = $state<ConnectionState>(ConnectionState.Disconnected);
   participants = $state<ParticipantView[]>([]);
+  readonly agentPresent = $derived(this.participants.some((participant) => participant.agent));
   hiddenCameraIdentities = $state<string[]>([]);
   micEnabled = $state(false);
   camEnabled = $state(false);

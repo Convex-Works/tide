@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { MicrophoneSlash, VideoCameraSlash } from 'phosphor-svelte';
+  import { MicrophoneSlash, Robot, VideoCameraSlash } from 'phosphor-svelte';
   import { kick, muteParticipant } from '#lib/api/client.js';
   import type { LobbyRequestInfo } from '#lib/api/types.gen.js';
   import type { ParticipantView, RoomState } from '#lib/rtc/room.svelte.js';
@@ -95,6 +95,12 @@
               {#if participant.isLocal}<span class="you">(You)</span>{/if}
             </div>
             {#if rtc.isHostParticipant(participant)}<span class="role">Meeting host</span>{/if}
+            {#if participant.agent}
+              <span class="role agent">
+                <Robot size={16} weight="regular" aria-hidden="true" />
+                Agent
+              </span>
+            {/if}
           </div>
           <div class="media-state">
             {#if participant.micMuted}
@@ -255,6 +261,12 @@
     color: var(--text-2);
     font-size: 12px;
     line-height: 16px;
+  }
+
+  .agent {
+    display: flex;
+    align-items: center;
+    gap: 4px;
   }
 
   .media-state {

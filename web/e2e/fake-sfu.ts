@@ -2,6 +2,8 @@ import { gunzipSync } from 'node:zlib';
 import { expect, type Page, type WebSocketRoute } from '@playwright/test';
 import {
   JoinRequest,
+  ParticipantInfo_Kind,
+  ParticipantInfo_State,
   SignalRequest,
   SignalResponse,
   WrappedJoinRequest,
@@ -27,6 +29,9 @@ export const fakeSfuLaunchArgs = ['--disable-features=WebRtcHideLocalIpsWithMdns
 export interface FakeSfu {
   /** Pushes room metadata the way the server does, e.g. `{"recording":true}`. */
   setRoomMetadata(metadata: string): void;
+  /** A program joins, as the server announces a participant of kind AGENT. */
+  addAgent(identity: string, name: string): void;
+  removeAgent(identity: string): void;
 }
 
 /** A response as its constructor takes it: nested messages may be partial. */
@@ -194,7 +199,29 @@ export async function fakeSfu(page: Page, { metadata = '' } = {}): Promise<FakeS
     (route) => route.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*' } })
   );
 
+  function agentUpdate(identity: string, name: string, state: ParticipantInfo_State): void {
+    for (const ws of sockets) {
+      send(ws, {
+        case: 'update',
+        value: {
+          participants: [
+            {
+              sid: `PA_${identity}`,
+              identity,
+              name,
+              state,
+              kind: ParticipantInfo_Kind.AGENT,
+              metadata: '{"role":"agent"}'
+            }
+          ]
+        }
+      });
+    }
+  }
+
   return {
+    addAgent: (identity, name) => agentUpdate(identity, name, ParticipantInfo_State.ACTIVE),
+    removeAgent: (identity) => agentUpdate(identity, '', ParticipantInfo_State.DISCONNECTED),
     setRoomMetadata(metadata) {
       roomMetadata = metadata;
       for (const ws of sockets) {

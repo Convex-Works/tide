@@ -50,6 +50,7 @@
   let name = $state('');
   let error = $state('');
   let canManage = $state(false);
+  let isOwner = $state(false);
   let currentUser = $state<Me>();
   // Only a deployment with sign-in answers a browser without a session with
   // 401; without sign-in /api/me issues one (ARCHITECTURE.md §4.1).
@@ -109,6 +110,7 @@
     }
 
     canManage = details.can_manage;
+    isOwner = details.is_owner;
     try {
       currentUser = await me();
       // An anonymous owner has no name either, and types one like a guest.
@@ -140,6 +142,7 @@
     // browser is a guest. The server re-checks at join regardless.
     currentUser = undefined;
     canManage = false;
+    isOwner = false;
     canSignIn = true;
   }
 
@@ -321,6 +324,7 @@
     roomName={details.name}
     onleave={leaveMeeting}
     {canManage}
+    {isOwner}
     {canRecord}
     {pending}
     bind:peopleOpen
