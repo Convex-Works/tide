@@ -27,7 +27,13 @@ async function expectRecordingStatus(
     .toMatch(new RegExp(`^(${allowed.join('|')})$`));
 }
 
-test('audio recording runs across a late join without disturbing the mesh', async ({ browser }) => {
+test('audio recording runs across a late join without disturbing the mesh', async ({
+  browser,
+  browserName
+}) => {
+  // Linux WebKit can deadlock the latecomer's page as it joins (issue #55, see
+  // playwright.media.config.ts). Safari doesn't use that media backend.
+  test.skip(browserName === 'webkit', 'Linux WebKit deadlock, issue #55');
   test.slow();
   const meeting = await Meeting.open(browser);
   try {
