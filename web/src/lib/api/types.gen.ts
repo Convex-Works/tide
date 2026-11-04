@@ -12,6 +12,7 @@ export const RoomsPath = "/api/rooms";
 export const RoomPath = "/api/rooms/{slug}";
 export const RoomJoinPath = "/api/rooms/{slug}/join";
 export const RoomLobbyPath = "/api/rooms/{slug}/lobby";
+export const AgentSessionPath = "/api/rooms/{slug}/agent-session";
 export const KickPath = "/api/rooms/{slug}/participants/{identity}/kick";
 export const MutePath = "/api/rooms/{slug}/participants/{identity}/mute";
 export const MeetingEndPath = "/api/rooms/{slug}/meeting/end";
@@ -39,6 +40,12 @@ export const PairingDenyPath = "/api/machines/pairings/{code}/deny";
  * is the base URL plus this path.
  */
 export const MoilBasePath = "/moil";
+/**
+ * ChatTopic is the LiveKit data topic chat travels on, each message a
+ * ChatPayload (ARCHITECTURE.md §9). Agents read and write it too
+ * (docs/MEETING-AGENTS.md).
+ */
+export const ChatTopic = "chat";
 export interface TokenResponse {
   token: string;
   ws_url: string;
@@ -96,6 +103,13 @@ export interface PublicRoomInfo {
    * global administrator. The capability is enforced server-side on every route.
    */
   can_manage: boolean;
+  /**
+   * IsOwner is true when the requesting session owns this room. It is
+   * narrower than CanManage: an administrator manages every room but owns
+   * only their own, and only an owner can connect an agent (ARCHITECTURE.md
+   * §4). The SPA uses it to show that control; the route checks for itself.
+   */
+  is_owner: boolean;
 }
 /**
  * CreateRoomRequest: both fields are optional (ARCHITECTURE.md §5). A blank
@@ -119,6 +133,58 @@ export interface JoinResponse {
   token?: string;
   ws_url?: string;
   request_id?: string;
+}
+/**
+ * AgentSessionRequest is the optional body of a request for an agent session.
+ * A missing body or name means "Agent"; a name that is present is
+ * held to a guest's rules.
+ */
+export interface AgentSessionRequest {
+  name?: string;
+}
+/**
+ * AgentSession is everything a program needs to join a meeting as a visible
+ * participant, and the contents of the session.json an agent reads. It is a
+ * stable contract (docs/MEETING-AGENTS.md): moil delivers this same file, so
+ * changing it changes every agent.
+ */
+export interface AgentSession {
+  /**
+   * WSURL and Token are what LiveKit's connect takes. The token grants the
+   * agent role and nothing more (ARCHITECTURE.md §4).
+   */
+  ws_url: string;
+  token: string;
+  /**
+   * Room is the room's slug.
+   */
+  room: string;
+  /**
+   * Identity is the agent's LiveKit identity, agent:<random>.
+   */
+  identity: string;
+  /**
+   * Name is the display name everyone in the room sees.
+   */
+  name: string;
+  /**
+   * ExpiresAt is Unix seconds: the last moment Token can connect. It says
+   * nothing about how long a connected agent may stay.
+   */
+  expires_at: number /* int64 */;
+}
+/**
+ * ChatPayload is one chat message, as JSON in a LiveKit data packet on
+ * ChatTopic. It deliberately carries no sender name: attribution comes only
+ * from the authenticated LiveKit participant, so nobody can claim to be
+ * someone else.
+ */
+export interface ChatPayload {
+  text: string;
+  /**
+   * TS is the sender's clock, in Unix milliseconds.
+   */
+  ts: number /* int64 */;
 }
 export interface LobbyRequestInfo {
   id: string;

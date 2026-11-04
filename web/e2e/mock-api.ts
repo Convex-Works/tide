@@ -1,6 +1,7 @@
 import type { Page, Route } from '@playwright/test';
 import { slugError, suggestSlug } from '../src/lib/slug';
 import {
+  AgentSessionPath,
   MachineIdle,
   MachineOffline,
   MachinePaused,
@@ -25,6 +26,7 @@ import {
   TranscriptCompleted,
   TranscriptFailed,
   TranscriptWaiting,
+  type AgentSession,
   type CreateRoomRequest,
   type LobbyRequestInfo,
   type MachineInfo,
@@ -61,6 +63,8 @@ export interface ApiState {
   signedIn: boolean;
   /** Whether the session owns `rooms`, as every spec's host does; default true. */
   ownsRooms?: boolean;
+  /** An administrator manages rooms without owning them; default false. */
+  administrator?: boolean;
   me: Me;
   rooms: RoomInfo[];
   recordings: RecordingInfo[];
@@ -269,7 +273,8 @@ export async function mockApi(page: Page, state: ApiState = defaultState()): Pro
 
     // A meeting's public face answers signed-out guests too (lobby/handler.go).
     // Every mock room belongs to the signed-in user, unless ownsRooms says not.
-    const manager = state.signedIn && state.ownsRooms !== false;
+    const owner = state.signedIn && state.ownsRooms !== false && !state.administrator;
+    const manager = owner || (state.signedIn && state.administrator === true);
     const publicSlug = match(RoomPath, path);
     if (method === 'GET' && publicSlug) {
       const room = state.rooms.find((item) => item.slug === publicSlug[0]);
@@ -278,9 +283,26 @@ export async function mockApi(page: Page, state: ApiState = defaultState()): Pro
         slug: room.slug,
         name: room.name,
         lobby_enabled: room.lobby_enabled,
-        can_manage: manager
+        can_manage: manager,
+        is_owner: owner
       };
       return json(200, info);
+    }
+    const agentSlug = match(AgentSessionPath, path);
+    if (method === 'POST' && agentSlug) {
+      if (!state.signedIn) return json(401, { error: 'Authentication required.' });
+      const room = state.rooms.find((item) => item.slug === agentSlug[0]);
+      if (!room) return json(404, { error: 'Room not found.' });
+      if (!owner) return json(403, { error: "Only the room's owner can connect an agent." });
+      const session: AgentSession = {
+        ws_url: fakeSfuURL,
+        token: fakeToken('agent:0001', 'Agent'),
+        room: room.slug,
+        identity: 'agent:0001',
+        name: 'Agent',
+        expires_at: now + 600
+      };
+      return json(200, session);
     }
     const joinSlug = match(RoomJoinPath, path);
     if (method === 'POST' && joinSlug) {

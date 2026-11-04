@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { MicrophoneSlash } from 'phosphor-svelte';
+  import { MicrophoneSlash, Robot } from 'phosphor-svelte';
   import Waveform from '#lib/ui/Waveform.svelte';
   import { clampAspect, observeAspect } from './aspect';
   import type { ParticipantView } from './media';
@@ -100,11 +100,17 @@
     {/if}
 
     <!-- The label gives way to the waveform: a long name ellipsizes on one
-         line, and "(You)" and the muted icon always stay. -->
+         line, and "(You)", the agent tag and the muted icon always stay. -->
     <div class="tile-footer">
       <div class="name-label" title={participant.name}>
         <span class="name">{participant.name}</span>
         {#if participant.isLocal}<span class="you">(You)</span>{/if}
+        {#if participant.agent}
+          <span class="agent">
+            <Robot size={16} weight="regular" aria-hidden="true" />
+            Agent
+          </span>
+        {/if}
         {#if participant.micMuted}
           <MicrophoneSlash size={16} weight="regular" aria-label="Microphone muted" />
         {/if}
@@ -336,9 +342,16 @@
     color: var(--text);
   }
 
-  .you {
+  .you,
+  .agent {
     flex: none;
     color: var(--text-2);
+  }
+
+  .agent {
+    display: flex;
+    align-items: center;
+    gap: 3px;
   }
 
   @media (max-width: 720px) {

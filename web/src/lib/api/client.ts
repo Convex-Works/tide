@@ -1,4 +1,5 @@
 import {
+  AgentSessionPath,
   AuthLogoutPath,
   DevTokenPath,
   KickPath,
@@ -24,6 +25,7 @@ import {
   RoomPath,
   RoomRecordingsPath,
   RoomsPath,
+  type AgentSession,
   type CreateRoomRequest,
   type ErrorResponse,
   type JoinRequest,
@@ -274,6 +276,13 @@ export function denyPairing(code: string): Promise<void> {
 export function joinRoom(slug: string, name: string): Promise<JoinResponse> {
   const body: JoinRequest = { name };
   return requestJSON<JoinResponse>(pathWith(RoomJoinPath, 'slug', slug), jsonRequest('POST', body));
+}
+
+export function agentSession(slug: string): Promise<AgentSession> {
+  return requestJSON<AgentSession>(pathWith(AgentSessionPath, 'slug', slug), {
+    method: 'POST',
+    headers: csrfHeaders
+  });
 }
 
 export function approveLobby(id: string): Promise<void> {
