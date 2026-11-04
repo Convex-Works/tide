@@ -40,9 +40,9 @@ func TestMintTokenGrants(t *testing.T) {
 		{name: "host", role: RoleHost, metadata: `{"role":"host"}`, video: roomGrant(protocolauth.VideoGrant{
 			RoomAdmin: true, CanPublish: &yes, CanPublishSources: everySource,
 		})},
-		{name: "agent", role: RoleAgent, metadata: `{"role":"agent"}`, kind: "agent", video: roomGrant(protocolauth.VideoGrant{
+		{name: "bot", role: RoleBot, metadata: `{"role":"bot"}`, kind: "agent", video: roomGrant(protocolauth.VideoGrant{
 			CanPublish: &yes, CanPublishData: &yes,
-			CanPublishSources: []string{"microphone", "screen_share", "screen_share_audio"},
+			CanPublishSources: everySource,
 		})},
 		{name: "observer", role: RoleObserver, kind: "agent", video: roomGrant(protocolauth.VideoGrant{
 			CanPublish: &no, CanPublishData: &no, Hidden: true,

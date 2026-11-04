@@ -24,10 +24,10 @@ const (
 	// TokenTTL bounds every admission token. Moderation's kick denylist must
 	// keep entries at least this long so a ban outlives any cached token.
 	TokenTTL = 10 * time.Minute
-	// maxNameBytes bounds a display name, a guest's or an agent's.
+	// maxNameBytes bounds a display name, a guest's or a bot's.
 	maxNameBytes = 100
-	// defaultAgentName is an agent's name when its owner gives none.
-	defaultAgentName = "Agent"
+	// defaultBotName is a bot's name when its owner gives none.
+	defaultBotName = "Bot"
 )
 
 const (
@@ -165,24 +165,24 @@ func displayName(raw string) (string, bool) {
 	return name, name != "" && len(name) <= maxNameBytes
 }
 
-// AgentSession hands a room's owner a session for a program to join the
-// meeting with (docs/MEETING-AGENTS.md). Only the owner gets one, not an
-// administrator, unlike recording: an agent is a new live listener, and
+// BotSession hands a room's owner a session for a program to join the
+// meeting with (docs/BOTS.md). Only the owner gets one, not an
+// administrator, unlike recording: a bot is a new live listener, and
 // ARCHITECTURE.md §8.1 keeps a room's audio with its owner. It needs no
 // machine, so it works in every mode, anonymous too.
-func (h *Handler) AgentSession(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) BotSession(w http.ResponseWriter, r *http.Request) {
 	room, _, ok := httpx.RequireRoomOwner(
-		w, r, h.store, r.PathValue("slug"), "Only the room's owner can connect an agent.",
+		w, r, h.store, r.PathValue("slug"), "Only the room's owner can connect a bot.",
 	)
 	if !ok {
 		return
 	}
-	var request api.AgentSessionRequest
+	var request api.BotSessionRequest
 	if err := httpx.DecodeJSON(w, r, &request); err != nil && !errors.Is(err, io.EOF) {
 		httpx.WriteError(w, http.StatusBadRequest, "Request body must be valid JSON.")
 		return
 	}
-	name := defaultAgentName
+	name := defaultBotName
 	if request.Name != nil {
 		if name, ok = displayName(*request.Name); !ok {
 			httpx.WriteError(w, http.StatusBadRequest, invalidDisplayName)
@@ -191,20 +191,20 @@ func (h *Handler) AgentSession(w http.ResponseWriter, r *http.Request) {
 	}
 	nonce, err := randomHex(4)
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "Could not start an agent session. Try again.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not start a bot session. Try again.")
 		return
 	}
 	if !h.markActive(w, r, room) {
 		return
 	}
-	identity := "agent:" + nonce
+	identity := "bot:" + nonce
 	expiresAt := time.Now().Add(TokenTTL)
-	token, err := h.minter.MintToken(identity, name, room.Slug, tidelivekit.RoleAgent, TokenTTL)
+	token, err := h.minter.MintToken(identity, name, room.Slug, tidelivekit.RoleBot, TokenTTL)
 	if err != nil {
-		httpx.WriteError(w, http.StatusInternalServerError, "Could not start an agent session. Try again.")
+		httpx.WriteError(w, http.StatusInternalServerError, "Could not start a bot session. Try again.")
 		return
 	}
-	httpx.WriteJSON(w, http.StatusOK, api.AgentSession{
+	httpx.WriteJSON(w, http.StatusOK, api.BotSession{
 		WSURL: h.minter.PublicURL(), Token: token, Room: room.Slug,
 		Identity: identity, Name: name, OwnerIdentity: "host:" + room.OwnerSub, ExpiresAt: expiresAt.Unix(),
 	})

@@ -1,5 +1,5 @@
 import {
-  AgentSessionPath,
+  BotSessionPath,
   AuthLogoutPath,
   DevTokenPath,
   KickPath,
@@ -25,7 +25,7 @@ import {
   RoomPath,
   RoomRecordingsPath,
   RoomsPath,
-  type AgentSession,
+  type BotSession,
   type CreateRoomRequest,
   type ErrorResponse,
   type JoinRequest,
@@ -278,8 +278,8 @@ export function joinRoom(slug: string, name: string): Promise<JoinResponse> {
   return requestJSON<JoinResponse>(pathWith(RoomJoinPath, 'slug', slug), jsonRequest('POST', body));
 }
 
-export function agentSession(slug: string): Promise<AgentSession> {
-  return requestJSON<AgentSession>(pathWith(AgentSessionPath, 'slug', slug), {
+export function botSession(slug: string): Promise<BotSession> {
+  return requestJSON<BotSession>(pathWith(BotSessionPath, 'slug', slug), {
     method: 'POST',
     headers: csrfHeaders
   });

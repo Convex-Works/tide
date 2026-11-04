@@ -2,7 +2,7 @@
   import { onDestroy, tick } from 'svelte';
   import { Popover } from 'bits-ui';
   import { Check, Copy, Info, Robot } from 'phosphor-svelte';
-  import { agentSession } from '#lib/api/client.js';
+  import { botSession } from '#lib/api/client.js';
 
   let {
     url,
@@ -11,7 +11,7 @@
   }: {
     url: string;
     slug?: string;
-    /** Offers an agent session; the server checks for itself (ARCHITECTURE.md §4). */
+    /** Offers a bot session; the server checks for itself (ARCHITECTURE.md §4). */
     isOwner?: boolean;
   } = $props();
 
@@ -47,7 +47,7 @@
     copySelection(link);
   }
 
-  /** The way a program without moil gets its session.json (docs/MEETING-AGENTS.md). */
+  /** The way a program without moil gets its session.json (docs/BOTS.md). */
   async function copySession(): Promise<void> {
     clearTimeout(sessionTimer);
     sessionBusy = true;
@@ -55,7 +55,7 @@
     sessionError = '';
     sessionText = '';
     try {
-      const text = JSON.stringify(await agentSession(slug), null, 2);
+      const text = JSON.stringify(await botSession(slug), null, 2);
       try {
         await navigator.clipboard.writeText(text);
       } catch {
@@ -71,7 +71,7 @@
         ? "Couldn't copy. The session is selected; copy it by hand."
         : cause instanceof Error
           ? cause.message
-          : 'Could not start an agent session. Try again.';
+          : 'Could not start a bot session. Try again.';
     } finally {
       sessionBusy = false;
     }
@@ -142,13 +142,13 @@
               {/if}
             </button>
             <span class="visually-hidden" role="status">
-              {copied ? 'Link copied' : sessionCopied ? 'Agent session copied' : ''}
+              {copied ? 'Link copied' : sessionCopied ? 'Bot session copied' : ''}
             </span>
             {#if copyFailed}
               <p class="details-error">Couldn't copy. The link is selected; copy it by hand.</p>
             {/if}
             {#if isOwner}
-              <p class="details-label agent-label">Agent</p>
+              <p class="details-label bot-label">Bot</p>
               <button
                 type="button"
                 class="copy"
@@ -161,7 +161,7 @@
                   Copied
                 {:else}
                   <Robot size={16} weight="regular" aria-hidden="true" />
-                  Copy agent session
+                  Copy bot session
                 {/if}
               </button>
               <p class="details-hint">
@@ -232,7 +232,7 @@
     opacity: 0.45;
   }
 
-  .agent-label {
+  .bot-label {
     padding-top: 8px;
     border-top: 1px solid var(--border-d);
   }

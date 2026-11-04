@@ -19,10 +19,10 @@ import (
 	"tide/internal/store"
 )
 
-// Agents and tide's own observer on a real media server, with the tokens
-// tide mints (ARCHITECTURE.md §4, docs/MEETING-AGENTS.md).
+// Bots and tide's own observer on a real media server, with the tokens
+// tide mints (ARCHITECTURE.md §4, docs/BOTS.md).
 
-const agentTestRoom = "abc-defg-hij"
+const botTestRoom = "abc-defg-hij"
 
 func testMinter() *tidelivekit.Minter {
 	return tidelivekit.NewMinter(config.Config{LiveKitAPIKey: testKey, LiveKitAPISecret: testSecret})
@@ -31,7 +31,7 @@ func testMinter() *tidelivekit.Minter {
 // joinAs connects a participant the way a client holding a tide token does.
 func joinAs(t *testing.T, s *Server, identity string, role tidelivekit.Role, callback *lksdk.RoomCallback) *lksdk.Room {
 	t.Helper()
-	token, err := testMinter().MintToken(identity, identity, agentTestRoom, role, lobby.TokenTTL)
+	token, err := testMinter().MintToken(identity, identity, botTestRoom, role, lobby.TokenTTL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func connect(t *testing.T, s *Server, identity, token string, callback *lksdk.Ro
 
 func participants(t *testing.T, service *lksdk.RoomServiceClient) map[string]*livekit.ParticipantInfo {
 	t.Helper()
-	response, err := service.ListParticipants(context.Background(), &livekit.ListParticipantsRequest{Room: agentTestRoom})
+	response, err := service.ListParticipants(context.Background(), &livekit.ListParticipantsRequest{Room: botTestRoom})
 	if err != nil {
 		t.Fatalf("list participants: %v", err)
 	}
@@ -64,10 +64,10 @@ func participants(t *testing.T, service *lksdk.RoomServiceClient) map[string]*li
 	return found
 }
 
-// An agent doesn't hold a room open: once the last person leaves, the room
-// closes as it would have, and the agent is told. Otherwise a program left
+// A bot doesn't hold a room open: once the last person leaves, the room
+// closes as it would have, and the bot is told. Otherwise a program left
 // running would keep a recording going, and a meeting alive, forever.
-func TestRoomClosesWhenOnlyAnAgentRemains(t *testing.T) {
+func TestRoomClosesWhenOnlyAnBotRemains(t *testing.T) {
 	opts := testOptions(t)
 	opts.Dev = true // 5 seconds' departure timeout rather than 20.
 	s := startServer(t, opts)
@@ -79,7 +79,7 @@ func TestRoomClosesWhenOnlyAnAgentRemains(t *testing.T) {
 		disconnected <- reason
 	}
 	guest := joinAs(t, s, "guest:person", tidelivekit.RoleGuest, nil)
-	agent := joinAs(t, s, "agent:program", tidelivekit.RoleAgent, callback)
+	bot := joinAs(t, s, "bot:program", tidelivekit.RoleBot, callback)
 	eventually(t, 10*time.Second, "both in the room", func() bool {
 		return len(participants(t, service)) == 2
 	})
@@ -88,9 +88,9 @@ func TestRoomClosesWhenOnlyAnAgentRemains(t *testing.T) {
 	eventually(t, 10*time.Second, "the person to leave", func() bool {
 		return len(participants(t, service)) == 1
 	})
-	// The room is open with the agent alone in it, for now.
-	if agent.ConnectionState() != lksdk.ConnectionStateConnected {
-		t.Fatalf("agent = %v once the person left", agent.ConnectionState())
+	// The room is open with the bot alone in it, for now.
+	if bot.ConnectionState() != lksdk.ConnectionStateConnected {
+		t.Fatalf("bot = %v once the person left", bot.ConnectionState())
 	}
 	eventually(t, 15*time.Second, "the room to close", func() bool {
 		rooms, err := service.ListRooms(context.Background(), &livekit.ListRoomsRequest{})
@@ -99,17 +99,17 @@ func TestRoomClosesWhenOnlyAnAgentRemains(t *testing.T) {
 	select {
 	case reason := <-disconnected:
 		if reason != lksdk.RoomClosed {
-			t.Fatalf("agent disconnected with %v", reason)
+			t.Fatalf("bot disconnected with %v", reason)
 		}
 	case <-time.After(10 * time.Second):
-		t.Fatal("the agent was not told the room closed")
+		t.Fatal("the bot was not told the room closed")
 	}
 }
 
-// Clients see an agent, as kind AGENT, and never tide's hidden observer,
+// Clients see a bot, as kind BOT, and never tide's hidden observer,
 // whether it arrived before them or after: that kind alone is what makes a
 // client say a program is in the room, and the observer has it too.
-func TestClientsSeeAgentsAndNeverTheObserver(t *testing.T) {
+func TestClientsSeeBotsAndNeverTheObserver(t *testing.T) {
 	s := startServer(t, testOptions(t))
 	service := lksdk.NewRoomServiceClient(s.URL(), testKey, testSecret)
 
@@ -124,10 +124,10 @@ func TestClientsSeeAgentsAndNeverTheObserver(t *testing.T) {
 	}
 	guest := joinAs(t, s, "guest:person", tidelivekit.RoleGuest, callback)
 	joinAs(t, s, "tide:observer:after", tidelivekit.RoleObserver, nil)
-	joinAs(t, s, "agent:program", tidelivekit.RoleAgent, nil)
+	joinAs(t, s, "bot:program", tidelivekit.RoleBot, nil)
 
-	eventually(t, 10*time.Second, "the agent to reach the guest", func() bool {
-		return guest.GetParticipantByIdentity("agent:program") != nil
+	eventually(t, 10*time.Second, "the bot to reach the guest", func() bool {
+		return guest.GetParticipantByIdentity("bot:program") != nil
 	})
 	// The observers really are in the room, and the server says so.
 	inRoom := participants(t, service)
@@ -139,46 +139,46 @@ func TestClientsSeeAgentsAndNeverTheObserver(t *testing.T) {
 	}
 	// A later joiner gets the room's list at once, and it's no different.
 	late := joinAs(t, s, "guest:late", tidelivekit.RoleGuest, nil)
-	eventually(t, 10*time.Second, "the agent to reach a late guest", func() bool {
-		return late.GetParticipantByIdentity("agent:program") != nil
+	eventually(t, 10*time.Second, "the bot to reach a late guest", func() bool {
+		return late.GetParticipantByIdentity("bot:program") != nil
 	})
 	for _, client := range []*lksdk.Room{guest, late} {
 		for _, participant := range client.GetRemoteParticipants() {
-			if identity := participant.Identity(); identity != "agent:program" && identity != "guest:person" && identity != "guest:late" {
+			if identity := participant.Identity(); identity != "bot:program" && identity != "guest:person" && identity != "guest:late" {
 				t.Fatalf("a client can see %s", identity)
 			}
 		}
 	}
-	if agent := guest.GetParticipantByIdentity("agent:program"); agent.Kind() != lksdk.ParticipantAgent {
-		t.Fatalf("the agent's kind reaches clients as %v", agent.Kind())
+	if bot := guest.GetParticipantByIdentity("bot:program"); bot.Kind() != lksdk.ParticipantAgent {
+		t.Fatalf("the bot's kind reaches clients as %v", bot.Kind())
 	}
 	mu.Lock()
 	defer mu.Unlock()
 	for _, identity := range announced {
-		if identity != "agent:program" && identity != "guest:late" {
+		if identity != "bot:program" && identity != "guest:late" {
 			t.Fatalf("a client was told %s joined", identity)
 		}
 	}
 }
 
-// A token only authorizes connecting: a connected agent stays past expires_at
-// for as long as the meeting runs (docs/MEETING-AGENTS.md).
-func TestAConnectedAgentOutlivesItsToken(t *testing.T) {
+// A token only authorizes connecting: a connected bot stays past expires_at
+// for as long as the meeting runs (docs/BOTS.md).
+func TestAConnectedBotOutlivesItsToken(t *testing.T) {
 	s := startServer(t, testOptions(t))
 	service := lksdk.NewRoomServiceClient(s.URL(), testKey, testSecret)
 	joinAs(t, s, "guest:person", tidelivekit.RoleGuest, nil)
 
-	const identity = "agent:program"
+	const identity = "bot:program"
 	const ttl = 2 * time.Second
-	token, err := testMinter().MintToken(identity, "Notes", agentTestRoom, tidelivekit.RoleAgent, ttl)
+	token, err := testMinter().MintToken(identity, "Notes", botTestRoom, tidelivekit.RoleBot, ttl)
 	if err != nil {
 		t.Fatal(err)
 	}
-	agent := connect(t, s, identity, token, nil)
+	bot := connect(t, s, identity, token, nil)
 	time.Sleep(ttl + time.Second)
 
-	if agent.ConnectionState() != lksdk.ConnectionStateConnected || participants(t, service)[identity] == nil {
-		t.Fatalf("the agent's connection ended with its token: %v", agent.ConnectionState())
+	if bot.ConnectionState() != lksdk.ConnectionStateConnected || participants(t, service)[identity] == nil {
+		t.Fatalf("the bot's connection ended with its token: %v", bot.ConnectionState())
 	}
 }
 
@@ -186,20 +186,20 @@ type oneRoom struct{ room store.Room }
 
 func (o oneRoom) RoomBySlug(context.Context, string) (store.Room, error) { return o.room, nil }
 
-// A host removes an agent as they would anyone: moderation finds it among
+// A host removes a bot as they would anyone: moderation finds it among
 // the participants, the media server removes it, and the token it still
 // holds gets it nowhere, since tide removes it again on the rejoin.
-func TestHostCanKickAnAgent(t *testing.T) {
+func TestHostCanKickAnBot(t *testing.T) {
 	s := startServer(t, testOptions(t))
 	service := lksdk.NewRoomServiceClient(s.URL(), testKey, testSecret)
 	moderator := moderation.NewHandler(
-		oneRoom{store.Room{Slug: agentTestRoom, OwnerSub: "owner"}},
+		oneRoom{store.Room{Slug: botTestRoom, OwnerSub: "owner"}},
 		service,
 		moderation.NewDenylist(lobby.TokenTTL),
 	)
 
-	const identity = "agent:program"
-	token, err := testMinter().MintToken(identity, "Notes", agentTestRoom, tidelivekit.RoleAgent, lobby.TokenTTL)
+	const identity = "bot:program"
+	token, err := testMinter().MintToken(identity, "Notes", botTestRoom, tidelivekit.RoleBot, lobby.TokenTTL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -210,12 +210,12 @@ func TestHostCanKickAnAgent(t *testing.T) {
 		kicked <- reason
 	}
 	connect(t, s, identity, token, callback)
-	eventually(t, 10*time.Second, "the agent in the room", func() bool {
+	eventually(t, 10*time.Second, "the bot in the room", func() bool {
 		return participants(t, service)[identity] != nil
 	})
 
 	request := httptest.NewRequest(http.MethodPost, "/kick", nil)
-	request.SetPathValue("slug", agentTestRoom)
+	request.SetPathValue("slug", botTestRoom)
 	request.SetPathValue("identity", identity)
 	request = request.WithContext(auth.WithSession(request.Context(), auth.Session{Sub: "owner"}))
 	response := httptest.NewRecorder()
@@ -226,23 +226,23 @@ func TestHostCanKickAnAgent(t *testing.T) {
 	select {
 	case reason := <-kicked:
 		if reason != lksdk.ParticipantRemoved {
-			t.Fatalf("agent disconnected with %v", reason)
+			t.Fatalf("bot disconnected with %v", reason)
 		}
 	case <-time.After(10 * time.Second):
-		t.Fatal("the kick didn't reach the agent")
+		t.Fatal("the kick didn't reach the bot")
 	}
-	eventually(t, 10*time.Second, "the agent gone", func() bool {
+	eventually(t, 10*time.Second, "the bot gone", func() bool {
 		return participants(t, service)[identity] == nil
 	})
 
 	// The media server can't revoke the token, so this works, until the
 	// participant_joined webhook reaches EnforceOnJoin, called here by hand.
 	connect(t, s, identity, token, nil)
-	eventually(t, 10*time.Second, "the agent's rejoin", func() bool {
+	eventually(t, 10*time.Second, "the bot's rejoin", func() bool {
 		return participants(t, service)[identity] != nil
 	})
-	moderator.EnforceOnJoin(context.Background(), agentTestRoom, identity)
-	eventually(t, 10*time.Second, "the agent removed again", func() bool {
+	moderator.EnforceOnJoin(context.Background(), botTestRoom, identity)
+	eventually(t, 10*time.Second, "the bot removed again", func() bool {
 		return participants(t, service)[identity] == nil
 	})
 }

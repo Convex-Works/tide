@@ -17,11 +17,6 @@ var (
 		protocol.TrackSource_SCREEN_SHARE,
 		protocol.TrackSource_SCREEN_SHARE_AUDIO,
 	}
-	agentSources = []protocol.TrackSource{
-		protocol.TrackSource_MICROPHONE,
-		protocol.TrackSource_SCREEN_SHARE,
-		protocol.TrackSource_SCREEN_SHARE_AUDIO,
-	}
 )
 
 type Minter struct {
@@ -45,14 +40,13 @@ const (
 	RoleGuest Role = iota
 	// RoleHost is a guest who can also administer the room.
 	RoleHost
-	// RoleAgent is a program acting for the room's owner: it hears the room
-	// and answers with audio, chat or a screen share, in view of everyone.
-	// It can't turn a camera on or administer the room, and it doesn't keep
-	// the room open.
-	RoleAgent
+	// RoleBot is a program acting for the room's owner, in view of everyone:
+	// it publishes and subscribes as a guest does, and uses chat. It can't
+	// administer the room, and it doesn't keep the room open.
+	RoleBot
 	// RoleObserver is tide itself watching who speaks during a recording: it
 	// subscribes, publishes nothing, is hidden from the room, and doesn't
-	// keep the room open. It's kind AGENT rather than the Recorder grant,
+	// keep the room open. It's kind BOT rather than the Recorder grant,
 	// which would tell clients the room is recording.
 	RoleObserver
 )
@@ -74,10 +68,10 @@ func (m *Minter) MintToken(identity, name, room string, role Role, ttl time.Dura
 	case RoleHost:
 		grant.SetCanPublishSources(participantSources)
 		token.SetMetadata(`{"role":"host"}`)
-	case RoleAgent:
+	case RoleBot:
 		grant.SetCanPublishData(true)
-		grant.SetCanPublishSources(agentSources)
-		token.SetKind(protocol.ParticipantInfo_AGENT).SetMetadata(`{"role":"agent"}`)
+		grant.SetCanPublishSources(participantSources)
+		token.SetKind(protocol.ParticipantInfo_AGENT).SetMetadata(`{"role":"bot"}`)
 	case RoleObserver:
 		grant.SetCanPublishData(false)
 		grant.Hidden = true

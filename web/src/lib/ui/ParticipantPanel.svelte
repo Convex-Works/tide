@@ -95,10 +95,10 @@
               {#if participant.isLocal}<span class="you">(You)</span>{/if}
             </div>
             {#if rtc.isHostParticipant(participant)}<span class="role">Meeting host</span>{/if}
-            {#if participant.agent}
-              <span class="role agent">
+            {#if participant.bot}
+              <span class="role bot">
                 <Robot size={16} weight="regular" aria-hidden="true" />
-                Agent
+                Bot
               </span>
             {/if}
           </div>
@@ -263,7 +263,7 @@
     line-height: 16px;
   }
 
-  .agent {
+  .bot {
     display: flex;
     align-items: center;
     gap: 4px;

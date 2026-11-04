@@ -1,7 +1,7 @@
 import type { Page, Route } from '@playwright/test';
 import { slugError, suggestSlug } from '../src/lib/slug';
 import {
-  AgentSessionPath,
+  BotSessionPath,
   MachineIdle,
   MachineOffline,
   MachinePaused,
@@ -26,7 +26,7 @@ import {
   TranscriptCompleted,
   TranscriptFailed,
   TranscriptWaiting,
-  type AgentSession,
+  type BotSession,
   type CreateRoomRequest,
   type LobbyRequestInfo,
   type MachineInfo,
@@ -289,18 +289,18 @@ export async function mockApi(page: Page, state: ApiState = defaultState()): Pro
       };
       return json(200, info);
     }
-    const agentSlug = match(AgentSessionPath, path);
-    if (method === 'POST' && agentSlug) {
+    const botSlug = match(BotSessionPath, path);
+    if (method === 'POST' && botSlug) {
       if (!state.signedIn) return json(401, { error: 'Authentication required.' });
-      const room = state.rooms.find((item) => item.slug === agentSlug[0]);
+      const room = state.rooms.find((item) => item.slug === botSlug[0]);
       if (!room) return json(404, { error: 'Room not found.' });
-      if (!owner) return json(403, { error: "Only the room's owner can connect an agent." });
-      const session: AgentSession = {
+      if (!owner) return json(403, { error: "Only the room's owner can connect a bot." });
+      const session: BotSession = {
         ws_url: fakeSfuURL,
-        token: fakeToken('agent:0001', 'Agent'),
+        token: fakeToken('bot:0001', 'Bot'),
         room: room.slug,
-        identity: 'agent:0001',
-        name: 'Agent',
+        identity: 'bot:0001',
+        name: 'Bot',
         owner_identity: 'host:owner',
         expires_at: now + 600
       };

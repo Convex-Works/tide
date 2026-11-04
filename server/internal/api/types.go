@@ -10,7 +10,7 @@ const (
 	RoomPath              = "/api/rooms/{slug}"
 	RoomJoinPath          = "/api/rooms/{slug}/join"
 	RoomLobbyPath         = "/api/rooms/{slug}/lobby"
-	AgentSessionPath      = "/api/rooms/{slug}/agent-session"
+	BotSessionPath        = "/api/rooms/{slug}/bot-session"
 	KickPath              = "/api/rooms/{slug}/participants/{identity}/kick"
 	MutePath              = "/api/rooms/{slug}/participants/{identity}/mute"
 	MeetingEndPath        = "/api/rooms/{slug}/meeting/end"
@@ -37,8 +37,8 @@ const (
 	MoilBasePath = "/moil"
 
 	// ChatTopic is the LiveKit data topic chat travels on, each message a
-	// ChatPayload (ARCHITECTURE.md §9). Agents read and write it too
-	// (docs/MEETING-AGENTS.md).
+	// ChatPayload (ARCHITECTURE.md §9). Bots read and write it too
+	// (docs/BOTS.md).
 	ChatTopic = "chat"
 )
 
@@ -97,7 +97,7 @@ type PublicRoomInfo struct {
 	CanManage bool `json:"can_manage"`
 	// IsOwner is true when the requesting session owns this room. It is
 	// narrower than CanManage: an administrator manages every room but owns
-	// only their own, and only an owner can connect an agent (ARCHITECTURE.md
+	// only their own, and only an owner can connect a bot (ARCHITECTURE.md
 	// §4). The SPA uses it to show that control; the route checks for itself.
 	IsOwner bool `json:"is_owner"`
 }
@@ -127,25 +127,25 @@ type JoinResponse struct {
 	RequestID string `json:"request_id,omitempty"`
 }
 
-// AgentSessionRequest is the optional body of a request for an agent session.
-// A missing body or name means "Agent"; a name that is present is
+// BotSessionRequest is the optional body of a request for a bot session.
+// A missing body or name means "Bot"; a name that is present is
 // held to a guest's rules.
-type AgentSessionRequest struct {
+type BotSessionRequest struct {
 	Name *string `json:"name,omitempty"`
 }
 
-// AgentSession is everything a program needs to join a meeting as a visible
-// participant, and the contents of the session.json an agent reads. It is a
-// stable contract (docs/MEETING-AGENTS.md): moil delivers this same file, so
-// changing it changes every agent.
-type AgentSession struct {
+// BotSession is everything a program needs to join a meeting as a visible
+// participant, and the contents of the session.json a bot reads. It is a
+// stable contract (docs/BOTS.md): moil delivers this same file, so
+// changing it changes every bot.
+type BotSession struct {
 	// WSURL and Token are what LiveKit's connect takes. The token grants the
-	// agent role and nothing more (ARCHITECTURE.md §4).
+	// bot role and nothing more (ARCHITECTURE.md §4).
 	WSURL string `json:"ws_url"`
 	Token string `json:"token"`
 	// Room is the room's slug.
 	Room string `json:"room"`
-	// Identity is the agent's LiveKit identity, agent:<random>.
+	// Identity is the bot's LiveKit identity, bot:<random>.
 	Identity string `json:"identity"`
 	// Name is the display name everyone in the room sees.
 	Name string `json:"name"`
@@ -155,7 +155,7 @@ type AgentSession struct {
 	// administrators have it too.
 	OwnerIdentity string `json:"owner_identity"`
 	// ExpiresAt is Unix seconds: the last moment Token can connect. It says
-	// nothing about how long a connected agent may stay.
+	// nothing about how long a connected bot may stay.
 	ExpiresAt int64 `json:"expires_at"`
 }
 

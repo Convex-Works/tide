@@ -12,9 +12,6 @@
 </script>
 
 <div class="app-shell">
-  {#if !isEgressTemplate}<Hairline
-      mode={connectionChrome.state}
-      agent={connectionChrome.agent}
-    />{/if}
+  {#if !isEgressTemplate}<Hairline mode={connectionChrome.state} bot={connectionChrome.bot} />{/if}
   {@render children()}
 </div>

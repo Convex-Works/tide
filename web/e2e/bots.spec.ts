@@ -1,9 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
 import { fakeSfu, fakeSfuLaunchArgs } from './fake-sfu';
 import { defaultState, fakeSfuURL, mockApi, type ApiState } from './mock-api';
-import { AgentSessionPath, type AgentSession } from '../src/lib/api/types.gen';
+import { BotSessionPath, type BotSession } from '../src/lib/api/types.gen';
 
-// A program in a meeting (docs/MEETING-AGENTS.md) as the people there see it.
+// A program in a meeting (docs/BOTS.md) as the people there see it.
 // The tag and the hairline are all that tell a guest something is listening,
 // so they are not polish. The API is mocked and the SFU is fake-sfu.ts, so
 // this runs against the Vite dev server alone.
@@ -37,10 +37,10 @@ async function enter(page: Page, guestName?: string): Promise<void> {
   await expect(page.getByRole('button', { name: 'Share screen' })).toBeVisible({ timeout: 20_000 });
 }
 
-const agentTile = (page: Page) =>
-  page.locator('[data-testid="participant-tile"][data-identity="agent:0001"]');
+const botTile = (page: Page) =>
+  page.locator('[data-testid="participant-tile"][data-identity="bot:0001"]');
 
-test('a guest sees an agent on its tile, in the list and on the hairline, for as long as it stays', async ({
+test('a guest sees a bot on its tile, in the list and on the hairline, for as long as it stays', async ({
   page
 }) => {
   await mockApi(page, guest());
@@ -48,68 +48,63 @@ test('a guest sees an agent on its tile, in the list and on the hairline, for as
   await enter(page, 'Grace Guest');
 
   await expect(page.getByTestId('hairline')).toHaveAttribute('data-state', 'connected');
-  await expect(page.getByTestId('hairline-agent')).toHaveCount(0);
-  await expect(page.getByTestId('agent-chip')).toHaveCount(0);
+  await expect(page.getByTestId('hairline-bot')).toHaveCount(0);
+  await expect(page.getByTestId('bot-chip')).toHaveCount(0);
 
-  sfu.addAgent('agent:0001', 'Notes');
+  sfu.addBot('bot:0001', 'Notes');
 
-  const tile = agentTile(page);
+  const tile = botTile(page);
   await expect(tile.locator('.name-label')).toContainText('Notes');
-  await expect(tile.locator('.name-label')).toContainText('Agent');
-  await expect(page.getByTestId('hairline-agent')).toBeVisible();
-  await expect(page.getByTestId('agent-chip')).toHaveText('AGENT');
+  await expect(tile.locator('.name-label')).toContainText('Bot');
+  await expect(page.getByTestId('hairline-bot')).toBeVisible();
+  await expect(page.getByTestId('bot-chip')).toHaveText('BOT');
   // Alone it is the whole line, in the one color no other state uses.
   const width = page.viewportSize()?.width ?? 0;
-  const line = await page.getByTestId('hairline-agent').boundingBox();
+  const line = await page.getByTestId('hairline-bot').boundingBox();
   expect(line).toMatchObject({ x: 0, width });
-  await expect(page.getByTestId('hairline-agent')).toHaveCSS(
-    'background-color',
-    'rgb(79, 163, 111)'
-  );
+  await expect(page.getByTestId('hairline-bot')).toHaveCSS('background-color', 'rgb(79, 163, 111)');
 
   await page.getByRole('button', { name: 'People', exact: true }).click();
-  const row = page.locator('.participant-row[data-identity="agent:0001"]');
+  const row = page.locator('.participant-row[data-identity="bot:0001"]');
   await expect(row).toContainText('Notes');
-  await expect(row.locator('.role')).toHaveText('Agent');
+  await expect(row.locator('.role')).toHaveText('Bot');
   // The guest's own row says nothing of the kind.
   await expect(
     page.locator('.participant-row').filter({ hasText: 'Grace Guest' })
-  ).not.toContainText('Agent');
+  ).not.toContainText('Bot');
 
-  sfu.removeAgent('agent:0001');
+  sfu.removeBot('bot:0001');
   await expect(tile).toHaveCount(0);
-  await expect(page.getByTestId('hairline-agent')).toHaveCount(0);
-  await expect(page.getByTestId('agent-chip')).toHaveCount(0);
+  await expect(page.getByTestId('hairline-bot')).toHaveCount(0);
+  await expect(page.getByTestId('bot-chip')).toHaveCount(0);
 });
 
-test('recording and an agent show together: neither hides the other', async ({ page }) => {
+test('recording and a bot show together: neither hides the other', async ({ page }) => {
   await mockApi(page, guest());
   const sfu = await fakeSfu(page);
   await enter(page, 'Grace Guest');
 
   sfu.setRoomMetadata('{"recording":true}');
-  sfu.addAgent('agent:0001', 'Notes');
+  sfu.addBot('bot:0001', 'Notes');
 
   await expect(page.getByTestId('hairline')).toHaveAttribute('data-state', 'recording');
   await expect(page.getByTestId('recording-chip')).toBeVisible();
-  await expect(page.getByTestId('agent-chip')).toBeVisible();
+  await expect(page.getByTestId('bot-chip')).toBeVisible();
   const width = page.viewportSize()?.width ?? 0;
   await expect
-    .poll(async () => (await page.getByTestId('hairline-agent').boundingBox())?.x)
+    .poll(async () => (await page.getByTestId('hairline-bot').boundingBox())?.x)
     .toBe(width / 2);
 
-  // The recording's pulse doesn't reach the agent's half.
-  await expect(page.getByTestId('hairline-agent')).toHaveCSS('animation-name', 'none');
+  // The recording's pulse doesn't reach the bot's half.
+  await expect(page.getByTestId('hairline-bot')).toHaveCSS('animation-name', 'none');
 });
 
-test('a reconnect that clears the participants keeps the agent on the hairline', async ({
-  page
-}) => {
+test('a reconnect that clears the participants keeps the bot on the hairline', async ({ page }) => {
   await mockApi(page, guest());
   const sfu = await fakeSfu(page);
   await enter(page, 'Grace Guest');
-  sfu.addAgent('agent:0001', 'Notes');
-  await expect(page.getByTestId('hairline-agent')).toBeVisible();
+  sfu.addBot('bot:0001', 'Notes');
+  await expect(page.getByTestId('hairline-bot')).toBeVisible();
 
   // What livekit-client does on a full reconnect, in order. It's enums by value,
   // since this runs in the page.
@@ -121,36 +116,36 @@ test('a reconnect that clears the participants keeps the agent on the hairline',
       };
     };
     room.emit('connectionStateChanged', 'reconnecting');
-    const agent = room.remoteParticipants.get('agent:0001');
+    const bot = room.remoteParticipants.get('bot:0001');
     room.remoteParticipants.clear();
-    room.emit('participantDisconnected', agent);
+    room.emit('participantDisconnected', bot);
   });
   // The view stays frozen until the connection can answer, so nothing hides it.
   await page.waitForTimeout(500);
-  await expect(agentTile(page)).toBeVisible();
-  await expect(page.getByTestId('hairline-agent')).toBeVisible();
+  await expect(botTile(page)).toBeVisible();
+  await expect(page.getByTestId('hairline-bot')).toBeVisible();
 });
 
-test('leaving the meeting takes the agent off the hairline', async ({ page }) => {
+test('leaving the meeting takes the bot off the hairline', async ({ page }) => {
   await mockApi(page, guest());
   const sfu = await fakeSfu(page);
   await enter(page, 'Grace Guest');
-  sfu.addAgent('agent:0001', 'Notes');
-  await expect(page.getByTestId('hairline-agent')).toBeVisible();
+  sfu.addBot('bot:0001', 'Notes');
+  await expect(page.getByTestId('hairline-bot')).toBeVisible();
 
   await page.getByRole('button', { name: 'Leave room' }).click();
   await expect(page.getByText('You left the meeting.')).toBeVisible();
-  await expect(page.getByTestId('hairline-agent')).toHaveCount(0);
+  await expect(page.getByTestId('hairline-bot')).toHaveCount(0);
 });
 
-test('the owner copies an agent session from the meeting details', async ({ page }) => {
+test('the owner copies a bot session from the meeting details', async ({ page }) => {
   const api = await mockApi(page);
   await fakeSfu(page);
   await enter(page);
 
   await page.getByRole('button', { name: 'Meeting details' }).click();
   const details = page.getByRole('dialog', { name: 'Meeting details' });
-  await details.getByRole('button', { name: 'Copy agent session' }).click();
+  await details.getByRole('button', { name: 'Copy bot session' }).click();
   await expect(details.getByRole('button', { name: 'Copied' })).toBeVisible();
 
   const copied = JSON.parse(await page.evaluate(() => navigator.clipboard.readText()));
@@ -158,14 +153,12 @@ test('the owner copies an agent session from the meeting details', async ({ page
     ws_url: fakeSfuURL,
     token: expect.any(String),
     room: 'standup',
-    identity: 'agent:0001',
-    name: 'Agent',
+    identity: 'bot:0001',
+    name: 'Bot',
     owner_identity: 'host:owner',
     expires_at: expect.any(Number)
-  } satisfies Record<keyof AgentSession, unknown>);
-  const call = api.calls.find(
-    (item) => item.path === AgentSessionPath.replace('{slug}', 'standup')
-  );
+  } satisfies Record<keyof BotSession, unknown>);
+  const call = api.calls.find((item) => item.path === BotSessionPath.replace('{slug}', 'standup'));
   expect(call?.csrf).toBe('1');
 });
 
@@ -180,12 +173,12 @@ test('a clipboard that refuses leaves the session on screen, selected', async ({
 
   await page.getByRole('button', { name: 'Meeting details' }).click();
   const details = page.getByRole('dialog', { name: 'Meeting details' });
-  await details.getByRole('button', { name: 'Copy agent session' }).click();
+  await details.getByRole('button', { name: 'Copy bot session' }).click();
   await expect(details.getByRole('alert')).toHaveText(
     "Couldn't copy. The session is selected; copy it by hand."
   );
-  await expect(details.locator('.session')).toContainText('"identity": "agent:0001"');
-  expect(await page.evaluate(() => window.getSelection()?.toString())).toContain('agent:0001');
+  await expect(details.locator('.session')).toContainText('"identity": "bot:0001"');
+  expect(await page.evaluate(() => window.getSelection()?.toString())).toContain('bot:0001');
 
   // It doesn't stay around once the details close.
   await page.keyboard.press('Escape');
@@ -199,20 +192,18 @@ test('a refused session says why', async ({ page }) => {
   await mockApi(page);
   await fakeSfu(page);
   await enter(page);
-  await page.route(`**${AgentSessionPath.replace('{slug}', 'standup')}`, (route) =>
+  await page.route(`**${BotSessionPath.replace('{slug}', 'standup')}`, (route) =>
     route.fulfill({
       status: 403,
       contentType: 'application/json',
-      body: JSON.stringify({ error: "Only the room's owner can connect an agent." })
+      body: JSON.stringify({ error: "Only the room's owner can connect a bot." })
     })
   );
 
   await page.getByRole('button', { name: 'Meeting details' }).click();
   const details = page.getByRole('dialog', { name: 'Meeting details' });
-  await details.getByRole('button', { name: 'Copy agent session' }).click();
-  await expect(details.getByRole('alert')).toHaveText(
-    "Only the room's owner can connect an agent."
-  );
+  await details.getByRole('button', { name: 'Copy bot session' }).click();
+  await expect(details.getByRole('alert')).toHaveText("Only the room's owner can connect a bot.");
   await expect(details.locator('.session')).toHaveCount(0);
 });
 
@@ -220,7 +211,7 @@ for (const [who, state, name] of [
   ['a guest', guest, 'Grace Guest'],
   ['an administrator who manages the room', administrator, undefined]
 ] as const) {
-  test(`${who} is not offered an agent session`, async ({ page }) => {
+  test(`${who} is not offered a bot session`, async ({ page }) => {
     const api = await mockApi(page, state());
     await fakeSfu(page);
     await enter(page, name);
@@ -228,7 +219,7 @@ for (const [who, state, name] of [
     await page.getByRole('button', { name: 'Meeting details' }).click();
     const details = page.getByRole('dialog', { name: 'Meeting details' });
     await expect(details.getByRole('button', { name: 'Copy link' })).toBeVisible();
-    await expect(details.getByRole('button', { name: 'Copy agent session' })).toHaveCount(0);
-    expect(api.count('POST', AgentSessionPath.replace('{slug}', 'standup'))).toBe(0);
+    await expect(details.getByRole('button', { name: 'Copy bot session' })).toHaveCount(0);
+    expect(api.count('POST', BotSessionPath.replace('{slug}', 'standup'))).toBe(0);
   });
 }

@@ -1,17 +1,17 @@
 <script lang="ts">
   import type { HairlineState } from '#lib/rtc/connection.svelte.js';
 
-  let { mode, agent = false }: { mode: HairlineState; agent?: boolean } = $props();
+  let { mode, bot = false }: { mode: HairlineState; bot?: boolean } = $props();
 </script>
 
 <div class="hairline {mode}" data-testid="hairline" data-state={mode} aria-hidden="true"></div>
 <!-- Its own line, so that no other state hides it: alone it takes the whole
      width, and beside another state the right half. -->
-{#if agent}
+{#if bot}
   <div
-    class="hairline agent"
+    class="hairline bot"
     class:shared={mode !== 'connected'}
-    data-testid="hairline-agent"
+    data-testid="hairline-bot"
     aria-hidden="true"
   ></div>
 {/if}
@@ -26,11 +26,11 @@
     transition: background var(--motion-fast);
   }
 
-  .agent {
+  .bot {
     background: var(--ok);
   }
 
-  .agent.shared {
+  .bot.shared {
     left: 50%;
   }
 

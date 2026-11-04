@@ -39,7 +39,7 @@ export interface ParticipantView {
   isLocal: boolean;
   role?: 'host';
   /** A program in the meeting (ARCHITECTURE.md §4). Hidden ones never reach a client. */
-  agent: boolean;
+  bot: boolean;
   publications: Record<string, MediaTrackView>;
   cameras: Record<string, MediaTrackView>;
   screenShares: Record<string, MediaTrackView>;
@@ -106,7 +106,7 @@ export function projectParticipant(
     name: participant.name || participant.identity,
     isLocal,
     role: participantRole(participant),
-    agent: participant.kind === ParticipantKind.AGENT,
+    bot: participant.kind === ParticipantKind.AGENT,
     publications,
     cameras,
     screenShares,

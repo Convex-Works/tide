@@ -30,12 +30,12 @@ Everything else is out of scope by design. Feature restraint is the product.
 - **Frozen feature list.** New features must displace an existing one.
   Transcripts were admitted as part of recording management, on one
   condition that stays load-bearing: no model runs on the server. Heavy
-  compute happens on machines the recording's owner paired (§8.1). Meeting
-  agents were admitted on three conditions that stay load-bearing too: a
+  compute happens on machines the recording's owner paired (§8.1). Bots were
+  admitted on three conditions that stay load-bearing too: a
   program runs outside the server, under the room owner's control, in view of
   everyone (§4). tide mints its token and shows it to the room; tide ships no
-  agent, and nothing model-shaped runs on the server
-  ([MEETING-AGENTS.md](MEETING-AGENTS.md)).
+  bot, and nothing model-shaped runs on the server
+  ([BOTS.md](BOTS.md)).
 
 ## 2. System architecture
 
@@ -196,14 +196,14 @@ tide/
       lib/rtc/             livekit-client wrapper (room store, tracks, devices)
       lib/ui/              design-system components
       routes/              pages (see §9)
-  examples/agents/         a program that joins a meeting (MEETING-AGENTS.md)
+  examples/bots/           a program that joins a meeting (BOTS.md)
   deploy/
     compose.yaml           dev stack: recorder, minio, dex (tide, with its
                            media server, runs on the host)
     egress.yaml            Recorder config
     dex.yaml               Dev IdP config (static test users)
   docs/ARCHITECTURE.md     this document
-  docs/MEETING-AGENTS.md   the contract for programs joining a meeting
+  docs/BOTS.md   the contract for programs joining a meeting
   Makefile                 dev, gen, check, build targets
   .github/workflows/       CI and releases
 ```
@@ -223,36 +223,35 @@ pre-join screen and admitted through the lobby.
 
 **LiveKit access tokens** are minted exclusively by the tide server:
 
-| Grant | Host | Guest | Agent | Observer |
+| Grant | Host | Guest | Bot | Observer |
 |---|---|---|---|---|
 | `roomJoin`, `canSubscribe` | ✓ | ✓ | ✓ | ✓ |
 | `canPublish` | ✓ | ✓ | ✓ | ✗ |
-| `canPublishSources`: microphone, screen share, screen-share audio | ✓ | ✓ | ✓ | ✗ |
-| `canPublishSources`: camera | ✓ | ✓ | ✗ | ✗ |
+| `canPublishSources`: camera, microphone, screen share, screen-share audio | ✓ | ✓ | ✓ | ✗ |
 | `canPublishData` | ✓ | ✓ | ✓ | ✗ |
 | `roomAdmin` | ✓ | ✗ | ✗ | ✗ |
 | `hidden` | ✗ | ✗ | ✗ | ✓ |
 | kind | standard | standard | `AGENT` | `AGENT` |
-| metadata | `{"role":"host"}` | none | `{"role":"agent"}` | none |
+| metadata | `{"role":"host"}` | none | `{"role":"bot"}` | none |
 
 Token TTL is short (10 min) — it authorizes *connecting*; once connected the
 session lives independently. Identity is `host:<sub>:<nonce>`, `guest:<nanoid>`
-or `agent:<nanoid>`; display name travels in the token's `name` field.
+or `bot:<nanoid>`; display name travels in the token's `name` field.
 
-**Agents** are programs in a meeting, and the room's **owner** alone gets a
-session for one: `POST /api/rooms/:slug/agent-session` checks `session.Sub`
+**Bots** are programs in a meeting, and the room's **owner** alone gets a
+session for one: `POST /api/rooms/:slug/bot-session` checks `session.Sub`
 against `rooms.owner_sub`, so an administrator is refused, unlike recording,
-because an agent is a new live listener and §8.1 keeps a room's audio with its
+because a bot is a new live listener and §8.1 keeps a room's audio with its
 owner. It needs no machine, so it works in anonymous mode too. The answer,
-`api.AgentSession`, is the `session.json` a program reads, a stable contract
-([MEETING-AGENTS.md](MEETING-AGENTS.md)). There are no API keys.
+`api.BotSession`, is the `session.json` a program reads, a stable contract
+([BOTS.md](BOTS.md)). There are no API keys.
 
 **The observer** is tide's own participant during a recording, not a program
 anyone connects: it watches who speaks and publishes nothing (`RoleObserver`).
 
 Kind `AGENT` makes a participant *dependent*: it doesn't hold a room open, so
-agents and the observer can't keep a meeting, or its recording, alive once the
-people have left. A client treats kind `AGENT` as a visible agent (§9, §10),
+bots and the observer can't keep a meeting, or its recording, alive once the
+people have left. A client treats kind `AGENT` as a visible bot (§9, §10),
 which is safe for the observer only because `hidden` keeps it from every
 client: LiveKit leaves hidden participants out of join responses and participant
 updates alike, so one never reaches a browser. A test holds that against the
@@ -384,7 +383,7 @@ the LiveKit server SDK — so they hold at the SFU regardless of client behavior
 - `POST /api/rooms/:slug/participants/:identity/kick` → `RemoveParticipant`
 - `POST /api/rooms/:slug/participants/:identity/mute` → `MutePublishedTrack` (audio)
 
-Agents (§4) are moderated like anyone else, and a kicked one is denylisted like
+Bots (§4) are moderated like anyone else, and a kicked one is denylisted like
 a guest: only the owner's own `host:` identities are never banned.
 
 The participant list itself is client-side LiveKit state (join/leave/track
@@ -729,7 +728,7 @@ Meeting chrome:
   off, and a **Copy link** button; it doesn't repeat the name beside it. It
   is the only place in the meeting the link appears. The room's owner, and
   only the owner (`is_owner`, narrower than `can_manage`), also gets **Copy
-  agent session** there (§4). The REC and AGENT chips and the autoplay
+  bot session** there (§4). The REC and BOT chips and the autoplay
   unlock join this cluster; the connection state stays on the right.
 - **Control bar**, left to right: microphone and camera side by side (each
   with its device caret), screen share, record (hosts only), then view,
@@ -859,8 +858,8 @@ the clock, names, "(You)" — stay in Inter.
 
 **Roles are words, not badges.** No pills or outlined chips for roles: the
 local participant is "Name (You)" and the host carries a secondary line,
-"Meeting host", in `--text-2` (Meet's pattern). An agent carries the word
-"Agent" with a robot icon, in the same ink, on its tile and in the list. The
+"Meeting host", in `--text-2` (Meet's pattern). A bot carries the word
+"Bot" with a robot icon, in the same ink, on its tile and in the list. The
 pre-join account line says "· Host" in secondary ink. The human room name is shown during join and lobby
 transitions and in the stage's top-left cluster (§9); room slugs are kept out
 of the meeting UI except inside the meeting URL in its details popover.
@@ -877,11 +876,11 @@ device controls). No filled/duotone variants.
 accent blue when idle/connected, amber while reconnecting, pulsing `--rec` red
 while the room is being recorded. State lives in the chrome, not in a toast.
 
-An agent in the room adds a static `--ok` green line of its own rather than
+A bot in the room adds a static `--ok` green line of its own rather than
 another state, because it's the only thing that tells guests a program is
 listening, and no other state may hide it: alone it takes the whole width;
 beside recording, reconnecting or offline it takes the right half. Everyone
-sees it for as long as an agent is in the room, and the AGENT chip in the
+sees it for as long as a bot is in the room, and the BOT chip in the
 stage's cluster says in words what it means, as REC does for recording.
 
 Motion: 120ms ease-out on hovers and panel slides; the only ambient animation
@@ -1200,16 +1199,16 @@ up between runs for iteration.
 - The transcript bundle runs with the machine owner's permissions and no
   sandbox (moil's alpha). Owners read and approve it in the moil app; tide
   pins its hash so it cannot change silently.
-- Agents (§4): a session goes only to the room's owner, with the CSRF header,
+- Bots (§4): a session goes only to the room's owner, with the CSRF header,
   under the join limit, and marks the room active as every token does (§5). Its
   token subscribes to everything in that one room, so it carries everything
   said there: the owner is choosing to add a listener, and the room's only
   protection is seeing it, so the tag, hairline and chip must stay (§10). The
-  token has no `roomAdmin`, no camera, and its kind and name are fixed in it. An
-  agent runs outside tide, and what it does with the audio is up to its owner.
+  token has no `roomAdmin`, and its kind and name are fixed in it. A
+  bot runs outside tide, and what it does with the audio is up to its owner.
   Anything said or typed in a meeting reaches it, so a program that gives that
   to a model with tools is open to prompt injection from anyone in the call
-  ([MEETING-AGENTS.md](MEETING-AGENTS.md#prompt-injection)). The LiveKit API
+  ([BOTS.md](BOTS.md#prompt-injection)). The LiveKit API
   secret never leaves tide.
 - No secrets in the SPA: the client knows only its own token and public URLs,
   and a session it requested, which goes to the owner's clipboard. It stays on
@@ -1302,9 +1301,9 @@ media server.*
 | Transcript trigger | Automatic once the owner has paired a machine; otherwise on request | Pairing is the opt-in; no per-recording button for hosts who use it |
 | moil switch | `TIDE_MOIL`, default off; needs recording | moil is alpha, and `/moil/` takes unauthenticated pairing requests, so an operator opts in |
 | Speaker names | A hidden observer writes who was active beside the recording; the bundle matches that against its diarization | Diarization stays the truth, since active-speaker data is too coarse to say who said a word but enough to vote over a meeting. Grouped by display name because identities are per connection. Best effort: failing costs names, never a recording |
-| Meeting agents | Admitted to the frozen list: a program with a token, outside the server, under the owner's control, in view of everyone | People want a coding agent in the meeting, and it costs tide one route and three signs in the UI. tide ships no agent, and no model runs on the server |
-| Agent sessions | Owner only, from the meeting's details; no API keys, no pre-join notice | An agent is a new live listener and §8.1 keeps audio with the owner, so administrators don't get one. A key would be a credential that outlives a meeting. Agents show in the room once you're in it, and nothing more |
-| Agent on the hairline | Its own green line, not a hairline state, plus an AGENT chip | A state would lose to recording or a reconnect; this is the only thing telling guests a program is listening, so nothing may hide it |
+| Bots | Admitted to the frozen list: a program with a token, outside the server, under the owner's control, in view of everyone | People want programs in a meeting, AI agents among them, and it costs tide one route and three signs in the UI. tide ships no bot, and no model runs on the server |
+| Bot sessions | Owner only, from the meeting's details; no API keys, no pre-join notice | A bot is a new live listener and §8.1 keeps audio with the owner, so administrators don't get one. A key would be a credential that outlives a meeting. Bots show in the room once you're in it, and nothing more |
+| Bot on the hairline | Its own green line, not a hairline state, plus a BOT chip | A state would lose to recording or a reconnect; this is the only thing telling guests a program is listening, so nothing may hide it |
 | Default slugs | Readable random (`abc-defg-hij`), ~47 bits | Short enough to read aloud; unguessable behind the lookup and join limits; UUIDs made ugly links |
 | Calendar invites | `.ics` built in the browser, nothing stored | Covers "send people a time" without a scheduling model; server-side scheduling stays a later decision |
 | moil SDK | Vendored in `server/third_party/moil` | The forge sits behind Cloudflare Access, so Go can't fetch it in CI or Docker; same precedent as `web/vendor` |

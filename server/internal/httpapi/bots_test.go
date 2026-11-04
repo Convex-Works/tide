@@ -19,13 +19,13 @@ import (
 	"tide/internal/store"
 )
 
-// The agent session route (docs/MEETING-AGENTS.md), through tide's real
+// The bot session route (docs/BOTS.md), through tide's real
 // handler over HTTP.
 
-const agentRoomSlug = "calm-otter-412"
+const botRoomSlug = "calm-otter-412"
 
-// signedInAgents starts a signed-in tide with one room, belonging to "owner".
-func signedInAgents(t *testing.T, configure func(*config.Config)) *tideServer {
+// signedInBots starts a signed-in tide with one room, belonging to "owner".
+func signedInBots(t *testing.T, configure func(*config.Config)) *tideServer {
 	t.Helper()
 	k := startTide(t, func(cfg *config.Config, _ *http.Server) {
 		cfg.Recording, cfg.Moil = false, false
@@ -37,7 +37,7 @@ func signedInAgents(t *testing.T, configure func(*config.Config)) *tideServer {
 		}
 	})
 	if err := k.db.CreateRoom(context.Background(), store.Room{
-		ID: "r1", Slug: agentRoomSlug, Name: "Standup", OwnerSub: "owner", LobbyEnabled: true, CreatedAt: 1,
+		ID: "r1", Slug: botRoomSlug, Name: "Standup", OwnerSub: "owner", LobbyEnabled: true, CreatedAt: 1,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -50,11 +50,11 @@ func (k *tideServer) signedIn(from string, session auth.Session) *browser {
 }
 
 // Only the room's owner gets a session, which is narrower than the room's
-// managers: an administrator can record any room, but an agent is a new live
+// managers: an administrator can record any room, but a bot is a new live
 // listener and the room's audio stays with its owner (§8.1).
-func TestAgentSessionIsTheOwnersAlone(t *testing.T) {
-	k := signedInAgents(t, nil)
-	path := fill(api.AgentSessionPath, agentRoomSlug)
+func TestBotSessionIsTheOwnersAlone(t *testing.T) {
+	k := signedInBots(t, nil)
+	path := fill(api.BotSessionPath, botRoomSlug)
 	tests := []struct {
 		name    string
 		browser *browser
@@ -67,7 +67,7 @@ func TestAgentSessionIsTheOwnersAlone(t *testing.T) {
 		// Someone with no session at all has no sub to compare, as on every
 		// room mutation.
 		{name: "guest without a session", browser: k.browser("192.0.2.4"), path: path, want: http.StatusUnauthorized},
-		{name: "unknown room", browser: k.signedIn("192.0.2.5", auth.Session{Sub: "owner"}), path: fill(api.AgentSessionPath, "no-such-room"), want: http.StatusNotFound},
+		{name: "unknown room", browser: k.signedIn("192.0.2.5", auth.Session{Sub: "owner"}), path: fill(api.BotSessionPath, "no-such-room"), want: http.StatusNotFound},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -76,39 +76,39 @@ func TestAgentSessionIsTheOwnersAlone(t *testing.T) {
 	}
 }
 
-func TestAgentSessionRefusesAMissingCSRFHeader(t *testing.T) {
-	k := signedInAgents(t, nil)
+func TestBotSessionRefusesAMissingCSRFHeader(t *testing.T) {
+	k := signedInBots(t, nil)
 	owner := k.signedIn("192.0.2.1", auth.Session{Sub: "owner"})
-	status, _, answer := k.requestFrom(owner.from, http.MethodPost, fill(api.AgentSessionPath, agentRoomSlug), "", owner.cookie, false)
+	status, _, answer := k.requestFrom(owner.from, http.MethodPost, fill(api.BotSessionPath, botRoomSlug), "", owner.cookie, false)
 	if status != http.StatusForbidden || !strings.Contains(answer, "CSRF") {
 		t.Fatalf("without the CSRF header = %d %s", status, answer)
 	}
 }
 
-func TestAgentSessionOnlyTakesPost(t *testing.T) {
-	k := signedInAgents(t, nil)
+func TestBotSessionOnlyTakesPost(t *testing.T) {
+	k := signedInBots(t, nil)
 	owner := k.signedIn("192.0.2.1", auth.Session{Sub: "owner"})
-	header := owner.want(http.MethodGet, fill(api.AgentSessionPath, agentRoomSlug), "", http.StatusMethodNotAllowed, nil)
+	header := owner.want(http.MethodGet, fill(api.BotSessionPath, botRoomSlug), "", http.StatusMethodNotAllowed, nil)
 	if header.Get("Allow") != http.MethodPost {
 		t.Fatalf("Allow = %q", header.Get("Allow"))
 	}
 }
 
-// The token is the whole of what an agent may do (§4): this is what the
+// The token is the whole of what a bot may do (§4): this is what the
 // media server will read.
-func TestAgentSessionCarriesTheAgentGrants(t *testing.T) {
-	k := signedInAgents(t, nil)
+func TestBotSessionCarriesTheBotGrants(t *testing.T) {
+	k := signedInBots(t, nil)
 	owner := k.signedIn("192.0.2.1", auth.Session{Sub: "owner"})
 	before := time.Now()
-	var session api.AgentSession
-	owner.want(http.MethodPost, fill(api.AgentSessionPath, agentRoomSlug), `{"name":"Notes"}`, http.StatusOK, &session)
+	var session api.BotSession
+	owner.want(http.MethodPost, fill(api.BotSessionPath, botRoomSlug), `{"name":"Notes"}`, http.StatusOK, &session)
 
-	if session.WSURL != "ws://public.example" || session.Room != agentRoomSlug || session.Name != "Notes" ||
+	if session.WSURL != "ws://public.example" || session.Room != botRoomSlug || session.Name != "Notes" ||
 		session.OwnerIdentity != "host:owner" {
 		t.Fatalf("session = %+v", session)
 	}
 	// 32 bits from crypto/rand, as a guest's identity has.
-	if len(session.Identity) != len("agent:")+8 || !strings.HasPrefix(session.Identity, "agent:") {
+	if len(session.Identity) != len("bot:")+8 || !strings.HasPrefix(session.Identity, "bot:") {
 		t.Fatalf("identity = %q", session.Identity)
 	}
 	verifier, err := protocolauth.ParseAPIToken(session.Token)
@@ -128,11 +128,11 @@ func TestAgentSessionCarriesTheAgentGrants(t *testing.T) {
 	}
 	yes := true
 	want := &protocolauth.ClaimGrants{
-		Identity: session.Identity, Name: "Notes", Metadata: `{"role":"agent"}`,
+		Identity: session.Identity, Name: "Notes", Metadata: `{"role":"bot"}`,
 		Video: &protocolauth.VideoGrant{
-			RoomJoin: true, Room: agentRoomSlug,
+			RoomJoin: true, Room: botRoomSlug,
 			CanPublish: &yes, CanSubscribe: &yes, CanPublishData: &yes,
-			CanPublishSources: []string{"microphone", "screen_share", "screen_share_audio"},
+			CanPublishSources: []string{"camera", "microphone", "screen_share", "screen_share_audio"},
 		},
 	}
 	want.SetParticipantKind(livekit.ParticipantInfo_AGENT)
@@ -143,11 +143,11 @@ func TestAgentSessionCarriesTheAgentGrants(t *testing.T) {
 
 // Every session is a new identity, or a second one would push the first out
 // of the room: LiveKit allows one participant per identity.
-func TestAgentSessionsAreDistinct(t *testing.T) {
-	k := signedInAgents(t, nil)
+func TestBotSessionsAreDistinct(t *testing.T) {
+	k := signedInBots(t, nil)
 	owner := k.signedIn("192.0.2.1", auth.Session{Sub: "owner"})
-	path := fill(api.AgentSessionPath, agentRoomSlug)
-	var first, second api.AgentSession
+	path := fill(api.BotSessionPath, botRoomSlug)
+	var first, second api.BotSession
 	owner.want(http.MethodPost, path, "", http.StatusOK, &first)
 	owner.want(http.MethodPost, path, "", http.StatusOK, &second)
 	if first.Identity == second.Identity {
@@ -156,24 +156,24 @@ func TestAgentSessionsAreDistinct(t *testing.T) {
 }
 
 // A name is held to a guest's rules; only leaving it out gives the default.
-func TestAgentSessionName(t *testing.T) {
-	k := signedInAgents(t, nil)
+func TestBotSessionName(t *testing.T) {
+	k := signedInBots(t, nil)
 	owner := k.signedIn("192.0.2.1", auth.Session{Sub: "owner"})
-	path := fill(api.AgentSessionPath, agentRoomSlug)
+	path := fill(api.BotSessionPath, botRoomSlug)
 	longest := strings.Repeat("a", 100)
 	for _, test := range []struct {
 		name string
 		body string
 		want string
 	}{
-		{name: "no body", body: "", want: "Agent"},
-		{name: "no name", body: `{}`, want: "Agent"},
+		{name: "no body", body: "", want: "Bot"},
+		{name: "no name", body: `{}`, want: "Bot"},
 		{name: "a name", body: `{"name":"Notes"}`, want: "Notes"},
 		{name: "trimmed", body: `{"name":"  Notes  "}`, want: "Notes"},
 		{name: "as long as a guest's", body: fmt.Sprintf(`{"name":%q}`, longest), want: longest},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			var session api.AgentSession
+			var session api.BotSession
 			owner.want(http.MethodPost, path, test.body, http.StatusOK, &session)
 			if session.Name != test.want || grants(t, k.cfg, session.Token).Name != test.want {
 				t.Fatalf("session = %+v, want the name %q", session, test.want)
@@ -199,18 +199,18 @@ func TestAgentSessionName(t *testing.T) {
 
 // A session is a token for the room, and shares the join limit: a client gets
 // that many of the two together.
-func TestAgentSessionCountsAsAJoin(t *testing.T) {
+func TestBotSessionCountsAsAJoin(t *testing.T) {
 	const limit = 3
-	k := signedInAgents(t, func(cfg *config.Config) { cfg.JoinRateLimit = limit })
+	k := signedInBots(t, func(cfg *config.Config) { cfg.JoinRateLimit = limit })
 	owner := k.signedIn("192.0.2.1", auth.Session{Sub: "owner"})
-	path := fill(api.AgentSessionPath, agentRoomSlug)
-	owner.join(agentRoomSlug, "Owner")
+	path := fill(api.BotSessionPath, botRoomSlug)
+	owner.join(botRoomSlug, "Owner")
 	for range limit - 1 {
 		owner.want(http.MethodPost, path, "", http.StatusOK, nil)
 	}
 	owner.want(http.MethodPost, path, "", http.StatusTooManyRequests, nil)
 	// A join from the same client is over the limit too, and it's per client.
-	status, _, answer := owner.send(http.MethodPost, fill(api.RoomJoinPath, agentRoomSlug), `{"name":"Owner"}`)
+	status, _, answer := owner.send(http.MethodPost, fill(api.RoomJoinPath, botRoomSlug), `{"name":"Owner"}`)
 	if status != http.StatusTooManyRequests {
 		t.Fatalf("join past the limit = %d %s", status, answer)
 	}
@@ -219,7 +219,7 @@ func TestAgentSessionCountsAsAJoin(t *testing.T) {
 
 // It needs no machine, so it works with no sign-in at all (§4.1): an
 // anonymous owner is an owner, every other session a guest.
-func TestAgentSessionInAnonymousMode(t *testing.T) {
+func TestBotSessionInAnonymousMode(t *testing.T) {
 	k := startTide(t, anonymousMode(100))
 	owner := k.browser("192.0.2.30")
 	owner.me()
@@ -233,16 +233,16 @@ func TestAgentSessionInAnonymousMode(t *testing.T) {
 		t.Fatal("a room nobody joined is active")
 	}
 
-	var session api.AgentSession
-	owner.want(http.MethodPost, fill(api.AgentSessionPath, room.Slug), "", http.StatusOK, &session)
-	if session.Token == "" || session.Name != "Agent" {
+	var session api.BotSession
+	owner.want(http.MethodPost, fill(api.BotSessionPath, room.Slug), "", http.StatusOK, &session)
+	if session.Token == "" || session.Name != "Bot" {
 		t.Fatalf("session = %+v", session)
 	}
 	if kind := grants(t, k.cfg, session.Token).GetParticipantKind(); kind != livekit.ParticipantInfo_AGENT {
 		t.Fatalf("kind = %v", kind)
 	}
 	// Every token marks its room active before it leaves tide (§5), or the
-	// sweep could delete the room under the agent.
+	// sweep could delete the room under the bot.
 	stored, err = k.db.RoomBySlug(context.Background(), room.Slug)
 	if err != nil {
 		t.Fatal(err)
@@ -253,14 +253,14 @@ func TestAgentSessionInAnonymousMode(t *testing.T) {
 
 	guest := k.browser("192.0.2.31")
 	guest.me()
-	guest.want(http.MethodPost, fill(api.AgentSessionPath, room.Slug), "", http.StatusForbidden, nil)
+	guest.want(http.MethodPost, fill(api.BotSessionPath, room.Slug), "", http.StatusForbidden, nil)
 }
 
 // The room's public face says who owns it, for the SPA to show the owner's
 // control: an administrator manages the room but doesn't own it.
 func TestRoomInfoNamesOnlyTheOwner(t *testing.T) {
-	k := signedInAgents(t, nil)
-	path := fill(api.RoomPath, agentRoomSlug)
+	k := signedInBots(t, nil)
+	path := fill(api.RoomPath, botRoomSlug)
 	for _, test := range []struct {
 		name    string
 		browser *browser

@@ -241,10 +241,10 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 		"POST "+api.RoomJoinPath,
 		withRateLimit(joinLimiter, ips, handler.csrf(http.HandlerFunc(handler.lobby.Join))),
 	)
-	// An agent session is a token for the room, so it counts as a join.
+	// A bot session is a token for the room, so it counts as a join.
 	mux.Handle(
-		"POST "+api.AgentSessionPath,
-		withRateLimit(joinLimiter, ips, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.lobby.AgentSession)))),
+		"POST "+api.BotSessionPath,
+		withRateLimit(joinLimiter, ips, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.lobby.BotSession)))),
 	)
 	mux.Handle("GET "+api.RoomLobbyPath, handler.requireAuth(http.HandlerFunc(handler.lobby.Host)))
 	mux.Handle(
@@ -282,7 +282,7 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 	registerMethodFallback(mux, api.RoomsPath, http.MethodGet+", "+http.MethodPost)
 	registerMethodFallback(mux, api.RoomPath, http.MethodGet+", "+http.MethodPatch+", "+http.MethodDelete)
 	registerMethodFallback(mux, api.RoomJoinPath, http.MethodPost)
-	registerMethodFallback(mux, api.AgentSessionPath, http.MethodPost)
+	registerMethodFallback(mux, api.BotSessionPath, http.MethodPost)
 	registerMethodFallback(mux, api.KickPath, http.MethodPost)
 	registerMethodFallback(mux, api.MutePath, http.MethodPost)
 	registerMethodFallback(mux, api.MeetingEndPath, http.MethodPost)

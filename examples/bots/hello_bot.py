@@ -3,10 +3,10 @@
 # requires-python = ">=3.10"
 # dependencies = ["livekit>=1.0,<2"]
 # ///
-"""A program in a tide meeting: docs/MEETING-AGENTS.md explains every line.
+"""A program in a tide meeting: docs/BOTS.md explains every line.
 
-    uv run hello_agent.py session.json          hears, chats and speaks
-    uv run hello_agent.py session.json --screen shares a screen too
+    uv run hello_bot.py session.json          hears, chats and speaks
+    uv run hello_bot.py session.json --screen shares a screen too
 
 It stays until the meeting ends or someone removes it, or until Ctrl-C.
 """

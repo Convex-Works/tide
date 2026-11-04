@@ -100,15 +100,15 @@
     {/if}
 
     <!-- The label gives way to the waveform: a long name ellipsizes on one
-         line, and "(You)", the agent tag and the muted icon always stay. -->
+         line, and "(You)", the bot tag and the muted icon always stay. -->
     <div class="tile-footer">
       <div class="name-label" title={participant.name}>
         <span class="name">{participant.name}</span>
         {#if participant.isLocal}<span class="you">(You)</span>{/if}
-        {#if participant.agent}
-          <span class="agent">
+        {#if participant.bot}
+          <span class="bot">
             <Robot size={16} weight="regular" aria-hidden="true" />
-            Agent
+            Bot
           </span>
         {/if}
         {#if participant.micMuted}
@@ -343,12 +343,12 @@
   }
 
   .you,
-  .agent {
+  .bot {
     flex: none;
     color: var(--text-2);
   }
 
-  .agent {
+  .bot {
     display: flex;
     align-items: center;
     gap: 3px;

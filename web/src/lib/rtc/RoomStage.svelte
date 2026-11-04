@@ -9,7 +9,7 @@
   import ParticipantTile from './ParticipantTile.svelte';
   import RemoteAudioRenderer from './RemoteAudioRenderer.svelte';
   import { ConnectionState } from 'livekit-client';
-  import { setAgentChrome } from './connection.svelte';
+  import { setBotChrome } from './connection.svelte';
   import { attachMediaTrack } from './mediaElement';
   import type { RoomState } from './room.svelte';
 
@@ -33,7 +33,7 @@
     roomName: string;
     onleave: () => void;
     canManage?: boolean;
-    /** The room's owner, not only a manager: offers an agent session (ARCHITECTURE.md §4). */
+    /** The room's owner, not only a manager: offers a bot session (ARCHITECTURE.md §4). */
     isOwner?: boolean;
     /** A host on a deployment that records (ARCHITECTURE.md §8). */
     canRecord?: boolean;
@@ -119,8 +119,8 @@
   );
   // The hairline lives outside the stage, and leaves with it.
   $effect(() => {
-    setAgentChrome(rtc.agentPresent);
-    return () => setAgentChrome(false);
+    setBotChrome(rtc.botPresent);
+    return () => setBotChrome(false);
   });
 
   let previousPendingCount = 0;
@@ -188,13 +188,13 @@
       <h1 class="room-name" title={roomName}>{roomName}</h1>
       <MeetingDetails url={meetingURL} slug={roomSlug} {isOwner} />
       {#if rtc.isRecording}<span class="rec-chip mono" data-testid="recording-chip">REC</span>{/if}
-      {#if rtc.agentPresent}
+      {#if rtc.botPresent}
         <span
-          class="agent-chip mono"
-          data-testid="agent-chip"
+          class="bot-chip mono"
+          data-testid="bot-chip"
           title="A program is in this meeting and hears what is said"
         >
-          AGENT
+          BOT
         </span>
       {/if}
     </div>
@@ -333,7 +333,7 @@
     flex-wrap: wrap;
   }
 
-  /* Clock | name (i) REC AGENT: the name is the only part that gives way. */
+  /* Clock | name (i) REC BOT: the name is the only part that gives way. */
   .room-status {
     display: flex;
     height: 28px;
@@ -363,7 +363,7 @@
   }
 
   .rec-chip,
-  .agent-chip {
+  .bot-chip {
     flex: none;
     padding: 1px 5px;
     color: white;
@@ -374,7 +374,7 @@
     border-radius: 999px;
   }
 
-  .agent-chip {
+  .bot-chip {
     color: var(--stage);
     background: var(--ok);
   }

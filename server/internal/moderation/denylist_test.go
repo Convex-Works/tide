@@ -56,27 +56,27 @@ func TestKickBansIdentity(t *testing.T) {
 	}
 }
 
-// An agent isn't one of the owner's own identities, though the owner made it:
+// A bot isn't one of the owner's own identities, though the owner made it:
 // a host removes it for the rest of what its token can do.
-func TestKickBansAnAgent(t *testing.T) {
+func TestKickBansAnBot(t *testing.T) {
 	room := store.Room{Slug: "calm-otter-412", OwnerSub: "owner"}
 	service := &fakeRoomService{participants: []*protocol.ParticipantInfo{{
-		Identity: "agent:1234", Kind: protocol.ParticipantInfo_AGENT,
+		Identity: "bot:1234", Kind: protocol.ParticipantInfo_AGENT,
 	}}}
 	denylist := NewDenylist(10 * time.Minute)
 	handler := NewHandler(fakeRoomStore{room: room}, service, denylist)
 
 	response := httptest.NewRecorder()
-	handler.Kick(response, kickRequest(room.Slug, "agent:1234", "owner"))
+	handler.Kick(response, kickRequest(room.Slug, "bot:1234", "owner"))
 
 	if response.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", response.Code)
 	}
-	if service.removed == nil || service.removed.Identity != "agent:1234" {
+	if service.removed == nil || service.removed.Identity != "bot:1234" {
 		t.Fatalf("RemoveParticipant request = %#v", service.removed)
 	}
-	if !denylist.Banned(room.Slug, "agent:1234") {
-		t.Fatal("a kicked agent must be denylisted")
+	if !denylist.Banned(room.Slug, "bot:1234") {
+		t.Fatal("a kicked bot must be denylisted")
 	}
 }
 
