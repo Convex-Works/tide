@@ -254,7 +254,7 @@ func (h *Handler) Approve(w http.ResponseWriter, r *http.Request) {
 	if !h.markActive(w, r, room) {
 		return
 	}
-	token, err := h.minter.MintToken(identity, request.Name, room.Slug, false, TokenTTL)
+	token, err := h.minter.MintToken(identity, request.Name, room.Slug, tidelivekit.RoleGuest, TokenTTL)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not admit the guest. Try again.")
 		return
@@ -326,7 +326,11 @@ func (h *Handler) writeAdmission(w http.ResponseWriter, r *http.Request, identit
 	if !h.markActive(w, r, room) {
 		return
 	}
-	token, err := h.minter.MintToken(identity, name, room.Slug, host, TokenTTL)
+	role := tidelivekit.RoleGuest
+	if host {
+		role = tidelivekit.RoleHost
+	}
+	token, err := h.minter.MintToken(identity, name, room.Slug, role, TokenTTL)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not join the room. Try again.")
 		return

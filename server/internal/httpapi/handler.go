@@ -362,7 +362,7 @@ func (h *Handler) devToken(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "Room and name are required.")
 		return
 	}
-	token, err := h.minter.MintToken("dev:"+name, name, room, false, 10*time.Minute)
+	token, err := h.minter.MintToken("dev:"+name, name, room, tidelivekit.RoleGuest, 10*time.Minute)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not create a meeting token. Try again.")
 		return
