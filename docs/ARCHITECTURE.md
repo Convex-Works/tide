@@ -1059,7 +1059,7 @@ signalling too).
 
 Forgejo Actions (`.forgejo/workflows/ci.yml`), on every push/PR:
 
-1. **server** — `go vet`, `go test ./...`
+1. **server** — `go vet`, `go test ./...`, the transcribe bundle's tests
 2. **web** — `svelte-check`, prettier check, `vite build`, and the browser
    specs that run against the mock API and fake SFU alone (no server)
 3. **typesync** — `make gen && git diff --exit-code` (§11)
