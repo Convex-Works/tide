@@ -4,11 +4,13 @@
 # ///
 """transcribe-e2e: a stand-in for tide's transcribe bundle, for its end-to-end tests.
 
-It keeps the real bundle's contract (server/internal/transcripts/bundle): one
-input, the recording; each declared output written in the format its
-extension names (.txt, .vtt or .json); progress events with messages; and a
-result whose meta counts the speakers. Instead of transcribing, it writes
-what proves it read the recording it was given: the file's SHA-256 and size.
+It keeps the real bundle's contract (server/internal/transcripts/bundle): an
+input holding the recording, and maybe one named speakers.json saying who was
+active; each declared output written in the format its extension names (.txt,
+.vtt or .json); progress events with messages; and a result whose meta counts
+the speakers. Instead of transcribing, it writes what proves it read the
+recording it was given: the file's SHA-256 and size, and the names it was
+given.
 
 It can be held mid-run, so that a test can do something while a machine is on
 the job. It waits while a file exists: the one params.hold names, or else
@@ -30,6 +32,8 @@ import time
 GIVE_UP_AFTER = 60  # seconds
 
 SPEAKERS = 2
+
+TIMELINE = "speakers.json"
 
 
 def emit(type, **fields):
@@ -71,6 +75,10 @@ def main(job):
         f"This stands in for a transcript of {name}.",
         f"It read {size} bytes with SHA-256 {digest}.",
     ]
+    if TIMELINE in job["inputs"]:
+        with open(job["inputs"][TIMELINE], encoding="utf-8") as f:
+            names = [participant["name"] for participant in json.load(f)["participants"]]
+        lines.append(f"Active during it: {', '.join(names)}.")
     progress(0.97, "writing the transcript")
     for output, write in writers.items():
         with open(os.path.join(job["output_dir"], output), "w", encoding="utf-8") as f:
@@ -88,14 +96,16 @@ def main(job):
 
 
 def pick_input(inputs, params):
-    """The recording's name and path: the input params names, or the only one."""
+    """The recording's name and path: the input params names, or the only one
+    besides the timeline."""
     if "input" in params:
         if params["input"] not in inputs:
             raise JobError(f"params.input names {params['input']!r}, which isn't one of the job's inputs")
         return params["input"], inputs[params["input"]]
-    if len(inputs) != 1:
-        raise JobError(f"the job has {len(inputs)} inputs: send just the recording, or name it in params.input")
-    return next(iter(inputs.items()))
+    recordings = {name: path for name, path in inputs.items() if name != TIMELINE}
+    if len(recordings) != 1:
+        raise JobError(f"the job has {len(recordings)} recordings: send just one, or name it in params.input")
+    return next(iter(recordings.items()))
 
 
 def pick_writers(outputs):
