@@ -94,6 +94,8 @@ spec:
               value: "" # OVERLAY: The cluster's pod CIDR. Empty, every visitor shares the ingress's rate limit.
             - name: TIDE_DEV_MODE
               value: "false"
+            - name: TIDE_MOIL
+              value: "false" # OVERLAY: With the recording component, "true" runs transcripts through moil (alpha); see docs/DEPLOYMENT.md.
           # Every meeting's media passes through this container.
           resources:
             requests:

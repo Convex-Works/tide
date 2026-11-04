@@ -7,7 +7,7 @@ chat or a screen share.
 tide doesn't ship an agent, and nothing here runs on the server. You write the
 program, or configure one, and it runs wherever you run it. tide gives it a
 token and shows everyone it's there. There are no API keys: the room's owner
-asks for each session.
+asks for each session. Agents don't need recording or moil.
 
 **Agent code sees whatever is said in the meeting.** Read
 [Prompt injection](#prompt-injection) before you connect one to a model.

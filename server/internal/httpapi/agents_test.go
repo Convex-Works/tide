@@ -28,7 +28,7 @@ const agentRoomSlug = "calm-otter-412"
 func signedInAgents(t *testing.T, configure func(*config.Config)) *tideServer {
 	t.Helper()
 	k := startTide(t, func(cfg *config.Config, _ *http.Server) {
-		cfg.Recording = false
+		cfg.Recording, cfg.Moil = false, false
 		cfg.LiveKitPublicURL = "ws://public.example"
 		cfg.JoinRateLimit = 100
 		behindProxy(cfg)

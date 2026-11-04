@@ -104,8 +104,8 @@
   const slug = $derived(page.params.slug ?? '');
   // The transcript column only earns its width once a recording has one:
   // hosts without a machine never see transcripts (ARCHITECTURE.md §8.1).
-  // Every transcript control hangs off `recording.transcript`, so they all
-  // go with it.
+  // Every transcript control hangs off `recording.transcript`, which a
+  // server with moil off never sends, so they all go with it.
   const rowGrid = $derived(
     recordings.some((recording) => recording.transcript)
       ? 'grid-cols-[max-content_minmax(0,1fr)_auto] sm:grid-cols-[max-content_minmax(0,1fr)_56px_64px_auto] lg:grid-cols-[max-content_minmax(0,1fr)_56px_64px_248px_auto]'

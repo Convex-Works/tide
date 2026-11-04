@@ -1,21 +1,19 @@
 import { expect, test, type Page } from '@playwright/test';
-import { MachinesPath, PairingPath, RoomRecordingsPath } from '../src/lib/api/types.gen';
+import { RoomRecordingsPath } from '../src/lib/api/types.gen';
 import { fakeSfu, fakeSfuLaunchArgs } from './fake-sfu';
-import { defaultState, machine, mockApi, recording } from './mock-api';
+import { defaultState, mockApi, recording } from './mock-api';
 
 // A signed-in server without object storage (ARCHITECTURE.md §8): /api/me
-// says `recording: false`, the recording routes 404, and with them the
-// machine, pairing and transcript routes that follow recording (§8.1), and
-// the SPA offers no way to any of them. Against the Vite dev server with the
-// API mocked in the browser.
+// says `recording: false`, the recording routes 404, and the SPA offers no
+// way to them. Against the Vite dev server with the API mocked in the browser.
 
 test.use({ launchOptions: { args: fakeSfuLaunchArgs } });
 
 function recordingOff() {
   const state = defaultState();
   state.me.recording = false;
+  state.me.moil = false;
   // What the server kept from when recording was on: still there, never sent.
-  state.machines.machines = [machine()];
   state.recordings = [recording('kept', undefined)];
   return state;
 }
@@ -63,43 +61,6 @@ test('a room has no recordings section and asks for none', async ({ page }) => {
   await expect(page.getByText('Removes the room and its link.', { exact: false })).toBeVisible();
   await expect(page.getByText(/recording/i)).toHaveCount(0);
   expect(api.count('GET', RoomRecordingsPath.replace('{slug}', 'standup'))).toBe(0);
-});
-
-test('the dashboard has no Machines link', async ({ page }) => {
-  await mockApi(page, recordingOff());
-  await page.goto('/');
-  await expect(page.getByTestId('room-card')).toBeVisible();
-  await expect(page.getByText('Ada Host')).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Machines' })).toHaveCount(0);
-});
-
-test('/machines says transcripts are not enabled, and asks for no machines', async ({ page }) => {
-  const api = await mockApi(page, recordingOff());
-  await page.goto('/machines');
-  await expect(
-    page.getByRole('heading', { name: "Transcripts aren't enabled on this server" })
-  ).toBeVisible();
-  await expect(page.getByRole('alert')).toHaveCount(0);
-  await expect(page.getByRole('link', { name: 'Add a machine' })).toHaveCount(0);
-  expect(api.count('GET', MachinesPath)).toBe(0);
-});
-
-test('a pairing link shows the same, and looks up no code', async ({ page }) => {
-  const api = await mockApi(page, recordingOff());
-  await page.goto('/machines?code=WDJB-MJHT');
-  await expect(
-    page.getByRole('heading', { name: "Transcripts aren't enabled on this server" })
-  ).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Pair' })).toHaveCount(0);
-  expect(api.calls.filter((call) => call.path.startsWith(PairingPath.split('{')[0]))).toEqual([]);
-});
-
-test('the same dashboard with recording on links to Machines', async ({ page }) => {
-  const state = recordingOff();
-  state.me.recording = true;
-  await mockApi(page, state);
-  await page.goto('/');
-  await expect(page.getByRole('link', { name: 'Machines' })).toBeVisible();
 });
 
 test('the same room with recording on lists its recordings', async ({ page }) => {

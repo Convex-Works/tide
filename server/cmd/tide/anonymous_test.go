@@ -78,7 +78,7 @@ func TestAnonymousTideForgetsEverythingAtRestart(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &me); response.StatusCode != http.StatusOK || err != nil {
 		t.Fatalf("/api/me = %d %s", response.StatusCode, body)
 	}
-	if !me.Anonymous || me.Recording || !strings.HasPrefix(me.Sub, "anon:") {
+	if !me.Anonymous || me.Recording || me.Moil || !strings.HasPrefix(me.Sub, "anon:") {
 		t.Fatalf("/api/me = %+v", me)
 	}
 	var cookie *http.Cookie

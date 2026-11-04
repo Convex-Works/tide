@@ -20,11 +20,13 @@ Configuration decides what a deployment is:
 | --------------------------------------- | --------------------------------------------------------- | ----------------------- | -------------------------------- |
 | nothing                                 | **Anonymous**: anyone creates rooms; rooms live in memory | tide                    | TLS in front                     |
 | `TIDE_OIDC_ISSUER`                      | **Signed in**: hosts sign in, rooms persist in SQLite     | tide                    | TLS, an OIDC issuer, a disk      |
-| `TIDE_OIDC_ISSUER` + `TIDE_S3_ENDPOINT` | **Signed in with recording** and transcripts              | tide + recorder + Redis | TLS, an OIDC issuer, a disk, S3  |
+| `TIDE_OIDC_ISSUER` + `TIDE_S3_ENDPOINT` | **Signed in with recording**                              | tide + recorder + Redis | TLS, an OIDC issuer, a disk, S3  |
+| … + `TIDE_MOIL=true`             | **… with transcripts** made on hosts' own computers       | tide + recorder + Redis | as above; hosts run the moil app |
 
-tide refuses to start rather than guess: S3 without sign-in, user or
-administrator groups without sign-in, a missing or weak secret, or an
-unparseable address or port stop it with a message naming every problem. A variable set to the empty string counts as unset. tide logs
+tide refuses to start rather than guess: S3 without sign-in, transcripts
+without recording, user or administrator groups without sign-in, a missing or
+weak secret, or an unparseable address or port stop it with a message naming
+every problem. A variable set to the empty string counts as unset. tide logs
 its mode in one line at startup, for example `tide: anonymous, media server
 embedded (node IP discovered), recording off`.
 
@@ -399,7 +401,7 @@ controller on host networking, use the nodes' addresses instead.
 
 The ingress has one host and one route, to the `tide` Service on 8080. It
 must pass WebSocket upgrades (signaling is a GET with `Upgrade` on `/rtc`, and
-`/moil/v1/connect` with recording on) and keep long-lived connections: with
+`/moil/v1/connect` with `TIDE_MOIL=true`) and keep long-lived connections: with
 ingress-nginx, set `proxy-read-timeout` and `proxy-send-timeout` to `3600`.
 
 Render and check an overlay before applying it:
@@ -484,7 +486,7 @@ or equal to a value shipped in this repository refuses startup.
 | `TIDE_MEDIA_URL`               | empty: embedded                        | An external media server as tide reaches it. Set only to keep the pre-1.0 topology ([External media server](#external-media-server)).                                                                                                                             |
 | `TIDE_MEDIA_PUBLIC_URL`        | the base URL's origin, `ws`/`wss`      | The signaling URL browsers get. Leave unset with the embedded media server; required with `TIDE_MEDIA_URL`.                                                                                                                                                       |
 | `TIDE_S3_ENDPOINT`             | empty: no recording                    | Turns recording on; needs sign-in. The S3 endpoint as tide reaches it.                                                                                                                                                                                            |
-| `TIDE_S3_PUBLIC_ENDPOINT`      | `TIDE_S3_ENDPOINT`                     | The endpoint browsers download from and hosts' machines use; it is in every presigned URL. HTTPS for transcripts.                                                                                                                                                 |
+| `TIDE_S3_PUBLIC_ENDPOINT`      | `TIDE_S3_ENDPOINT`                     | The endpoint browsers download from and hosts' machines use; it is in every presigned URL. With `TIDE_MOIL=true`, HTTPS.                                                                                                                                   |
 | `TIDE_S3_RECORDER_ENDPOINT`    | `TIDE_S3_ENDPOINT`                     | The endpoint the recorder uploads to. tide sends it with every recording.                                                                                                                                                                                         |
 | `TIDE_S3_BUCKET`               | `tide-recordings`                      | An existing bucket. Recordings go under `recordings/<room>/<recording-id>/`.                                                                                                                                                                                      |
 | `TIDE_S3_REGION`               | `us-east-1`                            | S3 signing region.                                                                                                                                                                                                                                                |
@@ -498,14 +500,15 @@ or equal to a value shipped in this repository refuses startup.
 | `TIDE_JOIN_RATE_LIMIT`         | `10`                                   | Joins per client per minute. Also sizes, in buckets of their own, room lookups and, when anonymous, room creation.                                                                                                                                                |
 | `TIDE_WAIT_RATE_LIMIT`         | `20`                                   | Lobby wait streams per client per minute.                                                                                                                                                                                                                         |
 | `TIDE_LOGIN_RATE_LIMIT`        | `10`                                   | Sign-in redirects per client per minute; when anonymous, new anonymous sessions.                                                                                                                                                                                  |
-| `TIDE_PAIR_RATE_LIMIT`         | `10`                                   | With recording, machines starting a moil pairing (`POST /moil/v1/pair`) per client per minute.                                                                                                                                                                    |
+| `TIDE_PAIR_RATE_LIMIT`         | `10`                                   | With transcripts, machines starting a moil pairing (`POST /moil/v1/pair`) per client per minute.                                                                                                                                                                  |
+| `TIDE_MOIL`                    | `false`                                | Turns on the moil integration: machine pairing and transcripts ([Serve transcripts](#serve-transcripts)). Needs recording. Read with `strconv.ParseBool`; anything else means off.                                                                                                      |
 
 Rate limits count an IPv6 client by its /56 and an IPv4 client by its
 address; both come from `X-Forwarded-For` only through `TIDE_TRUSTED_PROXIES`.
 Anonymous sessions cost nothing to make, so when anonymous, room lookups count
 them per client address as they do guests, and room creation is also capped
-at 10,000 rooms in all (503 past that). With recording on, pairing codes
-have fixed limits: a signed-in host may look up, confirm and
+at 10,000 rooms in all (503 past that). With `TIDE_MOIL=true`,
+pairing codes have fixed limits: a signed-in host may look up, confirm and
 deny 20 a minute, and a client address 60. `POST /moil/v1/pair` takes only
 `Content-Type: application/json`, which the moil app sends; a proxy or WAF in
 front of tide must pass it through.
@@ -567,28 +570,23 @@ S3 answers 403 rather than 404 for an object that isn't there.
 
 ## Serve transcripts
 
-Transcripts follow recording, and have no setting of their own. Every
-deployment with recording serves `/moil/`, including the unauthenticated
-`POST /moil/v1/pair`, and there is no way to turn that off. Pairing a machine
-is each host's own choice, and nothing runs on a host's computer until they
-do.
+Transcripts need recording and the moil integration, which is off unless
+`TIDE_MOIL=true`. Off, tide serves no `/moil/` routes and no machine, pairing
+or transcript API, keeps no timeline of who spoke, and the app hides `/machines` and every transcript control; machines and
+transcripts already recorded stay in the database for when it is turned back
+on, and deleting a recording still removes its transcript files.
 
-Without recording, tide serves no `/moil/` routes and no machine, pairing or
-transcript API, and the app hides `/machines` and every transcript control;
-machines and transcripts already recorded stay in the database for when
-recording is turned back on, and the files of a room deleted meanwhile are
-removed then.
-
-Turning recording back on after a while off is not a resume. A transcript
+Turning transcripts back on after a while off is not a resume. A transcript
 waiting for a machine fails after 14 days counted from when it was requested,
 time off included, so the ones older than that fail at once; a host can
-request them again. And completed recordings without a transcript get one
-queued on the first pass, when their room's owner had a machine paired by
-then, so those hosts' machines start on that backlog.
+request them again. And the recordings that completed while transcripts were
+off get transcripts queued on the first pass, when their room's owner had a
+machine paired by then, so those hosts' machines start on that backlog. Those
+transcripts label speakers `Speaker 1`, `Speaker 2`, because no timeline was kept.
 
 Transcripts need nothing deployed: they run on computers hosts pair through the
 moil app (Architecture §8.1). tide serves the machines' side of moil on its
-own origin, under `/moil/`. For them to work, these must hold:
+own origin, under `/moil/`. With `TIDE_MOIL=true`, these must hold:
 
 - The proxy or ingress passes WebSocket upgrades on `/moil/v1/connect`, as it
   already must for `/rtc`. Each machine keeps one connection open for as long
@@ -702,7 +700,7 @@ meetings](#restarts-end-meetings)).
 
 On SIGTERM tide stops taking connections, ends lobby streams at once (lobby
 requests live in memory, so waiting guests ask again), and gives requests in
-flight 10 seconds. With recording on it then disconnects paired
+flight 10 seconds. With `TIDE_MOIL=true` it then disconnects paired
 machines, saving what they last reported; they reconnect to the new process,
 which starts their unfinished transcript jobs again. It then stops the media
 server, ending every meeting, and closes the database last. That takes up to about 15 seconds, well within Kubernetes' default
@@ -713,6 +711,12 @@ Database initialization and additive migrations run synchronously when tide
 opens the store, before it listens. Wait for `/healthz` and inspect the startup
 log, including its mode line. Treat database changes as forward migrations;
 verify release notes and restore procedure before rolling back an image.
+
+`TIDE_MOIL` replaces `TIDE_TRANSCRIPTS`, and tide ignores the old name. An
+install that uses transcripts must set `TIDE_MOIL=true` when it upgrades;
+otherwise transcripts and machine pairing turn off, and machines can't connect
+until it is set. Nothing is lost meanwhile (see
+[Serve transcripts](#serve-transcripts)).
 
 ### Upgrading to the one-binary release
 

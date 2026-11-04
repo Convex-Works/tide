@@ -65,6 +65,10 @@ type Config struct {
 	// PairRateLimit bounds machines starting a moil pairing, the one moil
 	// endpoint that takes no credentials.
 	PairRateLimit int
+	// Moil turns on the moil integration: machine pairing, transcripts and
+	// the speaker timeline they use (TIDE_MOIL, ARCHITECTURE.md §8.1). Off by
+	// default: moil is alpha, so an operator opts in. It needs Recording.
+	Moil bool
 
 	// Anonymous is true when TIDE_OIDC_ISSUER is unset or empty: there is no
 	// sign-in, anyone may create a room and owns it through an anonymous
@@ -73,8 +77,7 @@ type Config struct {
 	Anonymous bool
 	// Recording is true when hosts sign in and TIDE_S3_ENDPOINT is set
 	// (ARCHITECTURE.md §8). Without it there is no recorder, no object
-	// storage, and no recording route. Transcripts and machine pairing
-	// through moil follow it (§8.1).
+	// storage, and no recording route.
 	Recording bool
 
 	// MediaEmbedded is true when TIDE_MEDIA_URL is unset or empty: tide runs
@@ -163,6 +166,7 @@ func Load() (Config, error) {
 		WaitRateLimit:     envPositiveInt("TIDE_WAIT_RATE_LIMIT", DefaultWaitRateLimit),
 		LoginRateLimit:    envPositiveInt("TIDE_LOGIN_RATE_LIMIT", DefaultLoginRateLimit),
 		PairRateLimit:     envPositiveInt("TIDE_PAIR_RATE_LIMIT", DefaultPairRateLimit),
+		Moil:              envBool("TIDE_MOIL", false),
 	}
 	var problems []string
 	if dev && !localHost(baseURL) {
@@ -208,6 +212,10 @@ func Load() (Config, error) {
 			cfg.S3AccessKey = secret("TIDE_S3_ACCESS_KEY", devS3AccessKey)
 			cfg.S3SecretKey = secret("TIDE_S3_SECRET_KEY", devS3SecretKey)
 		}
+	}
+	if cfg.Moil && !cfg.Recording {
+		problems = append(problems,
+			"TIDE_MOIL=true needs recording (TIDE_OIDC_ISSUER and TIDE_S3_ENDPOINT)")
 	}
 
 	// The media server: embedded unless TIDE_MEDIA_URL names one (§2.1).
@@ -299,6 +307,9 @@ func (c Config) Summary() string {
 		parts = append(parts, "recording on")
 	} else {
 		parts = append(parts, "recording off")
+	}
+	if c.Moil {
+		parts = append(parts, "moil on")
 	}
 	return strings.Join(parts, ", ")
 }

@@ -336,14 +336,20 @@ func TestStartStartsAnObserverOnceEgressHasStarted(t *testing.T) {
 	})
 }
 
-// Recording off means no observers at all (ARCHITECTURE.md §8).
-func TestObserversFollowRecording(t *testing.T) {
-	if handler := New(config.Config{}, nil, nil); handler.speakers != nil {
+// Only transcripts read the timeline, so observers need recording and moil
+// (ARCHITECTURE.md §8).
+func TestObserversNeedRecordingAndMoil(t *testing.T) {
+	if handler := New(config.Config{Moil: true}, nil, nil); handler.speakers != nil {
 		t.Fatal("there are observers with recording off")
 	}
-	handler := New(config.Config{S3Endpoint: "http://s3.example"}, nil, NewMinIOStore(config.Config{S3Endpoint: "http://s3.example"}))
+	storage := config.Config{S3Endpoint: "http://s3.example"}
+	if handler := New(storage, nil, NewMinIOStore(storage)); handler.speakers != nil {
+		t.Fatal("there are observers with moil off")
+	}
+	storage.Moil = true
+	handler := New(storage, nil, NewMinIOStore(storage))
 	if handler.speakers == nil {
-		t.Fatal("there are no observers with recording on")
+		t.Fatal("there are no observers with recording and moil on")
 	}
 	handler.CloseObservers()
 }

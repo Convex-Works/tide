@@ -18,6 +18,7 @@ function anonymous(): ApiState {
     sub: 'anon:abcdefghijklmnopqrstuvwxyz',
     email: '',
     name: '',
+    moil: false,
     recording: false,
     anonymous: true
   };

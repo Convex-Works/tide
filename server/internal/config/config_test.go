@@ -21,6 +21,7 @@ func clearTideEnv(t *testing.T) {
 		"TIDE_RECORDER_REDIS_ADDR", "TIDE_RECORDER_REDIS_PASSWORD",
 		"TIDE_TRUSTED_PROXIES", "TIDE_DEV_MODE", "TIDE_JOIN_RATE_LIMIT",
 		"TIDE_WAIT_RATE_LIMIT", "TIDE_LOGIN_RATE_LIMIT", "TIDE_PAIR_RATE_LIMIT",
+		"TIDE_MOIL",
 	} {
 		// t.Setenv registers restoration of the original value; the explicit
 		// Unsetenv afterwards gives LookupEnv-miss semantics during the test.
@@ -102,9 +103,9 @@ func loadErr(t *testing.T, env map[string]string) string {
 // embedded, on localhost: everything it needs is made up for this start.
 func TestLoadEmptyEnvironmentIsAnonymousAndEmbedded(t *testing.T) {
 	cfg := load(t, nil)
-	if !cfg.Anonymous || cfg.Recording || !cfg.MediaEmbedded || cfg.DevMode {
-		t.Fatalf("modes = anonymous %v, recording %v, embedded %v, dev %v",
-			cfg.Anonymous, cfg.Recording, cfg.MediaEmbedded, cfg.DevMode)
+	if !cfg.Anonymous || cfg.Recording || cfg.Moil || !cfg.MediaEmbedded || cfg.DevMode {
+		t.Fatalf("modes = anonymous %v, recording %v, transcripts %v, embedded %v, dev %v",
+			cfg.Anonymous, cfg.Recording, cfg.Moil, cfg.MediaEmbedded, cfg.DevMode)
 	}
 	if cfg.DBPath != ":memory:" {
 		t.Fatalf("DBPath = %q, want :memory:", cfg.DBPath)
@@ -147,7 +148,7 @@ func TestLoadEmptyValuesAreUnset(t *testing.T) {
 		"TIDE_S3_PUBLIC_ENDPOINT", "TIDE_S3_RECORDER_ENDPOINT", "TIDE_S3_BUCKET", "TIDE_S3_REGION",
 		"TIDE_RECORDER_TEMPLATE_URL", "TIDE_RECORDER_REDIS_ADDR", "TIDE_TRUSTED_PROXIES",
 		"TIDE_JOIN_RATE_LIMIT", "TIDE_WAIT_RATE_LIMIT", "TIDE_LOGIN_RATE_LIMIT", "TIDE_PAIR_RATE_LIMIT",
-		"TIDE_DEV_MODE",
+		"TIDE_MOIL", "TIDE_DEV_MODE",
 	} {
 		empty[name] = " "
 	}
@@ -160,7 +161,7 @@ func TestLoadEmptyValuesAreUnset(t *testing.T) {
 	}
 	if cfg.Addr != ":8080" || cfg.BaseURL != "http://localhost:8080" || cfg.LiveKitPublicURL != "ws://localhost:8080" ||
 		cfg.MediaNodeIP != "" || cfg.MediaInternalPort != 7880 || cfg.MediaTCPPort != 7881 || cfg.MediaUDPPort != 7882 ||
-		len(cfg.TrustedProxies) != 0 || cfg.JoinRateLimit != DefaultJoinRateLimit || cfg.DevMode {
+		len(cfg.TrustedProxies) != 0 || cfg.JoinRateLimit != DefaultJoinRateLimit || cfg.DevMode || cfg.Moil {
 		t.Fatalf("anonymous defaults = %+v", cfg)
 	}
 
@@ -301,9 +302,13 @@ func TestLoadRecordingWithEmbeddedMedia(t *testing.T) {
 		"TIDE_S3_PUBLIC_ENDPOINT":   "https://files.example.com",
 		"TIDE_S3_RECORDER_ENDPOINT": "http://minio:9000",
 		"TIDE_RECORDER_REDIS_ADDR":  "redis:6379",
+		"TIDE_MOIL":                 "true",
 	}))
 	if cfg.S3PublicEndpoint != "https://files.example.com" || cfg.S3EgressEndpoint != "http://minio:9000" || cfg.RecorderRedisAddr != "redis:6379" {
 		t.Fatalf("S3 views %q, %q, redis %q", cfg.S3PublicEndpoint, cfg.S3EgressEndpoint, cfg.RecorderRedisAddr)
+	}
+	if !cfg.Moil || !strings.HasSuffix(cfg.Summary(), "recording on, moil on") {
+		t.Fatalf("moil %v, summary %q", cfg.Moil, cfg.Summary())
 	}
 }
 
@@ -334,6 +339,10 @@ func TestLoadRefusesContradictions(t *testing.T) {
 	}{
 		{"storage without sign-in", storage,
 			[]string{"TIDE_S3_ENDPOINT is set but sign-in is off: recording needs TIDE_OIDC_ISSUER"}},
+		{"transcripts without sign-in", map[string]string{"TIDE_MOIL": "true"},
+			[]string{"TIDE_MOIL=true needs recording"}},
+		{"transcripts without storage", merge(signedIn, map[string]string{"TIDE_MOIL": "1"}),
+			[]string{"TIDE_MOIL=true needs recording"}},
 		{"external media without its public URL", merge(external, map[string]string{"TIDE_MEDIA_PUBLIC_URL": ""}),
 			[]string{"TIDE_MEDIA_PUBLIC_URL must be set with an external media server"}},
 		{"a node IP that isn't one", map[string]string{"TIDE_MEDIA_NODE_IP": "meet.example.com"},
@@ -357,8 +366,8 @@ func TestLoadRefusesContradictions(t *testing.T) {
 		{"a trusted proxy that isn't one", map[string]string{"TIDE_TRUSTED_PROXIES": "10.0.0.0/33"},
 			[]string{"TIDE_TRUSTED_PROXIES: invalid CIDR"}},
 		// Every problem at once, structure and secrets alike.
-		{"several", merge(map[string]string{"TIDE_MEDIA_NODE_IP": "x"}, storage),
-			[]string{"TIDE_S3_ENDPOINT is set but sign-in is off", `TIDE_MEDIA_NODE_IP "x"`}},
+		{"several", merge(map[string]string{"TIDE_MOIL": "true", "TIDE_MEDIA_NODE_IP": "x"}, storage),
+			[]string{"TIDE_S3_ENDPOINT is set but sign-in is off", "TIDE_MOIL=true needs recording", `TIDE_MEDIA_NODE_IP "x"`}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			message := loadErr(t, test.env)
@@ -528,6 +537,28 @@ func TestLoadRateLimits(t *testing.T) {
 			cfg := load(t, map[string]string{"TIDE_JOIN_RATE_LIMIT": value})
 			if cfg.JoinRateLimit != DefaultJoinRateLimit {
 				t.Fatalf("JoinRateLimit = %d, want default", cfg.JoinRateLimit)
+			}
+		})
+	}
+}
+
+// Transcripts are off unless the operator turns them on, and a value
+// strconv.ParseBool can't read means off rather than refusing to start.
+func TestLoadTranscriptsSwitch(t *testing.T) {
+	for _, test := range []struct {
+		value string // "" leaves it unset
+		want  bool
+	}{
+		{"", false}, {"true", true}, {"1", true}, {"TRUE", true},
+		{"false", false}, {"0", false}, {"yes", false}, {"on", false},
+	} {
+		t.Run("TIDE_MOIL="+test.value, func(t *testing.T) {
+			env := merge(signedIn, storage, recorder)
+			if test.value != "" {
+				env["TIDE_MOIL"] = test.value
+			}
+			if cfg := load(t, env); cfg.Moil != test.want {
+				t.Fatalf("Moil = %v, want %v", cfg.Moil, test.want)
 			}
 		})
 	}

@@ -21,21 +21,22 @@ import (
 	"tide/internal/transcripts"
 )
 
-// transcriptsFeature is everything that follows recording for transcripts
+// transcriptsFeature is everything TIDE_MOIL turns on
 // (ARCHITECTURE.md §8.1): the moil server machines connect to, the
 // transcripts service and its reconciler, the machines and pairing routes,
-// and the transcript routes. New builds one only with recording on; a nil
-// *transcriptsFeature is tide without transcripts, and its methods do
+// and the transcript routes. New builds one only when the switch is on; a
+// nil *transcriptsFeature is tide without transcripts, and its methods do
 // nothing.
 //
-// Deleting a recording or a room queues the recording's transcript files
-// with the rest (store's Recording.ObjectKeys names them), and the recording
-// reconciler removes every queued key when it is due, transcripts-staging/
-// keys included. With recording off none of that runs: the keys wait in the
-// queue, and the machines and transcripts rows stay. Turning recording back
-// on is not a pause ending (ARCHITECTURE.md §8.1): pending rows' 14 days
-// count from their request, so the old ones fail on the first pass, and that
-// pass adds rows for recordings with no row yet.
+// With it off, nothing else changes: deleting a recording or a room still
+// queues and removes the recording's transcript files (store's
+// Recording.ObjectKeys names them), and the recording reconciler, which
+// always runs, removes every queued key when it is due, including the
+// transcripts-staging/ keys Prepare queued while transcripts were on. The
+// machines and transcripts rows stay. Turning it back on is not a pause
+// ending (ARCHITECTURE.md §8.1): pending rows' 14 days count from their
+// request, so the old ones fail on the first pass, and that pass adds rows
+// for the recordings that completed while it was off.
 type transcriptsFeature struct {
 	moil     *moil.Server
 	service  *transcripts.Service
@@ -83,6 +84,9 @@ func newTranscriptsFeature(cfg config.Config, db *store.Store, objects transcrip
 		pairLimiter: newRateLimiter(orDefault(cfg.PairRateLimit, config.DefaultPairRateLimit), time.Minute),
 	}, nil
 }
+
+// enabled reports whether transcripts are on, for /api/me.
+func (f *transcriptsFeature) enabled() bool { return f != nil }
 
 // attach has recordings report their transcripts, and nudges the
 // reconciler when a recording ends or is deleted, or a room is.

@@ -148,6 +148,7 @@ export function defaultState(): ApiState {
       sub: 'host',
       email: 'host@tide.dev',
       name: 'Ada Host',
+      moil: true,
       recording: true,
       anonymous: false
     },
@@ -369,8 +370,25 @@ export async function mockApi(page: Page, state: ApiState = defaultState()): Pro
       RecordingStopPath,
       RoomRecordingsPath,
       RecordingPath,
-      RecordingDownloadPath,
-      // Transcripts and machines follow recording.
+      RecordingDownloadPath
+    ];
+    if (!state.me.recording && recordingRoutes.some((template) => match(template, path))) {
+      return json(404, { error: 'API route not found.' });
+    }
+
+    const slug = match(RoomRecordingsPath, path);
+    if (method === 'GET' && slug) {
+      const listed = state.recordings.filter((item) => item.room_slug === slug[0]);
+      // With moil off the server never fills a recording's transcript.
+      return json(
+        200,
+        state.me.moil ? listed : listed.map((item) => ({ ...item, transcript: wireNull }))
+      );
+    }
+
+    // With moil off (TIDE_MOIL) the server registers none of
+    // these routes, so each is the API's catch-all 404, whatever the method.
+    const transcriptRoutes = [
       MachinesPath,
       MachinePath,
       PairingPath,
@@ -379,16 +397,8 @@ export async function mockApi(page: Page, state: ApiState = defaultState()): Pro
       RecordingTranscriptPath,
       RecordingTranscriptDownloadPath
     ];
-    if (!state.me.recording && recordingRoutes.some((template) => match(template, path))) {
+    if (!state.me.moil && transcriptRoutes.some((template) => match(template, path))) {
       return json(404, { error: 'API route not found.' });
-    }
-
-    const slug = match(RoomRecordingsPath, path);
-    if (method === 'GET' && slug) {
-      return json(
-        200,
-        state.recordings.filter((item) => item.room_slug === slug[0])
-      );
     }
 
     const transcriptFor = match(RecordingTranscriptPath, path);

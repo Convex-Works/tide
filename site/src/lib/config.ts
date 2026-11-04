@@ -229,6 +229,17 @@ export const envGroups: EnvGroup[] = [
         description: 'Machine pairings for each client in a minute.'
       }
     ]
+  },
+  {
+    title: 'Transcripts',
+    vars: [
+      {
+        name: 'TIDE_MOIL',
+        default: 'false',
+        description:
+          'Turns on machine pairing and [transcripts](/docs#transcripts) through moil. Needs recording.'
+      }
+    ]
   }
 ];
 

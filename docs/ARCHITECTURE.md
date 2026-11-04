@@ -91,10 +91,12 @@ could contradict it:
 |---|---|---|
 | no `TIDE_OIDC_ISSUER` | **Anonymous**: anyone creates rooms, rooms live in memory, no recording (§4.1) | tide |
 | `TIDE_OIDC_ISSUER` | **Signed-in**: hosts sign in, rooms persist in SQLite, no recording | tide |
-| `TIDE_OIDC_ISSUER` + `TIDE_S3_ENDPOINT` | **Signed-in with recording** (§8), and transcripts on owners' machines once a host pairs one (§8.1) | tide + recorder + Redis |
+| `TIDE_OIDC_ISSUER` + `TIDE_S3_ENDPOINT` | **Signed-in with recording** (§8) | tide + recorder + Redis |
+| … + `TIDE_MOIL=true` | **… with transcripts** on owners' machines (§8.1) | tide + recorder + Redis |
 
-tide refuses to start rather than guess: S3 without sign-in, or a recorder
-that would lack fixed keys or a Redis password are configuration errors (§12).
+tide refuses to start rather than guess: S3 without sign-in, transcripts
+without recording, or a recorder that would lack fixed keys or a Redis
+password are configuration errors (§12).
 
 **The media server runs inside tide** unless `TIDE_MEDIA_URL` names an
 external one, which keeps the pre-1.0 four-process topology working
@@ -299,7 +301,7 @@ on the server, and capabilities still travel only in tokens tide mints.
   some. Many addresses are cheap (an IPv6 /48 is 256 of the /56s the
   limits count), so only a ceiling bounds memory.
 - **No recording, transcripts or machines.** Those routes answer 404 and
-  `/api/me` reports `anonymous: true, recording: false`.
+  `/api/me` reports `anonymous: true, recording: false, moil: false`.
   The SPA shows the same dashboard (this browser's rooms and **New**) with no
   account and no sign-out, since signing out would only orphan this browser's
   rooms.
@@ -440,7 +442,8 @@ Stop on: explicit stop, room emptying (LiveKit auto-ends the egress), or
 egress failure (status `failed`, surfaced in management UI — never silent).
 
 **Who spoke when.** Each recording has one observer (`internal/speakers`), so
-that its transcript can name its speakers (§8.1). It is tide itself in the
+that its transcript can name its speakers (§8.1). With `TIDE_MOIL` off there
+is no observer and no timeline, since nothing would read it. It is tide itself in the
 room: once `StartRoomCompositeEgress` has succeeded it connects over the
 loopback API in the background, as `observer:<recording-id>`, with the observer
 role of §4 (hidden, publishes nothing, kind `AGENT`, so it doesn't hold the
@@ -488,30 +491,27 @@ owner** paired with tide — never on the server, and never on anyone else's
 machine. The owner can already download the recording, so transcription adds
 no new reader of the audio.
 
-**It follows recording.** There is no switch of its own: every deployment with
-recording (§2.1) serves transcripts, and pairing a machine is each host's own
-opt-in. moil is alpha (macOS only, unsigned, no sandbox), so nothing runs on a
-host's computer until they pair it and approve the bundle.
-
-Without recording, tide starts no moil server and no transcript reconciler,
-and registers none of the machine, pairing, transcript or `/moil/` routes
-(they answer 404 like any unknown path). `/api/me` reports `recording: false`,
-so the SPA hides `/machines` and every transcript control. Nothing is deleted:
+**Off unless the operator turns it on.** moil is alpha (macOS only, unsigned,
+no sandbox), so the integration is behind `TIDE_MOIL` (§12), default
+`false`. When it is off, tide starts no moil server, no transcript reconciler
+and no speaker observer, registers none of the machine, pairing, transcript or
+`/moil/` routes (they answer 404 like any unknown path), never fills
+`RecordingInfo.transcript`, and reports `moil: false` on `/api/me` so
+the SPA hides `/machines` and every transcript control. Nothing is deleted:
 the `machines` and `transcripts` rows stay as they are, and paired machines
-stay paired. Turning recording back on does not pick up exactly where it
-stopped, because time kept passing:
+stay paired. Turning it back on does not pick up exactly where it stopped,
+because time kept passing and recordings kept ending:
 
 - A `pending` row's 14 days (below) count from its request, not from the
-  time recording was on, so a row older than that fails on the first pass
+  time transcripts were on, so a row older than that fails on the first pass
   as having waited too long. A host can request it again.
-- The first pass creates `pending` rows for completed recordings that have
-  none, when their room's owner had a machine paired by the time each ended
-  (step 1 below), so those owners' machines get that backlog.
+- The first pass creates `pending` rows for the recordings that completed
+  while it was off, when their room's owner had a machine paired by the time
+  each ended (step 1 below), so those owners' machines get that backlog.
 
-Deleting a room while recording is off queues its recordings' files,
-transcripts included (`object_removals`, below), and they are removed once
-recording is back, so no object outlives its recording. Everything below
-describes tide with recording on.
+Deleting a recording or room while it is off still removes that recording's
+transcript files (`object_removals`, below), so no object outlives its
+recording. Everything below describes tide with it on.
 
 **Machines.** A signed-in host pairs a computer running the moil app with
 moil's device flow (RFC 8628): the app shows a code and opens
@@ -927,6 +927,7 @@ TIDE_RECORDER_REDIS_ADDR=127.0.0.1:6379  TIDE_RECORDER_REDIS_PASSWORD=…
 TIDE_TRUSTED_PROXIES=…          TIDE_DEV_MODE=false
 TIDE_JOIN_RATE_LIMIT=10         TIDE_WAIT_RATE_LIMIT=20
 TIDE_LOGIN_RATE_LIMIT=10        TIDE_PAIR_RATE_LIMIT=10
+TIDE_MOIL=false
 ```
 
 **Every variable is optional.** `tide` with an empty environment is an
@@ -947,8 +948,8 @@ whole:
   requires `TIDE_MEDIA_API_KEY`, `TIDE_MEDIA_API_SECRET` (at least 32
   characters) and `TIDE_RECORDER_REDIS_PASSWORD` (at least 32), which the
   recorder is configured with too, and `TIDE_RECORDER_REDIS_ADDR` names the
-  Redis they share (`host:port`, a name or an address). Transcripts and
-  machine pairing come with it (§8.1) and have no setting of their own.
+  Redis they share (`host:port`, a name or an address).
+- **moil**: `TIDE_MOIL=true` needs recording.
 - **Media server**: embedded unless `TIDE_MEDIA_URL` is non-empty. Embedded,
   the token's `ws_url` is the base URL's origin with `ws`/`wss` (so
   `TIDE_MEDIA_PUBLIC_URL` is normally unset, though it wins when set), the
@@ -961,7 +962,8 @@ whole:
 
 A variable set to the empty string is unset, for every variable: it takes its
 default. tide refuses to start, naming every problem at once, on anything
-else: S3 without sign-in, user or administrator groups without sign-in (a missing issuer must not quietly open
+else: S3 without sign-in, transcripts without recording, user or
+administrator groups without sign-in (a missing issuer must not quietly open
 a deployment that meant to restrict who hosts), a required secret missing,
 short, or equal to a shipped dev value, an unparseable IP or port, the media
 API and TCP ports equal. It logs
@@ -973,6 +975,11 @@ left unset, and exposes `/api/dev/token`. It turns nothing else on: the dev
 stack (§13) sets `TIDE_OIDC_ISSUER` and `TIDE_S3_ENDPOINT` itself. It refuses
 a `TIDE_BASE_URL` that may be public: the host must be localhost, a loopback,
 private or link-local address, or a one-label name like a Compose service.
+
+`TIDE_MOIL` turns on the moil integration: machine pairing, transcripts and
+the speaker observer (§8.1). Like `TIDE_DEV_MODE` it is read with
+`strconv.ParseBool`, and a value it can't parse means the default, off; tide
+logs at startup whether moil is on.
 
 The four rate limits are per-client ceilings over a one-minute window, an IPv6
 client counting by its /56. `TIDE_JOIN_RATE_LIMIT` also sizes the separate
@@ -1293,7 +1300,7 @@ media server.*
 | Recording | Egress room composite + custom template | Server-owned lifetime; recordings wear tide's design |
 | Transcripts | moil jobs on the room owner's own machine | No model or GPU on the server, no fifth process, no new reader of the audio |
 | Transcript trigger | Automatic once the owner has paired a machine; otherwise on request | Pairing is the opt-in; no per-recording button for hosts who use it |
-| Transcripts availability | Follow recording, with no switch; pairing a machine is each host's opt-in | One less setting, and nothing runs until a host pairs. The accepted cost: every deployment with recording serves `/moil/`, including the unauthenticated `POST /moil/v1/pair`, and operators can't turn it off |
+| moil switch | `TIDE_MOIL`, default off; needs recording | moil is alpha, and `/moil/` takes unauthenticated pairing requests, so an operator opts in |
 | Speaker names | A hidden observer writes who was active beside the recording; the bundle matches that against its diarization | Diarization stays the truth, since active-speaker data is too coarse to say who said a word but enough to vote over a meeting. Grouped by display name because identities are per connection. Best effort: failing costs names, never a recording |
 | Meeting agents | Admitted to the frozen list: a program with a token, outside the server, under the owner's control, in view of everyone | People want a coding agent in the meeting, and it costs tide one route and three signs in the UI. tide ships no agent, and no model runs on the server |
 | Agent sessions | Owner only, from the meeting's details; no API keys, no pre-join notice | An agent is a new live listener and §8.1 keeps audio with the owner, so administrators don't get one. A key would be a credential that outlives a meeting. Agents show in the room once you're in it, and nothing more |

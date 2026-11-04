@@ -25,6 +25,7 @@ dev:
 			TIDE_S3_ENDPOINT=http://localhost:9000 \
 			TIDE_S3_PUBLIC_ENDPOINT=http://localhost:9000 \
 			TIDE_S3_RECORDER_ENDPOINT=http://minio:9000 \
+			TIDE_MOIL=$${TIDE_MOIL:-true} \
 			TIDE_RECORDER_TEMPLATE_URL=http://host.docker.internal:5173/egress-template \
 			go run ./cmd/tide) & go_pid=$$!; \
 		(cd web && npm run dev) & web_pid=$$!; \

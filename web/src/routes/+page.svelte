@@ -146,7 +146,7 @@
     <header>
       <a class="wordmark" href="/">tide</a>
       <div class="account">
-        {#if currentUser?.recording}
+        {#if currentUser?.moil}
           <a class="icon-link" href="/machines" aria-label="Machines" title="Machines">
             <Desktop size={16} weight="regular" aria-hidden="true" />
           </a>

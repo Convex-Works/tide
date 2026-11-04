@@ -18,10 +18,10 @@ import (
 //     for all of grace. Requests still running after grace are cut off.
 //  2. The reconcilers, and in anonymous mode the room sweep, stop starting
 //     new work.
-//  3. With recording on, moil disconnects the machines, whose WebSockets
+//  3. With transcripts on, moil disconnects the machines, whose WebSockets
 //     the HTTP server doesn't wait for, since they are hijacked; it ends
 //     every transcript job with moil.ErrClosed and saves what machines last
-//     reported. With it off there is no moil to close.
+//     reported. With them off there is no moil to close.
 //  4. Serve waits for the reconcilers and the jobs' followers to return.
 //
 // When Serve returns, nothing uses the store New was given, and the caller

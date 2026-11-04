@@ -40,7 +40,8 @@ func New(cfg config.Config, recordings *store.Store, objects *MinIOStore) *Handl
 		recordings, egress, rooms, storage, cfg.EgressTemplateURL,
 		ReceiverFromAuthProvider(provider),
 	)
-	if objects != nil {
+	// Only transcripts read the timeline, so collect names only for them.
+	if objects != nil && cfg.Moil {
 		handler.speakers = speakers.New(cfg.LiveKitURL, tidelivekit.NewMinter(cfg))
 	}
 	// The destination travels with each egress request; egress needs no global

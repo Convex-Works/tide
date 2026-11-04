@@ -36,14 +36,15 @@ type Handler struct {
 	web fs.FS
 	// index is the SPA shell, index.html, with its link preview image made
 	// absolute (shellWithBaseURL); nil without an embedded SPA.
-	index      []byte
-	sessions   *auth.Sessions
-	oidc       *auth.OIDC // nil in anonymous mode
-	rooms      *rooms.Handler
-	lobby      *lobby.Handler
-	moderation *moderation.Handler
-	recording  *recording.Handler
-	minter     *tidelivekit.Minter
+	index       []byte
+	sessions    *auth.Sessions
+	oidc        *auth.OIDC // nil in anonymous mode
+	rooms       *rooms.Handler
+	lobby       *lobby.Handler
+	moderation  *moderation.Handler
+	recording   *recording.Handler
+	transcripts *transcriptsFeature // nil when TIDE_MOIL is off
+	minter      *tidelivekit.Minter
 	// anonymous and recordingOn are the deployment's modes (ARCHITECTURE.md
 	// §2.1), for /api/me.
 	anonymous   bool
@@ -53,13 +54,13 @@ type Handler struct {
 // Background is the work main runs beside the HTTP server: with recording
 // on, the reconciler that heals recording state when LiveKit webhooks are
 // lost and removes the files of deleted recordings; in anonymous mode, the
-// sweep that deletes rooms nobody uses; and, again with recording on, the
+// sweep that deletes rooms nobody uses; and, with transcripts on, the
 // reconciler that projects transcript rows onto moil jobs and the moil
 // server machines connect to. Serve runs it and stops it in order.
 type Background struct {
 	recording   *recording.Handler  // nil when recording is off
 	sweeper     *rooms.Sweeper      // nil unless tide is anonymous
-	transcripts *transcriptsFeature // nil when recording is off
+	transcripts *transcriptsFeature // nil when TIDE_MOIL is off
 	// lobby's streams end when the HTTP server shuts down.
 	lobby *lobby.Handler
 }
@@ -93,11 +94,14 @@ func (b *Background) Close() error {
 // New builds the HTTP handler and the Background work main must run beside it.
 // transcribe is the bundle machines run to transcribe recordings: main hands
 // in transcripts.Bundle(), as it hands in the embedded SPA. It is used only
-// when cfg.Recording is on, and may be nil when it is off. signal is the
+// when cfg.Moil is on, and may be nil when it is off. signal is the
 // embedded media server's signaling (media.Server.SignalHandler), mounted at
 // media.SignalPath; it is nil with an external media server, whose
 // signaling browsers reach directly.
 func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.Bundle, signal http.Handler) (http.Handler, *Background, error) {
+	if cfg.Moil && !cfg.Recording {
+		return nil, nil, errors.New("moil is on but recording is off: moil needs recording")
+	}
 	if cfg.Recording && cfg.Anonymous {
 		return nil, nil, errors.New("recording is on in anonymous mode: recording needs sign-in")
 	}
@@ -142,10 +146,10 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 	}
 	recordingHandler := recording.New(cfg, roomStore, objects)
 
-	// Transcripts run on machines hosts pair through moil, and follow
-	// recording (ARCHITECTURE.md §8.1).
+	// Transcripts run on machines hosts pair through moil (ARCHITECTURE.md
+	// §8.1), only when the operator turns them on.
 	var transcriptsOn *transcriptsFeature
-	if cfg.Recording {
+	if cfg.Moil {
 		feature, err := newTranscriptsFeature(cfg, roomStore, objects, transcribe)
 		if err != nil {
 			return nil, nil, err
@@ -181,6 +185,7 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 		lobby:       lobby.NewHandler(roomStore, registry, minter),
 		moderation:  moderationHandler,
 		recording:   recordingHandler,
+		transcripts: transcriptsOn,
 		minter:      minter,
 		anonymous:   cfg.Anonymous,
 		recordingOn: cfg.Recording,
@@ -250,7 +255,7 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 	mux.Handle("POST "+api.LobbyDenyPath, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.lobby.Deny))))
 
 	// The transcript, machine, pairing and moil routes, with their method
-	// fallbacks, exist only with recording on.
+	// fallbacks, exist only with transcripts on.
 	transcriptsOn.routes(mux, handler, ips)
 
 	// The media webhook stays without recording: it also enforces bans and
@@ -328,6 +333,7 @@ func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) writeMe(w http.ResponseWriter, session auth.Session) {
 	httpx.WriteJSON(w, http.StatusOK, api.Me{
 		Sub: session.Sub, Email: session.Email, Name: session.Name,
+		Moil:      h.transcripts.enabled(),
 		Recording: h.recordingOn,
 		Anonymous: h.anonymous,
 	})
@@ -412,7 +418,7 @@ func (h *Handler) csrf(next http.Handler) http.Handler {
 }
 
 func (h *Handler) spa(w http.ResponseWriter, r *http.Request) {
-	// The moil paths are never the SPA: without recording, which serves
+	// The moil paths are never the SPA: without transcripts, which serve
 	// them, a moil app finds nothing there rather than a web page.
 	if r.URL.Path == api.MoilBasePath || strings.HasPrefix(r.URL.Path, api.MoilBasePath+"/") {
 		http.NotFound(w, r)

@@ -13,19 +13,17 @@ import (
 	"testing/fstest"
 	"time"
 
-	"git.convex.works/ConvexWorks/moil/sdk/go/moiltest"
-
 	"tide/internal/api"
 	"tide/internal/auth"
 	"tide/internal/config"
 	"tide/internal/store"
 )
 
-// Transcripts follow recording (ARCHITECTURE.md §8.1): without it, tide has
-// no machine, pairing, transcript or moil routes; with it, they are all
-// there, and deleting something removes every file of it.
+// TIDE_MOIL (ARCHITECTURE.md §8.1): with it off, tide has no
+// machine, pairing, transcript or moil routes, says so on /api/me, and
+// still removes every file of what is deleted.
 
-func recordingOff(cfg *config.Config, _ *http.Server) { cfg.Recording = false }
+func transcriptsOff(cfg *config.Config, _ *http.Server) { cfg.Moil = false }
 
 // transcriptRoutes are a request to every route transcripts add, as the
 // SPA or a machine would send it.
@@ -69,12 +67,12 @@ func (h *host) me() api.Me {
 	return me
 }
 
-func TestWithoutRecordingTranscriptRoutesAnswer404(t *testing.T) {
-	k := startTide(t, recordingOff)
+func TestMoilOffAnswer404ForTheirRoutes(t *testing.T) {
+	k := startTide(t, transcriptsOff)
 	alice := k.signIn(auth.Session{Sub: "alice", Name: "Alice", Email: "alice@example.com"})
 
-	if me := alice.me(); me.Recording || me.Sub != "alice" || me.Email != "alice@example.com" {
-		t.Fatalf("/api/me = %+v, want alice without recording", me)
+	if me := alice.me(); me.Moil || me.Sub != "alice" || me.Email != "alice@example.com" {
+		t.Fatalf("/api/me = %+v, want alice without moil", me)
 	}
 	for _, route := range transcriptRoutes() {
 		status, _, body := k.request(route.method, route.path, route.body, alice.cookie, true)
@@ -88,12 +86,12 @@ func TestWithoutRecordingTranscriptRoutesAnswer404(t *testing.T) {
 	}
 }
 
-func TestWithRecordingTranscriptRoutesAreServed(t *testing.T) {
+func TestMoilOnServeTheirRoutes(t *testing.T) {
 	k := startTide(t, nil)
 	alice := k.signIn(auth.Session{Sub: "alice", Name: "Alice"})
 
-	if me := alice.me(); !me.Recording {
-		t.Fatalf("/api/me = %+v, want recording", me)
+	if me := alice.me(); !me.Moil {
+		t.Fatalf("/api/me = %+v, want transcripts", me)
 	}
 	// Every route is there: none answers 404 for want of a route. Those
 	// naming something that doesn't exist answer 404 in JSON, from their
@@ -112,9 +110,9 @@ func TestWithRecordingTranscriptRoutesAreServed(t *testing.T) {
 }
 
 // The SPA answers every path it doesn't serve a file for with its index,
-// but not the moil paths: a moil app pairing with a tide without recording
-// gets 404, not a web page.
-func TestWithoutRecordingMoilPathsAreNotTheSPA(t *testing.T) {
+// but not the moil paths: a moil app pairing with a tide without
+// transcripts gets 404, not a web page.
+func TestMoilOffMoilPathsAreNotTheSPA(t *testing.T) {
 	db, _ := openStore(t)
 	web := fstest.MapFS{"index.html": {Data: []byte("<!doctype html><title>tide</title>")}}
 	handler, background, err := New(config.Config{
@@ -126,7 +124,7 @@ func TestWithoutRecordingMoilPathsAreNotTheSPA(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := background.Close(); err != nil {
-		t.Fatalf("closing tide without recording: %v", err)
+		t.Fatalf("closing tide without moil: %v", err)
 	}
 	for path, want := range map[string]int{
 		"/machines":                      http.StatusOK, // the SPA shows "not enabled"
@@ -174,6 +172,7 @@ func (s *fakeStorage) removedKeys() []string {
 
 func withStorage(endpoint string) func(*config.Config, *http.Server) {
 	return func(cfg *config.Config, _ *http.Server) {
+		cfg.Moil = false
 		cfg.S3Endpoint, cfg.S3PublicEndpoint = endpoint, endpoint
 		cfg.S3Bucket, cfg.S3Region = "tide-recordings", "us-east-1"
 		cfg.S3AccessKey, cfg.S3SecretKey = "tide", "tide-test-secret"
@@ -181,7 +180,7 @@ func withStorage(endpoint string) func(*config.Config, *http.Server) {
 }
 
 // addRecording adds a completed recording of room to the database, with a
-// transcript row.
+// transcript row, as if transcripts had been on when it was made.
 func addRecording(t *testing.T, db *store.Store, room api.RoomInfo, id string) store.Recording {
 	t.Helper()
 	ctx := context.Background()
@@ -224,13 +223,20 @@ func wantRemoved(t *testing.T, storage *fakeStorage, db *store.Store, keys []str
 	}
 }
 
-func TestDeletingARecordingRemovesItsTranscriptFiles(t *testing.T) {
+func TestMoilOffDeletingARecordingRemovesItsTranscriptFiles(t *testing.T) {
 	storage, endpoint := startFakeStorage(t)
 	k := startTide(t, withStorage(endpoint))
 	alice := k.signIn(auth.Session{Sub: "alice", Name: "Alice"})
 	room := alice.createRoom("Standup")
 	recording := addRecording(t, k.db, room, "rec-1")
 
+	// The list says nothing about its transcript...
+	var listed []api.RecordingInfo
+	alice.send(http.MethodGet, fill(api.RoomRecordingsPath, room.Slug), http.StatusOK, &listed)
+	if len(listed) != 1 || listed[0].Transcript != nil {
+		t.Fatalf("recordings = %+v, want one without a transcript", listed)
+	}
+	// ...but deleting the recording removes its transcript files with it.
 	alice.send(http.MethodDelete, fill(api.RecordingPath, recording.ID), http.StatusNoContent, nil)
 	keys := recording.ObjectKeys()
 	if len(keys) != 4 || !strings.HasSuffix(keys[1], ".txt") || !strings.HasSuffix(keys[2], ".vtt") ||
@@ -243,7 +249,7 @@ func TestDeletingARecordingRemovesItsTranscriptFiles(t *testing.T) {
 	}
 }
 
-func TestDeletingARoomRemovesItsTranscriptFiles(t *testing.T) {
+func TestMoilOffDeletingARoomRemovesItsTranscriptFiles(t *testing.T) {
 	storage, endpoint := startFakeStorage(t)
 	k := startTide(t, withStorage(endpoint))
 	alice := k.signIn(auth.Session{Sub: "alice", Name: "Alice"})
@@ -254,9 +260,10 @@ func TestDeletingARoomRemovesItsTranscriptFiles(t *testing.T) {
 	wantRemoved(t, storage, k.db, append(first.ObjectKeys(), second.ObjectKeys()...))
 }
 
-// The recording reconciler owns every queued removal, so a staging key
-// Prepare queued is removed when it comes due, even after a restart.
-func TestQueuedStagingKeysAreRemoved(t *testing.T) {
+// A staging key Prepare queued while transcripts were on is removed when
+// it comes due with them off: the recording reconciler, which always runs,
+// owns every queued removal.
+func TestMoilOffStagingKeysAreStillRemoved(t *testing.T) {
 	storage, endpoint := startFakeStorage(t)
 	db, dbPath := openStore(t)
 	staged := "transcripts-staging/rec-1/1-0123456789abcdef/transcript.txt"
@@ -267,38 +274,17 @@ func TestQueuedStagingKeysAreRemoved(t *testing.T) {
 	wantRemoved(t, storage, db, []string{staged})
 }
 
-// Recording going away takes nothing with it: rows stay and paired machines
-// stay paired, and they are all there when recording comes back.
-func TestRecordingOffKeepsMachinesAndTranscripts(t *testing.T) {
-	ctx := context.Background()
-	db, dbPath := openStore(t)
-	session := auth.Session{Sub: "alice", Name: "Alice"}
-
-	first := startTideOn(t, db, dbPath, nil)
-	alice := first.signIn(session)
-	room := alice.createRoom("Standup")
-	paired := alice.pair(moiltest.WithName("Studio"))
-	addRecording(t, db, room, "rec-1")
-	if err := first.stop(); err != nil {
-		t.Fatal(err)
-	}
-
-	off := startTideOn(t, db, dbPath, recordingOff)
-	if status, _, body := off.request(http.MethodGet, api.MachinesPath, "", off.signIn(session).cookie, false); status != http.StatusNotFound {
-		t.Fatalf("machines with recording off = %d %s", status, body)
-	}
-	if _, err := db.Transcript(ctx, "rec-1"); err != nil {
-		t.Fatalf("the transcript row with recording off: %v", err)
-	}
-	if err := off.stop(); err != nil {
-		t.Fatal(err)
-	}
-
-	back := startTideOn(t, db, dbPath, nil)
-	if machines := back.signIn(session).machines().Machines; len(machines) != 1 || machines[0].ID != paired.ID() || machines[0].Name != "Studio" {
-		t.Fatalf("machines with recording back = %+v, want Studio", machines)
-	}
-	if _, err := db.Transcript(ctx, "rec-1"); err != nil {
-		t.Fatalf("the transcript row with recording back: %v", err)
+// /api/me is the SPA's one source for whether to show transcripts.
+func TestMeReportsTheMoilSwitch(t *testing.T) {
+	for _, on := range []bool{false, true} {
+		k := startTide(t, func(cfg *config.Config, _ *http.Server) { cfg.Moil = on })
+		status, _, body := k.request(http.MethodGet, api.MePath, "", k.signIn(auth.Session{Sub: "alice"}).cookie, false)
+		var me map[string]any
+		if err := json.Unmarshal([]byte(body), &me); status != http.StatusOK || err != nil {
+			t.Fatalf("/api/me = %d %s", status, body)
+		}
+		if me["moil"] != on {
+			t.Fatalf("with TIDE_MOIL=%v, /api/me = %s", on, body)
+		}
 	}
 }
