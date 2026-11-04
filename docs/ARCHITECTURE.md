@@ -203,7 +203,7 @@ tide/
   docs/ARCHITECTURE.md     this document
   docs/MEETING-AGENTS.md   the contract for programs joining a meeting
   Makefile                 dev, gen, check, build targets
-  .forgejo/workflows/      CI
+  .github/workflows/       CI and releases
 ```
 
 ## 4. Identity, auth, and the token model
@@ -1057,7 +1057,7 @@ signalling too).
 
 ## 14. CI
 
-Forgejo Actions (`.forgejo/workflows/ci.yml`), on every push/PR:
+GitHub Actions (`.github/workflows/ci.yml`), on every push/PR:
 
 1. **server** — `go vet`, `go test ./...`, the transcribe bundle's tests
 2. **web** — `svelte-check`, prettier check, `vite build`, and the browser
@@ -1066,10 +1066,8 @@ Forgejo Actions (`.forgejo/workflows/ci.yml`), on every push/PR:
 4. **site** — the documentation site in `site/`: `npm run check`, prettier
    check, prerendered build
 5. **media-e2e** — the full real-SFU gate (below), against the sealed stack
-6. **build** — full binary build (SPA embed included) as the merge gate
 
-GitHub Actions runs the same gate (`.github/workflows/ci.yml`). A pushed `v*`
-tag runs `.github/workflows/release.yml`, which publishes the linux/amd64 and
+A pushed `v*` tag runs `.github/workflows/release.yml`, which publishes the linux/amd64 and
 linux/arm64 image to `ghcr.io/convex-works/tide` and creates the GitHub
 release from `docs/releases/<tag>.md`, with the static binaries
 (`tide-linux-amd64`, `tide-linux-arm64`) and their `SHA256SUMS` attached. A

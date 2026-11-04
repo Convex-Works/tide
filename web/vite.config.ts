@@ -4,8 +4,8 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig, type Plugin } from 'vite';
 
-// CI's browser specs need no hot reload, and the Forgejo runner's
-// containers run out of file watches before Vite can start (EMFILE). Set
+// CI's browser specs need no hot reload, and a container can run out of file
+// watches before Vite can start (EMFILE). Set
 // after resolution: SvelteKit's plugin merges its own `server.watch` options
 // over any `null` given in the config, and `null` is what turns watching off.
 const noWatchInCI: Plugin = {
