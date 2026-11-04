@@ -79,7 +79,8 @@ jobs:
           npx playwright install --with-deps chromium
           npx playwright test anonymous.spec.ts device-error-messages.spec.ts \
             device-errors.spec.ts ics.spec.ts machines.spec.ts meeting-chrome.spec.ts \
-            new-room.spec.ts recording-off.spec.ts room-page.spec.ts moil-off.spec.ts
+            new-room.spec.ts prejoin-prefs.spec.ts recording-off.spec.ts room-page.spec.ts \
+            moil-off.spec.ts
       - name: Generate API types
         run: make gen
       - name: Check generated type drift

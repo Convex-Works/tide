@@ -209,3 +209,43 @@ test('a signed-in host keeps the session name; only devices and state are rememb
   expect(saved.name).toBe('Grace Guest');
   expect(saved.camera).toEqual({ id: 'cam-back', label: 'Back camera' });
 });
+
+for (const { control, constraint } of [
+  { control: 'camera', constraint: 'video' },
+  { control: 'microphone', constraint: 'audio' }
+] as const) {
+  test(`a ${control} that failed is not remembered as turned off`, async ({ page }) => {
+    await setup(page, [front, back, micA, micB]);
+    await page.addInitScript((failing) => {
+      const getUserMedia = MediaDevices.prototype.getUserMedia;
+      MediaDevices.prototype.getUserMedia = async function (constraints) {
+        if (constraints?.[failing] && localStorage.getItem('spec:busy')) {
+          throw new DOMException('Could not start the device', 'NotReadableError');
+        }
+        return getUserMedia.call(this, constraints);
+      };
+    }, constraint);
+    await page.goto('/m/standup');
+    await page.evaluate(() => localStorage.setItem('spec:busy', '1'));
+    await openPrejoin(page);
+    await expect(toggle(page, control)).toHaveAttribute('aria-pressed', 'false');
+    await page.getByRole('textbox', { name: 'Name' }).fill('Grace Guest');
+    await join(page);
+
+    await page.evaluate(() => localStorage.removeItem('spec:busy'));
+    await openPrejoin(page, 'other-room');
+    await expect(toggle(page, control)).toHaveAttribute('aria-pressed', 'true');
+  });
+}
+
+test('turning a device off by hand is remembered', async ({ page }) => {
+  await setup(page, [front, back, micA, micB]);
+  await openPrejoin(page);
+  await page.getByRole('textbox', { name: 'Name' }).fill('Grace Guest');
+  await toggle(page, 'microphone').click();
+  await expect(toggle(page, 'microphone')).toHaveAttribute('aria-pressed', 'false');
+  await join(page);
+
+  await openPrejoin(page, 'other-room');
+  await expect(toggle(page, 'microphone')).toHaveAttribute('aria-pressed', 'false');
+});

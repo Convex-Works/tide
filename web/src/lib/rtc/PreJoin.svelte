@@ -44,6 +44,10 @@
   let audioDeviceId = $state('');
   let camEnabled = $state(prefs.camEnabled ?? true);
   let micEnabled = $state(prefs.micEnabled ?? true);
+  // What the guest chose. A device that fails turns its toggle off, and that
+  // isn't a choice, so it mustn't be remembered.
+  let camChoice = prefs.camEnabled;
+  let micChoice = prefs.micEnabled;
   let cameraTrack = $state<LocalVideoTrack>();
   let previewAspect = $state(clampAspect(0, 0));
   let audioTrack: LocalAudioTrack | undefined;
@@ -181,12 +185,14 @@
 
   async function toggleCamera(): Promise<void> {
     camEnabled = !camEnabled;
+    camChoice = camEnabled;
     if (camEnabled) await startCamera();
     else stopCamera();
   }
 
   async function toggleMicrophone(): Promise<void> {
     micEnabled = !micEnabled;
+    micChoice = micEnabled;
     if (micEnabled) await startMicrophone();
     else stopMeter();
   }
@@ -220,8 +226,8 @@
       name: sessionName ? prefs.name : name,
       camera: rememberDevice(cameras, videoDeviceId) ?? prefs.camera,
       microphone: rememberDevice(microphones, audioDeviceId) ?? prefs.microphone,
-      camEnabled,
-      micEnabled
+      camEnabled: camChoice,
+      micEnabled: micChoice
     });
     await disposePreview();
     await onjoin({ name, micEnabled, camEnabled, videoDeviceId, audioDeviceId });
