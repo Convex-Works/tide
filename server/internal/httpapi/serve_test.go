@@ -24,6 +24,7 @@ import (
 	"tide/internal/api"
 	"tide/internal/auth"
 	"tide/internal/config"
+	"tide/internal/recording"
 	"tide/internal/store"
 )
 
@@ -128,6 +129,28 @@ func TestStoppingTideWaitsForItsBackgroundWork(t *testing.T) {
 // An HTTP server something else closed, without tide being told to stop,
 // stops tide all the same: Serve closes moil and returns, as it does on a
 // signal, rather than wait for the server to stop a second time.
+// Observers must leave their rooms before main stops the media server, which
+// is what returning from Serve lets it do (ARCHITECTURE.md §2.1).
+func TestStoppingTideClosesItsSpeakerObservers(t *testing.T) {
+	observers := &closeCounter{}
+	handler := recording.NewHandler(nil, nil, nil, nil, "", nil)
+	handler.SetSpeakerObservers(observers)
+	background := &Background{recording: handler}
+	if err := background.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if observers.closed != 1 {
+		t.Fatalf("closed the observers %d times", observers.closed)
+	}
+}
+
+type closeCounter struct {
+	recording.SpeakerObservers
+	closed int
+}
+
+func (c *closeCounter) Close() { c.closed++ }
+
 func TestTideStopsWhenItsServerIsClosedElsewhere(t *testing.T) {
 	watchForAClosedDatabase(t)
 	var server *http.Server

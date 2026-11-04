@@ -122,7 +122,7 @@ func TestRecordingCRUD(t *testing.T) {
 		t.Fatalf("recording list = %#v, %v", list, err)
 	}
 	keys, err := db.DeleteRecording(ctx, recording.ID, 1)
-	if want := []string{key, "recordings/calm-otter-412/100.txt", "recordings/calm-otter-412/100.vtt"}; err != nil || !slices.Equal(keys, want) {
+	if want := []string{key, "recordings/calm-otter-412/100.txt", "recordings/calm-otter-412/100.vtt", "recordings/calm-otter-412/speakers.json"}; err != nil || !slices.Equal(keys, want) {
 		t.Fatalf("DeleteRecording() = %q, %v; want %q", keys, err, want)
 	}
 	if _, err := db.RecordingByID(ctx, recording.ID); !errors.Is(err, sql.ErrNoRows) {

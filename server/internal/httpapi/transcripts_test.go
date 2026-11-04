@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path"
 	"slices"
 	"strings"
 	"sync"
@@ -232,8 +233,9 @@ func TestDeletingARecordingRemovesItsTranscriptFiles(t *testing.T) {
 
 	alice.send(http.MethodDelete, fill(api.RecordingPath, recording.ID), http.StatusNoContent, nil)
 	keys := recording.ObjectKeys()
-	if len(keys) != 3 || !strings.HasSuffix(keys[1], ".txt") || !strings.HasSuffix(keys[2], ".vtt") {
-		t.Fatalf("ObjectKeys = %q, want the recording and both transcript files", keys)
+	if len(keys) != 4 || !strings.HasSuffix(keys[1], ".txt") || !strings.HasSuffix(keys[2], ".vtt") ||
+		keys[3] != path.Join(path.Dir(keys[0]), "speakers.json") {
+		t.Fatalf("ObjectKeys = %q, want the recording, both transcript files and the speaker timeline", keys)
 	}
 	wantRemoved(t, storage, k.db, keys)
 	if _, err := k.db.Transcript(context.Background(), recording.ID); err == nil {

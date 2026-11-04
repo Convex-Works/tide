@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,6 +26,7 @@ type fakeEgressClient struct {
 	stopErr  error
 	onStop   func()
 	listErr  error
+	startErr error
 	egresses []*protocol.EgressInfo
 }
 
@@ -42,6 +44,9 @@ func (f *fakeEgressClient) ListEgress(_ context.Context, request *protocol.ListE
 }
 
 func (f *fakeEgressClient) StartRoomCompositeEgress(_ context.Context, request *protocol.RoomCompositeEgressRequest) (*protocol.EgressInfo, error) {
+	if f.startErr != nil {
+		return nil, f.startErr
+	}
 	f.starts = append(f.starts, request)
 	return &protocol.EgressInfo{EgressId: "egress-" + string(rune('0'+len(f.starts)))}, nil
 }
@@ -58,18 +63,44 @@ func (f *fakeEgressClient) StopEgress(_ context.Context, request *protocol.StopE
 }
 
 type fakeRoomService struct {
+	mu      sync.Mutex
 	updates []*protocol.UpdateRoomMetadataRequest
+	err     error
 }
 
 func (f *fakeRoomService) UpdateRoomMetadata(_ context.Context, request *protocol.UpdateRoomMetadataRequest) (*protocol.Room, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.updates = append(f.updates, request)
 	return &protocol.Room{Name: request.Room, Metadata: request.Metadata}, nil
 }
 
-// fakeObjectStore removes objects, or fails to while down is set.
+// fakeObjectStore removes and stores objects, or fails to while down is set.
 type fakeObjectStore struct {
 	removed []string
 	down    bool
+	puts    []fakePut
+	// onPut runs as an object is stored.
+	onPut func()
+}
+
+type fakePut struct {
+	key, contentType string
+	body             []byte
+}
+
+func (f *fakeObjectStore) Put(_ context.Context, key string, body []byte, contentType string) error {
+	if f.onPut != nil {
+		f.onPut()
+	}
+	if f.down {
+		return errors.New("storage is down")
+	}
+	f.puts = append(f.puts, fakePut{key: key, contentType: contentType, body: body})
+	return nil
 }
 
 func (f *fakeObjectStore) Remove(_ context.Context, key string) error {
@@ -309,8 +340,8 @@ func TestStartRecordingFileOutput(t *testing.T) {
 	}
 }
 
-// Deleting a recording removes its file and its transcript sidecars, which
-// sit beside it, and tells the transcripts reconciler.
+// Deleting a recording removes its file, its transcript sidecars and its
+// speaker timeline, which sit beside it, and tells the transcripts reconciler.
 func TestDeleteRemovesRecordingAndSidecars(t *testing.T) {
 	handler, _, _, room := recordingTestHandler(t)
 	objects := handler.objects.(*fakeObjectStore)
@@ -343,6 +374,7 @@ func TestDeleteRemovesRecordingAndSidecars(t *testing.T) {
 		key,
 		"recordings/calm-otter-412/rec-1/2023-11-14 22-13 - Weekly.txt",
 		"recordings/calm-otter-412/rec-1/2023-11-14 22-13 - Weekly.vtt",
+		speakersFileKey,
 	}
 	if !reflect.DeepEqual(objects.removed, want) {
 		t.Fatalf("removed %q, want %q", objects.removed, want)
@@ -374,6 +406,7 @@ func TestDeleteSucceedsWhileStorageIsDown(t *testing.T) {
 		key,
 		"recordings/calm-otter-412/rec-1/2023-11-14 22-13 - Weekly.txt",
 		"recordings/calm-otter-412/rec-1/2023-11-14 22-13 - Weekly.vtt",
+		speakersFileKey,
 	}
 
 	objects.down = true

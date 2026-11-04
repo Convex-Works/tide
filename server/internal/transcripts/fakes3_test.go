@@ -13,11 +13,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"tide/internal/store"
 )
 
 // A clock is the time tide and its storage share in these tests, which a
@@ -75,10 +78,13 @@ func (o object) etag() string {
 
 // The operations tide asks of storage, for Break and Hold.
 const (
-	opRemove  = "remove"
-	opStat    = "stat"
-	opCopy    = "copy"
-	opPresign = "presign" // any presigned URL
+	opRemove = "remove"
+	opStat   = "stat"
+	// opStatTimeline is Stat of a speaker timeline, which tide makes when
+	// preparing an attempt, and not when saving what the attempt made.
+	opStatTimeline = "stat timeline"
+	opCopy         = "copy"
+	opPresign      = "presign" // any presigned URL
 )
 
 // fakeS3 is the ObjectStore of the transcripts service, the recording
@@ -195,11 +201,22 @@ func (s *fakeS3) enter(ctx context.Context, op string, key ...string) error {
 	return nil
 }
 
-// Put stores an object, as egress does with a recording.
-func (s *fakeS3) Put(key string, data []byte) {
+// Seed stores an object, as egress does with a recording.
+func (s *fakeS3) Seed(key string, data []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.objects[key] = object{data: slices.Clone(data)}
+}
+
+// Put stores an object as tide does.
+func (s *fakeS3) Put(ctx context.Context, key string, body []byte, contentType string) error {
+	if err := s.enter(ctx, "put", key); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.objects[key] = object{data: slices.Clone(body), contentType: contentType}
+	return nil
 }
 
 // Object returns a stored object's bytes.
@@ -242,7 +259,11 @@ func (s *fakeS3) Remove(ctx context.Context, key string) error {
 }
 
 func (s *fakeS3) Stat(ctx context.Context, key string) (int64, string, error) {
-	if err := s.enter(ctx, opStat); err != nil {
+	op := opStat
+	if path.Base(key) == store.SpeakersFile {
+		op = opStatTimeline
+	}
+	if err := s.enter(ctx, op); err != nil {
 		return 0, "", err
 	}
 	s.mu.Lock()

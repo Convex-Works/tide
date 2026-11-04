@@ -1,6 +1,7 @@
 package recording
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io/fs"
@@ -18,6 +19,8 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 
 	"tide/internal/config"
+	tidelivekit "tide/internal/livekit"
+	"tide/internal/speakers"
 	"tide/internal/store"
 )
 
@@ -37,6 +40,9 @@ func New(cfg config.Config, recordings *store.Store, objects *MinIOStore) *Handl
 		recordings, egress, rooms, storage, cfg.EgressTemplateURL,
 		ReceiverFromAuthProvider(provider),
 	)
+	if objects != nil {
+		handler.speakers = speakers.New(cfg.LiveKitURL, tidelivekit.NewMinter(cfg))
+	}
 	// The destination travels with each egress request; egress needs no global
 	// storage config of its own. Endpoint is S3 as seen from the egress worker.
 	handler.s3Output = &protocol.S3Upload{
@@ -141,6 +147,17 @@ func (s *MinIOStore) Remove(ctx context.Context, key string) error {
 	if response.Code == "NoSuchKey" || response.Code == "NoSuchObject" || response.Code == "NotFound" {
 		return nil
 	}
+	return err
+}
+
+// Put stores body at key, as contentType: a file tide itself writes beside a
+// recording (ARCHITECTURE.md §8).
+func (s *MinIOStore) Put(ctx context.Context, key string, body []byte, contentType string) error {
+	if s.server.err != nil {
+		return s.server.err
+	}
+	_, err := s.server.client.PutObject(ctx, s.bucket, key, bytes.NewReader(body), int64(len(body)),
+		minio.PutObjectOptions{ContentType: contentType})
 	return err
 }
 
