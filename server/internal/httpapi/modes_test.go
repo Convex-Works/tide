@@ -28,7 +28,7 @@ import (
 // which client each request comes from.
 func anonymousMode(limit int) func(*config.Config, *http.Server) {
 	return func(cfg *config.Config, _ *http.Server) {
-		cfg.Anonymous, cfg.Recording, cfg.Transcripts = true, false, false
+		cfg.Anonymous, cfg.Recording, cfg.Moil = true, false, false
 		cfg.JoinRateLimit, cfg.LoginRateLimit = limit, limit
 		behindProxy(cfg)
 	}
@@ -130,7 +130,7 @@ func TestAnonymousTideHoldsMeetingsWithoutSignIn(t *testing.T) {
 	// /api/me gives a browser without a session an anonymous one.
 	owner := k.browser("192.0.2.10")
 	me := owner.me()
-	if !me.Anonymous || me.Recording || me.Transcripts || !strings.HasPrefix(me.Sub, "anon:") || me.Email != "" || me.Name != "" {
+	if !me.Anonymous || me.Recording || me.Moil || !strings.HasPrefix(me.Sub, "anon:") || me.Email != "" || me.Name != "" {
 		t.Fatalf("/api/me = %+v, want an anonymous session", me)
 	}
 	if owner.cookie == nil || owner.cookie.MaxAge != int(auth.AnonymousSessionLifetime/time.Second) {
@@ -291,10 +291,10 @@ func TestAnonymousLimitsCountAddressesNotSessions(t *testing.T) {
 // Signed in without storage: everything but recording.
 func TestSignedInWithoutRecording(t *testing.T) {
 	k := startTide(t, func(cfg *config.Config, _ *http.Server) {
-		cfg.Recording, cfg.Transcripts = false, false
+		cfg.Recording, cfg.Moil = false, false
 	})
 	alice := k.signIn(auth.Session{Sub: "alice", Name: "Alice", Email: "alice@example.com"})
-	if me := alice.me(); me.Recording || me.Anonymous || me.Transcripts || me.Sub != "alice" {
+	if me := alice.me(); me.Recording || me.Anonymous || me.Moil || me.Sub != "alice" {
 		t.Fatalf("/api/me = %+v, want alice without recording", me)
 	}
 	room := alice.createRoom("Standup")
@@ -326,7 +326,7 @@ func TestSignedInWithoutRecording(t *testing.T) {
 }
 
 func TestSignedInWithRecordingServesItsRoutes(t *testing.T) {
-	k := startTide(t, func(cfg *config.Config, _ *http.Server) { cfg.Transcripts = false })
+	k := startTide(t, func(cfg *config.Config, _ *http.Server) { cfg.Moil = false })
 	alice := k.signIn(auth.Session{Sub: "alice", Name: "Alice"})
 	if me := alice.me(); !me.Recording || me.Anonymous {
 		t.Fatalf("/api/me = %+v, want recording", me)
@@ -405,8 +405,8 @@ func TestSignalingIsForwardedUnderRTCOnly(t *testing.T) {
 // New refuses the combinations config.Load refuses.
 func TestNewRefusesWhatTheModesForbid(t *testing.T) {
 	for name, cfg := range map[string]config.Config{
-		"transcripts without recording": {Transcripts: true},
-		"recording without sign-in":     {Anonymous: true, Recording: true},
+		"moil without recording":    {Moil: true},
+		"recording without sign-in": {Anonymous: true, Recording: true},
 	} {
 		cfg.BaseURL, cfg.SessionSecret = "http://localhost:8080", "test-session-secret"
 		if _, _, err := New(cfg, nil, nil, transcribeBundle(t), nil); err == nil {
@@ -443,7 +443,7 @@ func TestSessionsDontCrossModes(t *testing.T) {
 	// The anonymous owner's cookie, in a deployment with sign-in and the same
 	// secret, is no session at all.
 	signedIn := startTide(t, func(cfg *config.Config, _ *http.Server) {
-		cfg.Recording, cfg.Transcripts = false, false
+		cfg.Recording, cfg.Moil = false, false
 		cfg.SessionSecret = anonymous.cfg.SessionSecret
 	})
 	stranger := &browser{k: signedIn, cookie: owner.cookie}
@@ -476,7 +476,7 @@ func TestOnlyAnonymousRoomsHaveACeiling(t *testing.T) {
 		t.Fatalf("503 says %q", refused.Error)
 	}
 
-	signedIn := startTide(t, func(cfg *config.Config, _ *http.Server) { cfg.Recording, cfg.Transcripts = false, false })
+	signedIn := startTide(t, func(cfg *config.Config, _ *http.Server) { cfg.Recording, cfg.Moil = false, false })
 	alice := signedIn.signIn(auth.Session{Sub: "alice", Name: "Alice"})
 	for _, name := range []string{"One", "Two", "Three"} {
 		alice.createRoom(name)

@@ -234,9 +234,10 @@ export const envGroups: EnvGroup[] = [
     title: 'Transcripts',
     vars: [
       {
-        name: 'TIDE_TRANSCRIPTS',
+        name: 'TIDE_MOIL',
         default: 'false',
-        description: 'Turns [transcripts](/docs#transcripts) on. Needs recording.'
+        description:
+          'Turns on machine pairing and [transcripts](/docs#transcripts) through moil. Needs recording.'
       }
     ]
   }

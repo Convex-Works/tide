@@ -397,14 +397,14 @@ func startTideOn(t *testing.T, db *store.Store, dbPath string, configure func(*c
 		t.Fatal(err)
 	}
 	url := "http://" + listener.Addr().String()
-	// Transcripts, and the recording they need, are on unless configure
+	// moil, and the recording it needs, are on unless configure
 	// turns them off: most of these tests are about them.
 	cfg := config.Config{
 		BaseURL: url, SessionSecret: "test-session-secret",
 		LiveKitURL: "ws://livekit.example", LiveKitAPIKey: "devkey",
 		LiveKitAPISecret: "test-livekit-secret-with-enough-bytes",
 		Recording:        true,
-		Transcripts:      true,
+		Moil:             true,
 	}
 	server := &http.Server{
 		ReadHeaderTimeout: 5 * time.Second,

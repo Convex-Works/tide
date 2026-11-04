@@ -22,8 +22,8 @@ It needs Go 1.24 and depends only on `github.com/coder/websocket` and
 ```go
 store, err := moil.NewFileStore("data/moil-machines.json") // or your own moil.Store
 srv, err := moil.NewServer(moil.Config{
-	Name:            "klisi",
-	VerificationURL: "https://klisi.example.com/machines/pair",
+	Name:            "acme",
+	VerificationURL: "https://acme.example.com/machines/pair",
 	Store:           store,
 	Logger:          slog.Default(),
 })
@@ -33,7 +33,7 @@ mux.Handle("/moil/", http.StripPrefix("/moil", srv.Handler()))
 ```
 
 Users add your service in the moil app by its moil base URL, here
-`https://klisi.example.com/moil`. `VerificationURL` must be on the same
+`https://acme.example.com/moil`. `VerificationURL` must be on the same
 origin (scheme, host and port): machines refuse to pair with a service
 whose confirmation page is anywhere else, since that's how one service
 would relay another's pairing, having the user confirm, on the other

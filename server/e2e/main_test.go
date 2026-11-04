@@ -25,7 +25,9 @@ var (
 	// its own (see newMachine).
 	uvBin string
 	// uvCache is the uv cache every machine shares, in the suite's scratch
-	// directory rather than the developer's.
+	// directory rather than the developer's, unless $TIDE_E2E_UV_CACHE names
+	// one: with an empty one, even a built environment fetches the real
+	// bundle's git dependency again.
 	uvCache string
 	// reaperGroup is the process group every process the tests start
 	// joins (see startReaper).
@@ -91,7 +93,9 @@ func setUp() (cleanup func(), err error) {
 		return nil, err
 	}
 	cleanups = append(cleanups, func() { os.RemoveAll(scratch) })
-	uvCache = filepath.Join(scratch, "uv-cache")
+	if uvCache = os.Getenv("TIDE_E2E_UV_CACHE"); uvCache == "" {
+		uvCache = filepath.Join(scratch, "uv-cache")
+	}
 
 	external, err := s3FromEnv()
 	if err != nil {

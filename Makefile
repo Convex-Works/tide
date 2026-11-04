@@ -1,4 +1,4 @@
-.PHONY: dev gen server-check web-check typesync check media media-dev moil-e2e build clean
+.PHONY: dev gen server-check web-check typesync bundle-check check media media-dev moil-e2e build clean
 
 # What `tide version` prints for `make build`: the nearest tag and how far
 # past it this checkout is.
@@ -25,7 +25,7 @@ dev:
 			TIDE_S3_ENDPOINT=http://localhost:9000 \
 			TIDE_S3_PUBLIC_ENDPOINT=http://localhost:9000 \
 			TIDE_S3_RECORDER_ENDPOINT=http://minio:9000 \
-			TIDE_TRANSCRIPTS=$${TIDE_TRANSCRIPTS:-true} \
+			TIDE_MOIL=$${TIDE_MOIL:-true} \
 			TIDE_RECORDER_TEMPLATE_URL=http://host.docker.internal:5173/egress-template \
 			go run ./cmd/tide) & go_pid=$$!; \
 		(cd web && npm run dev) & web_pid=$$!; \
@@ -46,7 +46,12 @@ web-check:
 typesync: gen
 	git diff --exit-code -- web/src/lib/api/types.gen.ts
 
-check: server-check web-check typesync
+# What the transcribe bundle does, without its models. uv installs what the
+# test declares; moil ignores the test, so it isn't in the bundle's hash.
+bundle-check:
+	uv run --script server/internal/transcripts/bundle/test_job.py
+
+check: server-check web-check typesync bundle-check
 
 # The full media gate exactly as CI runs it: builds the stack, runs every
 # suite, tears down. Slow by design.

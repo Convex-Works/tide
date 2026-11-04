@@ -1,6 +1,7 @@
 package recording
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io/fs"
@@ -18,6 +19,8 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 
 	"tide/internal/config"
+	tidelivekit "tide/internal/livekit"
+	"tide/internal/speakers"
 	"tide/internal/store"
 )
 
@@ -37,6 +40,10 @@ func New(cfg config.Config, recordings *store.Store, objects *MinIOStore) *Handl
 		recordings, egress, rooms, storage, cfg.EgressTemplateURL,
 		ReceiverFromAuthProvider(provider),
 	)
+	// Only transcripts read the timeline, so collect names only for them.
+	if objects != nil && cfg.Moil {
+		handler.speakers = speakers.New(cfg.LiveKitURL, tidelivekit.NewMinter(cfg))
+	}
 	// The destination travels with each egress request; egress needs no global
 	// storage config of its own. Endpoint is S3 as seen from the egress worker.
 	handler.s3Output = &protocol.S3Upload{
@@ -144,6 +151,17 @@ func (s *MinIOStore) Remove(ctx context.Context, key string) error {
 	return err
 }
 
+// Put stores body at key, as contentType: a file tide itself writes beside a
+// recording (ARCHITECTURE.md §8).
+func (s *MinIOStore) Put(ctx context.Context, key string, body []byte, contentType string) error {
+	if s.server.err != nil {
+		return s.server.err
+	}
+	_, err := s.server.client.PutObject(ctx, s.bucket, key, bytes.NewReader(body), int64(len(body)),
+		minio.PutObjectOptions{ContentType: contentType})
+	return err
+}
+
 func (s *MinIOStore) PresignedGet(ctx context.Context, key string, expiry time.Duration) (string, error) {
 	if s.public.err != nil {
 		return "", s.public.err
@@ -187,15 +205,20 @@ func (s *MinIOStore) PresignedPut(ctx context.Context, key string, expiry time.D
 
 // Stat returns the size and entity tag of the object at key, or an error
 // wrapping fs.ErrNotExist if there is none: tide checks a transcript a
-// machine uploaded before copying it (ARCHITECTURE.md §8.1).
+// machine uploaded before copying it (ARCHITECTURE.md §8.1). An error wrapping
+// fs.ErrPermission means storage won't say, which S3 answers for a missing
+// object when the key lacks ListBucket.
 func (s *MinIOStore) Stat(ctx context.Context, key string) (int64, string, error) {
 	if s.server.err != nil {
 		return 0, "", s.server.err
 	}
 	info, err := s.server.client.StatObject(ctx, s.bucket, key, minio.StatObjectOptions{})
 	if err != nil {
-		if code := minio.ToErrorResponse(err).Code; code == "NoSuchKey" || code == "NotFound" {
+		switch minio.ToErrorResponse(err).Code {
+		case "NoSuchKey", "NotFound":
 			return 0, "", fmt.Errorf("%s: %w", key, fs.ErrNotExist)
+		case "AccessDenied":
+			return 0, "", fmt.Errorf("%s: %w", key, fs.ErrPermission)
 		}
 		return 0, "", err
 	}

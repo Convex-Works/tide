@@ -10,6 +10,7 @@ const (
 	RoomPath              = "/api/rooms/{slug}"
 	RoomJoinPath          = "/api/rooms/{slug}/join"
 	RoomLobbyPath         = "/api/rooms/{slug}/lobby"
+	BotSessionPath        = "/api/rooms/{slug}/bot-session"
 	KickPath              = "/api/rooms/{slug}/participants/{identity}/kick"
 	MutePath              = "/api/rooms/{slug}/participants/{identity}/mute"
 	MeetingEndPath        = "/api/rooms/{slug}/meeting/end"
@@ -34,6 +35,11 @@ const (
 	// MoilBasePath is where the moil SDK serves machines: the moil base URL
 	// is the base URL plus this path.
 	MoilBasePath = "/moil"
+
+	// ChatTopic is the LiveKit data topic chat travels on, each message a
+	// ChatPayload (ARCHITECTURE.md §9). Bots read and write it too
+	// (docs/BOTS.md).
+	ChatTopic = "chat"
 )
 
 type TokenResponse struct {
@@ -49,10 +55,10 @@ type Me struct {
 	Sub   string `json:"sub"`
 	Email string `json:"email"`
 	Name  string `json:"name"`
-	// Transcripts is true when this deployment runs transcripts and machine
-	// pairing (TIDE_TRANSCRIPTS, ARCHITECTURE.md §8.1). When false the SPA
-	// hides /machines and every transcript control; the routes 404.
-	Transcripts bool `json:"transcripts"`
+	// Moil is true when this deployment runs the moil integration: machine
+	// pairing and transcripts (TIDE_MOIL, ARCHITECTURE.md §8.1). When false
+	// the SPA hides /machines and every transcript control; the routes 404.
+	Moil bool `json:"moil"`
 	// Recording is true when this deployment records meetings: hosts sign in
 	// and object storage is configured (ARCHITECTURE.md §8). When false the
 	// SPA hides the record control and every recording list; the routes 404.
@@ -89,6 +95,11 @@ type PublicRoomInfo struct {
 	// CanManage is true when the requesting session owns this room or is a
 	// global administrator. The capability is enforced server-side on every route.
 	CanManage bool `json:"can_manage"`
+	// IsOwner is true when the requesting session owns this room. It is
+	// narrower than CanManage: an administrator manages every room but owns
+	// only their own, and only an owner can connect a bot (ARCHITECTURE.md
+	// §4). The SPA uses it to show that control; the route checks for itself.
+	IsOwner bool `json:"is_owner"`
 }
 
 // CreateRoomRequest: both fields are optional (ARCHITECTURE.md §5). A blank
@@ -114,6 +125,48 @@ type JoinResponse struct {
 	Token     string `json:"token,omitempty"`
 	WSURL     string `json:"ws_url,omitempty"`
 	RequestID string `json:"request_id,omitempty"`
+}
+
+// BotSessionRequest is the optional body of a request for a bot session.
+// A missing body or name means "Bot"; a name that is present is
+// held to a guest's rules.
+type BotSessionRequest struct {
+	Name *string `json:"name,omitempty"`
+}
+
+// BotSession is everything a program needs to join a meeting as a visible
+// participant, and the contents of the session.json a bot reads. It is a
+// stable contract (docs/BOTS.md): moil delivers this same file, so
+// changing it changes every bot.
+type BotSession struct {
+	// WSURL and Token are what LiveKit's connect takes. The token grants the
+	// bot role and nothing more (ARCHITECTURE.md §4).
+	WSURL string `json:"ws_url"`
+	Token string `json:"token"`
+	// Room is the room's slug.
+	Room string `json:"room"`
+	// Identity is the bot's LiveKit identity, bot:<random>.
+	Identity string `json:"identity"`
+	// Name is the display name everyone in the room sees.
+	Name string `json:"name"`
+	// OwnerIdentity is host:<sub> for the room's owner. A program finds the
+	// owner by a sender's identity equal to it, or starting with it and a
+	// colon, since each connection adds a nonce. The host role can't do this:
+	// administrators have it too.
+	OwnerIdentity string `json:"owner_identity"`
+	// ExpiresAt is Unix seconds: the last moment Token can connect. It says
+	// nothing about how long a connected bot may stay.
+	ExpiresAt int64 `json:"expires_at"`
+}
+
+// ChatPayload is one chat message, as JSON in a LiveKit data packet on
+// ChatTopic. It deliberately carries no sender name: attribution comes only
+// from the authenticated LiveKit participant, so nobody can claim to be
+// someone else.
+type ChatPayload struct {
+	Text string `json:"text"`
+	// TS is the sender's clock, in Unix milliseconds.
+	TS int64 `json:"ts"`
 }
 
 type LobbyRequestInfo struct {
