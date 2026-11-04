@@ -93,9 +93,12 @@ async def main(path: str, screen: bool) -> None:
     def on_data(packet: rtc.DataPacket) -> None:
         if packet.topic != CHAT_TOPIC or packet.participant is None:
             return
-        # LiveKit stamps the sender, so this name can't be forged. The text
-        # can say anything: see "Prompt injection" in the docs.
-        text = json.loads(packet.data)["text"]
+        # LiveKit stamps the sender, so it can't be forged. The rest can be
+        # anything at all: see "Prompt injection" in the docs.
+        try:
+            text = json.loads(packet.data)["text"]
+        except (ValueError, KeyError, TypeError):
+            return
         print(f"chat from {packet.participant.name}: {text}")
 
     @room.on("disconnected")

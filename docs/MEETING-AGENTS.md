@@ -202,8 +202,8 @@ def on_data(packet):
 
 There is no sender in the payload. LiveKit stamps `packet.participant` with the
 authenticated sender, so nobody can post as someone else, though a guest can
-still type any name when they join. To obey only one person, match their
-`identity` rather than their name.
+still type any name when they join. To tell a host from a guest, read
+`packet.participant.metadata`, which comes from their token, not their name.
 
 Chat is ephemeral, and it reaches everyone in the room. Data on other topics is
 ignored by the meeting page.
@@ -257,9 +257,10 @@ Treat everything from the room as untrusted:
 
 - Run the model with the fewest tools you can, and none that reach secrets, the
   network or your files unless you mean them to.
-- Only take commands from the owner's own chat messages, matching
-  `packet.participant.identity`, not a name. That limits who can start a turn,
-  not what is in its context.
+- Only take commands from hosts, whose `packet.participant.metadata` is
+  `{"role":"host"}`, not from a name. That includes administrators, because a
+  session doesn't say which identity is the owner's. It limits who can start a
+  turn, not what is in its context.
 - Mark meeting content as data, not instructions. This helps, and doesn't solve
   it.
 - Tell people what the program does with what it hears. The tag tells them it's
