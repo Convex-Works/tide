@@ -80,7 +80,10 @@ With a discovered address it uses tide's own interface address; with
 `TIDE_MEDIA_NODE_IP` set it must reach that address, which works when the
 address is on one of the machine's interfaces (a VM with its public IP on
 `eth0`) and otherwise needs the network to route it back to tide (hairpin).
-With recording, prefer discovery unless the address is local.
+tide's speaker observer, which puts names in transcripts, connects to media the
+same way; if it can't, recordings are unaffected, transcripts keep `Speaker N`,
+and tide logs `speakers: recording …: join room …`. With recording, prefer
+discovery unless the address is local.
 
 Change the ports with `TIDE_MEDIA_UDP_PORT` and `TIDE_MEDIA_TCP_PORT`. Two
 tides on one host must differ in everything they listen on: `TIDE_ADDR`,
