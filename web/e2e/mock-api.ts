@@ -300,6 +300,7 @@ export async function mockApi(page: Page, state: ApiState = defaultState()): Pro
         room: room.slug,
         identity: 'agent:0001',
         name: 'Agent',
+        owner_identity: 'host:owner',
         expires_at: now + 600
       };
       return json(200, session);

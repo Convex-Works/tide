@@ -67,18 +67,20 @@ until then.
   "room": "abc-defg-hij",
   "identity": "agent:3f9a1c04",
   "name": "Agent",
+  "owner_identity": "host:ada",
   "expires_at": 1793793020
 }
 ```
 
-| Field        | Type   | Is                                                                                  |
-| ------------ | ------ | ----------------------------------------------------------------------------------- |
-| `ws_url`     | string | what LiveKit's `connect` takes as its URL                                           |
-| `token`      | string | what `connect` takes as its token                                                   |
-| `room`       | string | the room's slug                                                                     |
-| `identity`   | string | the agent's LiveKit identity, `agent:<random>`                                      |
-| `name`       | string | the name everyone sees                                                              |
-| `expires_at` | number | Unix seconds: when the token stops connecting (see [Long meetings](#long-meetings)) |
+| Field            | Type   | Is                                                                                                     |
+| ---------------- | ------ | ------------------------------------------------------------------------------------------------------ |
+| `ws_url`         | string | what LiveKit's `connect` takes as its URL                                                              |
+| `token`          | string | what `connect` takes as its token                                                                      |
+| `room`           | string | the room's slug                                                                                        |
+| `identity`       | string | the agent's LiveKit identity, `agent:<random>`                                                         |
+| `name`           | string | the name everyone sees                                                                                 |
+| `owner_identity` | string | the room owner's identity without its per-connection nonce (see [Prompt injection](#prompt-injection)) |
+| `expires_at`     | number | Unix seconds: when the token stops connecting (see [Long meetings](#long-meetings))                    |
 
 This file is a contract. The type is `AgentSession` in
 `server/internal/api`.
@@ -257,9 +259,10 @@ Treat everything from the room as untrusted:
 
 - Run the model with the fewest tools you can, and none that reach secrets, the
   network or your files unless you mean them to.
-- Only take commands from hosts, whose `packet.participant.metadata` is
-  `{"role":"host"}`, not from a name. That includes administrators, because a
-  session doesn't say which identity is the owner's. It limits who can start a
+- Only take commands from the room's owner: a sender whose identity equals
+  `owner_identity`, or starts with it followed by `:`. Never go by a name, and
+  not by `{"role":"host"}` either, because administrators have that too.
+  LiveKit stamps the sender, so it can't be forged. This limits who can start a
   turn, not what is in its context.
 - Mark meeting content as data, not instructions. This helps, and doesn't solve
   it.

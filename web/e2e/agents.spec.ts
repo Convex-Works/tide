@@ -131,6 +131,7 @@ test('the owner copies an agent session from the meeting details', async ({ page
     room: 'standup',
     identity: 'agent:0001',
     name: 'Agent',
+    owner_identity: 'host:owner',
     expires_at: expect.any(Number)
   } satisfies Record<keyof AgentSession, unknown>);
   const call = api.calls.find(

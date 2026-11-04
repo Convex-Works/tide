@@ -103,7 +103,8 @@ func TestAgentSessionCarriesTheAgentGrants(t *testing.T) {
 	var session api.AgentSession
 	owner.want(http.MethodPost, fill(api.AgentSessionPath, agentRoomSlug), `{"name":"Notes"}`, http.StatusOK, &session)
 
-	if session.WSURL != "ws://public.example" || session.Room != agentRoomSlug || session.Name != "Notes" {
+	if session.WSURL != "ws://public.example" || session.Room != agentRoomSlug || session.Name != "Notes" ||
+		session.OwnerIdentity != "host:owner" {
 		t.Fatalf("session = %+v", session)
 	}
 	// 32 bits from crypto/rand, as a guest's identity has.

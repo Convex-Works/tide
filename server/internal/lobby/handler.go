@@ -206,7 +206,7 @@ func (h *Handler) AgentSession(w http.ResponseWriter, r *http.Request) {
 	}
 	httpx.WriteJSON(w, http.StatusOK, api.AgentSession{
 		WSURL: h.minter.PublicURL(), Token: token, Room: room.Slug,
-		Identity: identity, Name: name, ExpiresAt: expiresAt.Unix(),
+		Identity: identity, Name: name, OwnerIdentity: "host:" + room.OwnerSub, ExpiresAt: expiresAt.Unix(),
 	})
 }
 

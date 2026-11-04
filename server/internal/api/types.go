@@ -147,6 +147,11 @@ type AgentSession struct {
 	Identity string `json:"identity"`
 	// Name is the display name everyone in the room sees.
 	Name string `json:"name"`
+	// OwnerIdentity is host:<sub> for the room's owner. A program finds the
+	// owner by a sender's identity equal to it, or starting with it and a
+	// colon, since each connection adds a nonce. The host role can't do this:
+	// administrators have it too.
+	OwnerIdentity string `json:"owner_identity"`
 	// ExpiresAt is Unix seconds: the last moment Token can connect. It says
 	// nothing about how long a connected agent may stay.
 	ExpiresAt int64 `json:"expires_at"`

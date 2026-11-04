@@ -168,6 +168,13 @@ export interface AgentSession {
    */
   name: string;
   /**
+   * OwnerIdentity is host:<sub> for the room's owner. A program finds the
+   * owner by a sender's identity equal to it, or starting with it and a
+   * colon, since each connection adds a nonce. The host role can't do this:
+   * administrators have it too.
+   */
+  owner_identity: string;
+  /**
    * ExpiresAt is Unix seconds: the last moment Token can connect. It says
    * nothing about how long a connected agent may stay.
    */
