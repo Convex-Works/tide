@@ -405,6 +405,19 @@ func (s *Service) files(ctx context.Context, j *job, a moil.Assignment) (map[str
 	if err != nil {
 		return nil, nil, prepareError(err)
 	}
+	inputs := map[string]moil.Download{inputName(recording): {URL: input}}
+	// The bundle tells the two inputs apart by name. A recording without a
+	// timeline just keeps its speakers unnamed.
+	switch _, _, err := s.cfg.Objects.Stat(ctx, recording.SpeakersKey()); {
+	case err == nil:
+		timeline, err := s.cfg.Objects.PresignedGet(ctx, recording.SpeakersKey(), valid)
+		if err != nil {
+			return nil, nil, prepareError(err)
+		}
+		inputs[store.SpeakersFile] = moil.Download{URL: timeline}
+	case !errors.Is(err, fs.ErrNotExist):
+		return nil, nil, prepareError(err)
+	}
 	outputs := make(map[string]moil.Upload, len(store.TranscriptFormats))
 	for _, format := range store.TranscriptFormats {
 		output, err := s.cfg.Objects.PresignedPut(ctx, stagedKey(dir.dir, format), valid)
@@ -416,7 +429,7 @@ func (s *Service) files(ctx context.Context, j *job, a moil.Assignment) (map[str
 	s.mu.Lock()
 	j.staging[a.Attempt] = dir
 	s.mu.Unlock()
-	return map[string]moil.Download{inputName(recording): {URL: input}}, outputs, nil
+	return inputs, outputs, nil
 }
 
 // stagingFor is where the machine taking attempt a of j uploads: a new

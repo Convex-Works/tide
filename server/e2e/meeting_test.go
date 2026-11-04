@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -11,12 +12,14 @@ import (
 	"time"
 
 	"tide/internal/api"
+	"tide/internal/speakers"
+	"tide/internal/store"
 	"tide/internal/transcripts"
 )
 
 // transcriptLine is a line of the real bundle's plain-text transcript:
-// "[00:01:02] Speaker 2: Shall we start?".
-var transcriptLine = regexp.MustCompile(`^\[\d\d:\d\d:\d\d\] Speaker \d+: \S`)
+// "[00:01:02] Speaker 2: Shall we start?", or with the speaker's name.
+var transcriptLine = regexp.MustCompile(`^\[\d\d:\d\d:\d\d\] [^:]+: \S`)
 
 // TestARealMeetingIsTranscribed runs the transcribe bundle tide publishes,
 // with its real models, on a real meeting recording, from the recording's
@@ -25,6 +28,9 @@ var transcriptLine = regexp.MustCompile(`^\[\d\d:\d\d:\d\d\] Speaker \d+: \S`)
 // models; TIDE_E2E_MOIL_CACHE can name a moil cache that already holds
 // them, such as ~/Library/Caches/moil, where `moil run` keeps its own.
 // TIDE_E2E_MEETING_SPEAKERS, if set, is how many speakers it must find.
+// TIDE_E2E_MEETING_TIMELINE, if set, names a speakers.json for the recording,
+// stored beside it: every name in it must then label a line of the transcript,
+// and no speaker stay a Speaker N.
 func TestARealMeetingIsTranscribed(t *testing.T) {
 	meeting := os.Getenv("TIDE_E2E_MEETING")
 	if meeting == "" {
@@ -54,6 +60,21 @@ func TestARealMeetingIsTranscribed(t *testing.T) {
 	room := alice.createRoom("Design review")
 	started := time.Now()
 	r := k.startRecordingOf(room, "alice", audio)
+	var names []string
+	if path := os.Getenv("TIDE_E2E_MEETING_TIMELINE"); path != "" {
+		timeline, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var parsed speakers.Timeline
+		if err := json.Unmarshal(timeline, &parsed); err != nil {
+			t.Fatal(err)
+		}
+		for _, participant := range parsed.Participants {
+			names = append(names, participant.Name)
+		}
+		objects.put(t, store.Recording{S3Key: &r.key}.SpeakersKey(), timeline, "application/json")
+	}
 	k.endRecording(r)
 	info := alice.waitTranscriptFor(r, 20*time.Minute, func(info *api.TranscriptInfo) bool {
 		if info != nil && info.Status == api.TranscriptFailed {
@@ -76,6 +97,14 @@ func TestARealMeetingIsTranscribed(t *testing.T) {
 		}
 	}
 	t.Logf("%d utterances; it begins:\n%s", len(lines), strings.Join(lines[:min(len(lines), 8)], "\n"))
+	for _, name := range names {
+		if !bytes.Contains(text, []byte("] "+name+": ")) {
+			t.Errorf("no line is labelled %s", name)
+		}
+	}
+	if len(names) > 0 && bytes.Contains(text, []byte("] Speaker ")) {
+		t.Errorf("a speaker stayed unnamed")
+	}
 	captions, _ := alice.downloadTranscript(r, api.TranscriptFormatVTT)
 	if !bytes.HasPrefix(captions, []byte("WEBVTT\n")) || !bytes.Contains(captions, []byte(" --> ")) {
 		t.Fatalf("the captions aren't WebVTT cues:\n%.300s", captions)

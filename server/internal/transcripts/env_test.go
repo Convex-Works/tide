@@ -217,7 +217,7 @@ func (e *env) recordEgress(room store.Room, slug string, started, ended time.Tim
 	}); err != nil {
 		e.t.Fatal(err)
 	}
-	e.s3.Put(key, []byte("OggS audio of "+id))
+	e.s3.Seed(key, []byte("OggS audio of "+id))
 	err := e.recordings.HandleWebhookEvent(httptest.NewRequest(http.MethodPost, api.LiveKitWebhookPath, nil), &protocol.WebhookEvent{
 		Event: "egress_ended",
 		EgressInfo: &protocol.EgressInfo{
@@ -249,7 +249,7 @@ func (e *env) reconciled() {
 	e.t.Helper()
 	e.probes++
 	probe := fmt.Sprintf("probes/%d", e.probes)
-	e.s3.Put(probe, []byte("probe"))
+	e.s3.Seed(probe, []byte("probe"))
 	if err := e.db.QueueRemovals(context.Background(), []string{probe}, e.clock.Now().Unix()); err != nil {
 		e.t.Fatal(err)
 	}

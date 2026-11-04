@@ -79,11 +79,15 @@ func (b *Background) Run(ctx context.Context) {
 }
 
 // Close disconnects every machine, ends every transcript job with
-// moil.ErrClosed, and saves what machines last reported. Jobs' rows stay
-// pending until the next start resubmits them. Without recording there is
-// nothing to close.
+// moil.ErrClosed, and saves what machines last reported, then takes every
+// speaker observer out of its room. Jobs' rows stay pending until the next
+// start resubmits them. Without recording there is nothing to close.
 func (b *Background) Close() error {
-	return b.transcripts.close()
+	err := b.transcripts.close()
+	if b.recording != nil {
+		b.recording.CloseObservers()
+	}
+	return err
 }
 
 // New builds the HTTP handler and the Background work main must run beside it.

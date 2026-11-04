@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"bytes"
+	"context"
 	"mime"
 	"net/http"
 	"path"
@@ -11,7 +12,56 @@ import (
 	"time"
 
 	"tide/internal/api"
+	tiderecording "tide/internal/recording"
+	"tide/internal/store"
 )
+
+// A timeline stored beside a recording, by the store tide itself writes it
+// with, reaches a real machine as a second input of the job, which still tells
+// which input is the recording; and the same machine does without one.
+func TestATimelineReachesTheMachine(t *testing.T) {
+	t.Parallel()
+	k := startTide(t)
+	alice := k.signIn("alice")
+	laptop := newMachine(t, "alice-laptop")
+	laptop.Pair(alice)
+	laptop.Approve(k.bundle.Hash())
+	laptop.Start()
+	room := alice.createRoom("Standup")
+	finished := func(info *api.TranscriptInfo) bool {
+		if info != nil && info.Status == api.TranscriptFailed {
+			t.Fatalf("the transcript failed: %s", info.Error)
+		}
+		return info != nil && info.Status == api.TranscriptCompleted
+	}
+
+	named := k.startRecording(room, "alice")
+	key := store.Recording{S3Key: &named.key}.SpeakersKey()
+	timeline := []byte(`{"v":1,"participants":[{"name":"Ada","spans":[[1,2]]},{"name":"Grace","spans":[[3,4]]}]}`)
+	if err := tiderecording.NewMinIOStore(k.cfg).Put(context.Background(), key, timeline, "application/json"); err != nil {
+		t.Fatal(err)
+	}
+	k.endRecording(named)
+	alice.waitTranscript(named, "completed", finished)
+	text, _ := alice.downloadTranscript(named, api.TranscriptFormatText)
+	if !bytes.Contains(text, []byte("Active during it: Ada, Grace.")) || !bytes.Contains(text, []byte(named.sum)) {
+		t.Fatalf("the machine read neither the recording nor the timeline:\n%s", text)
+	}
+
+	bare := k.startRecording(room, "alice")
+	k.endRecording(bare)
+	alice.waitTranscript(bare, "completed", finished)
+	text, _ = alice.downloadTranscript(bare, api.TranscriptFormatText)
+	if bytes.Contains(text, []byte("Active during it")) || !bytes.Contains(text, []byte(bare.sum)) {
+		t.Fatalf("without a timeline:\n%s", text)
+	}
+
+	// Deleting the recording deletes the timeline.
+	alice.call(http.MethodDelete, fill(api.RecordingPath, named.id), nil, http.StatusNoContent, nil)
+	if keys := objects.keys(t, path.Dir(key)+"/"); len(keys) != 0 {
+		t.Fatalf("left beside the deleted recording: %q", keys)
+	}
+}
 
 // The stub the tests publish is a bundle moil accepts: its lockfile is
 // current, and the moil binary hashes it as the Go SDK does, so machines

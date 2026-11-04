@@ -76,6 +76,7 @@ func (h *Handler) reconcileRecording(ctx context.Context, recording store.Record
 		if h.now().Sub(time.Unix(recording.StartedAt, 0)) < reconcileGrace {
 			return nil
 		}
+		h.stopObserver(recording.ID)
 		if err := h.store.UpdateRecordingByEgress(ctx, recording.EgressID, store.RecordingUpdate{Status: "failed"}); err != nil {
 			return err
 		}

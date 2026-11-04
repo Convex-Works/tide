@@ -17,7 +17,7 @@ import (
 // Config configures a Server. Name, VerificationURL and Store are
 // required; zero durations and limits take the defaults shown.
 type Config struct {
-	// Name is how the service introduces itself to machines, e.g. "klisi".
+	// Name is how the service introduces itself to machines, e.g. "tide".
 	Name string
 	// VerificationURL is the service's page where a signed-in user
 	// confirms a pairing code. Machines open it with ?code=XXXX-XXXX
@@ -26,8 +26,8 @@ type Config struct {
 	//
 	// It must be on the same origin (scheme, host and port) as the base
 	// URL machines pair with, where the Handler is mounted, such as
-	// https://klisi.example.com/machines/pair for
-	// https://klisi.example.com/moil. Machines refuse to pair otherwise,
+	// https://tide.example.com/machines/pair for
+	// https://tide.example.com/moil. Machines refuse to pair otherwise,
 	// so that no service can relay another's pairing and have the user
 	// confirm, on the other service's page, a machine of its choosing
 	// (spec §4). NewServer can't check this, since the Server doesn't know

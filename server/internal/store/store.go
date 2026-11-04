@@ -90,9 +90,24 @@ func (r Recording) TranscriptKey(format TranscriptFormat) string {
 	return strings.TrimSuffix(key, path.Ext(key)) + "." + format.Extension
 }
 
-// ObjectKeys names every file stored for the recording: the recording itself
-// and its transcript sidecars, whether or not they exist yet. Whatever
-// deletes a recording removes all of them.
+// SpeakersFile is the name of the file saying who was active during a
+// recording (ARCHITECTURE.md §8), beside it in storage and as the input of a
+// transcript job.
+const SpeakersFile = "speakers.json"
+
+// SpeakersKey is where the recording's speaker timeline is stored, if it has
+// one: in the recording's own directory. It is "" when the recording has no
+// file.
+func (r Recording) SpeakersKey() string {
+	if !r.HasFile() {
+		return ""
+	}
+	return path.Join(path.Dir(*r.S3Key), SpeakersFile)
+}
+
+// ObjectKeys names every file stored for the recording: the recording itself,
+// its transcript sidecars and its speaker timeline, whether or not they exist
+// yet. Whatever deletes a recording removes all of them.
 func (r Recording) ObjectKeys() []string {
 	if !r.HasFile() {
 		return nil
@@ -101,6 +116,7 @@ func (r Recording) ObjectKeys() []string {
 	for _, format := range TranscriptFormats {
 		keys = append(keys, r.TranscriptKey(format))
 	}
+	keys = append(keys, r.SpeakersKey())
 	return keys
 }
 

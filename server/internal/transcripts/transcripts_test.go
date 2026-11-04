@@ -22,11 +22,12 @@ import (
 
 // The transcribe bundle's hash. Machine owners approve the bundle by this
 // hash in the moil app, and a machine takes transcript jobs only while its
-// owner's approval matches it. Any change to a byte of bundle/ changes the
-// hash, and then every owner must read and approve the new bundle before
-// their machines transcribe anything again; until they do, transcripts
-// wait. So change the bundle only on purpose, and update this pin with it.
-const pinnedBundleHash = "42d30e3fb23030627d993330b1e2917a0ac2f4abef567fc6e82328d8acedeae6"
+// owner's approval matches it. Any change to a byte of job.py, job.py.lock or
+// manifest.json in bundle/ changes the hash, and then every owner must read
+// and approve the new bundle before their machines transcribe anything again;
+// until they do, transcripts wait. So change the bundle only on purpose, and
+// update this pin with it.
+const pinnedBundleHash = "402cb29e79c94d32388fef532099283666557a73aa889768dc0227c4d76f6b1f"
 
 func TestBundleHashIsPinned(t *testing.T) {
 	bundle, err := transcripts.Bundle()
@@ -649,3 +650,84 @@ func statusOf(t *testing.T, method, location string, body []byte) int {
 }
 
 func pathBase(key string) string { return key[strings.LastIndex(key, "/")+1:] }
+
+// A recording with a speaker timeline gives the machine both inputs: the
+// bundle tells them apart by name, and nothing in the job's params changes.
+func TestTheSpeakerTimelineIsAnInputWhenThereIsOne(t *testing.T) {
+	e := newEnv(t)
+	room := e.room("alice", "Standup")
+	machine := e.pair("alice")
+	machine.Approve(e.bundle)
+	rec := e.record(room, time.Now())
+	e.submitted(rec)
+	timeline := []byte(`{"v":1,"participants":[{"name":"Ada","spans":[[1,2]]}]}`)
+	e.s3.Seed(rec.SpeakersKey(), timeline)
+
+	machine.Connect()
+	a := machine.NextAttempt()
+	if len(a.Inputs) != 2 {
+		t.Fatalf("inputs = %v", slices.Sorted(maps.Keys(a.Inputs)))
+	}
+	if got := a.Input("speakers.json"); !bytes.Equal(got, timeline) {
+		t.Fatalf("timeline input = %q", got)
+	}
+	audio, _ := e.s3.Object(*rec.S3Key)
+	if got := a.Input("recording.ogg"); !bytes.Equal(got, audio) {
+		t.Fatalf("recording input = %q", got)
+	}
+	if bytes.Contains(a.Params, []byte("speakers")) {
+		t.Fatalf("params = %s", a.Params)
+	}
+}
+
+func TestARecordingWithoutATimelineHasOneInput(t *testing.T) {
+	e := newEnv(t)
+	room := e.room("alice", "Standup")
+	machine := e.machine("alice")
+	e.record(room, time.Now())
+	a := machine.NextAttempt()
+	if len(a.Inputs) != 1 {
+		t.Fatalf("inputs = %v", slices.Sorted(maps.Keys(a.Inputs)))
+	}
+	if _, ok := a.Inputs["speakers.json"]; ok {
+		t.Fatal("a recording without a timeline has a timeline input")
+	}
+}
+
+// Storage that can't say whether there's a timeline isn't saying there's
+// none: the job would run and lose its names for good. So it's a storage
+// failure like any other in Prepare, retried and then blamed on tide, and no
+// machine starts on the recording alone.
+func TestAFailedStatOfTheTimelineIsAStorageFailure(t *testing.T) {
+	e := newEnv(t)
+	room := e.room("alice", "Standup")
+	machine := e.machine("alice")
+	e.s3.Break(opStatTimeline)
+	rec := e.record(room, time.Now())
+	info := e.waitStatus(room, rec, api.TranscriptFailed)
+	if info.Error != "tide couldn't reach its database or storage to hand the recording to a machine. Try again, and if it keeps failing, ask tide's administrator to check them." {
+		t.Fatalf("error = %q", info.Error)
+	}
+	if n := e.s3.Calls(opStatTimeline); n != 3 {
+		t.Fatalf("asked storage %d times, want one for each of the job's attempts", n)
+	}
+	machine.Sync()
+	if offers := machine.Offers(); len(offers) != 3 {
+		t.Fatalf("the machine was offered %d attempts", len(offers))
+	}
+}
+
+// A timeline is removed with its recording.
+func TestDeletingARecordingRemovesItsSpeakerTimeline(t *testing.T) {
+	e := newEnv(t)
+	room := e.room("alice", "Standup")
+	rec := e.record(room, time.Now())
+	e.s3.Seed(rec.SpeakersKey(), []byte(`{"v":1,"participants":[]}`))
+	if response := e.deleteRecording(rec, session("alice")); response.Code != http.StatusNoContent {
+		t.Fatalf("delete = %d", response.Code)
+	}
+	waitFor(t, "the timeline to be removed", func() bool {
+		_, ok := e.s3.Object(rec.SpeakersKey())
+		return !ok
+	})
+}

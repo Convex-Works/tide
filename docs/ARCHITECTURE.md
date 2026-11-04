@@ -113,6 +113,7 @@ not a YAML file:
   namespace reaches media through an internal address only when the address
   is discovered; with `TIDE_MEDIA_NODE_IP` set it must reach that address,
   which needs the network to route it back (hairpin) where it isn't local.
+  The speaker observer (§8) is in the same position, inside tide itself.
 - **Webhooks** go to tide's own `/api/webhooks/media` over loopback, signed
   as before.
 - **Keys**: with no recorder, nothing outside the process needs the API key
@@ -151,9 +152,10 @@ with that error.
 The server stops in order on SIGTERM or SIGINT (`httpapi.Serve`, then
 `main`): it stops taking connections and gives requests in flight 10 seconds,
 ending lobby streams at once; then it disconnects the machines, ending their
-jobs without touching the jobs' rows; then it waits for the reconcilers and
-job followers; then it stops the media server, which ends every room; and
-only then closes the database. A second signal stops it at
+jobs without touching the jobs' rows; then it takes the speaker observers
+(§8) out of their rooms, waiting up to 5 seconds; then it waits for the
+reconcilers and job followers; then it stops the media server, which ends
+every room; and only then closes the database. A second signal stops it at
 once.
 
 ## 3. Repository layout
@@ -172,6 +174,8 @@ tide/
       media/               the embedded media server and its /rtc
                            forwarding (§2.1)
       recording/           egress control, recording state machine
+      speakers/            who is active during a recording: the observer
+                           and its speakers.json (§8)
       machines/            pairing and managing hosts' moil machines
       transcripts/         transcript jobs, reconciler; bundle/ is the
                            embedded moil bundle
@@ -363,8 +367,8 @@ to the egress job, not to any participant's tab.
 
 **On only when configured.** Recording needs sign-in and object storage: it
 is on when `TIDE_OIDC_ISSUER` and `TIDE_S3_ENDPOINT` are both set (§2.1), and
-then the recorder must run too. When it is off, tide makes no storage client
-and runs no recording reconciler, registers none of the recording routes
+then the recorder must run too. When it is off, tide makes no storage client,
+runs no recording reconciler and no speaker observers, registers none of the recording routes
 (start, stop, list, delete, download: they answer 404 like any unknown path),
 and reports `recording: false` on `/api/me`, so the SPA hides the record
 control and every recording list. The media webhook route stays: it also
@@ -401,6 +405,47 @@ ended_at, duration_s, s3_key, size_bytes`.
 
 Stop on: explicit stop, room emptying (LiveKit auto-ends the egress), or
 egress failure (status `failed`, surfaced in management UI — never silent).
+
+**Who spoke when.** Each recording has one observer (`internal/speakers`), so
+that its transcript can name its speakers (§8.1). It is tide itself in the
+room: once `StartRoomCompositeEgress` has succeeded it connects over the
+loopback API in the background, as `observer:<recording-id>`, with the observer
+role of §4 (hidden, publishes nothing, kind `AGENT`, so it doesn't hold the
+room open, and not the Recorder grant, which would mark the room as recording).
+LiveKit reports speakers only among participants you subscribe to, so the
+observer subscribes to every microphone, including those published later, and
+throws the audio away. Each time the active speakers change it notes who they
+are, keeping spans in memory per display name, since identities are per
+connection and someone who rejoins gets a new one. It holds at most 200,000
+spans a recording.
+
+The observer stops when egress ends, and when the reconciler heals or fails the
+recording; a room closing only ends its connection, and what it saw waits for
+the recording to end. If the recording completed, tide writes the file beside it
+**before** the row becomes `completed`, on both the webhook and reconciler
+paths, because that is what lets a transcript job start:
+
+```
+recordings/<room>/<recording-id>/speakers.json
+```
+
+```json
+{"v": 1, "participants": [{"name": "Ada", "spans": [[12.4, 18.0], [31.2, 33.9]]}]}
+```
+
+Times are seconds from the start of the file, to a tenth of a second, by the
+egress file's own `StartedAt`, not `recordings.started_at`, which is earlier.
+Anything outside the file is dropped and a participant left with no spans is
+omitted, and if that leaves nobody, or egress doesn't say when its file starts
+and ends, no file is written.
+
+All of this is best effort. An observer that can't connect, loses its
+connection or stops with tide, or a file storage refuses within 10 seconds, is
+logged and costs that recording's transcript its names, nothing else: Start
+never waits for the observer, and the recording completes without the file. With
+`TIDE_MEDIA_URL`, a tide restart in the middle of a recording that survives it
+has the same result. The file is deleted with the recording
+(`store.Recording.ObjectKeys()`), and nothing reads it but transcript jobs.
 
 ### 8.1 Transcripts
 
@@ -459,6 +504,21 @@ owners read and approve it by hash in the moil app. A test pins that hash: a
 new hash asks every owner to review and approve again, so it only ever changes
 on purpose.
 
+**Speaker names.** The model finds the speakers, and the timeline of who was
+active (§8) only says what to call them. For each diarized speaker the bundle
+sums their speech inside each name's spans, and gives them the best name only
+if it has at least 2 seconds of that overlap and 60% of their overlap with all
+names; otherwise they stay `Speaker N`, because an unknown label beats a wrong
+one. Several speakers can take one name, as `Ada (1)` and `Ada (2)`. The names
+are in the transcript's lines and captions, where a hook sees them too, and in
+`meta.speaker_map` (`[{"id": "S1", "name": "Ada"}]`) beside the integer
+`meta.speakers`, which is what tide reads. Names are written by the bundle, not
+by tide, because hooks get the machine's own outputs. A recording with no
+timeline gets exactly the transcript it would have had before. Names are
+whatever people typed, so the bundle strips control and format characters and
+escapes them in WebVTT, and nothing checks a name against a voice: a voice on
+someone else's microphone gets that person's name.
+
 **Intent and projection.** The `transcripts` table is the source of truth: one
 row per recording that should have a transcript, in status `pending`,
 `completed` or `failed`. A moil job is a disposable projection of a `pending`
@@ -492,7 +552,9 @@ owner's hooks, which a machine runs after a job succeeds, with the job's title
 and params (moil's `spec/machine.md` §2): a hook filing meeting notes can tell
 when the meeting was, not only when its transcript was made. The params say
 nothing more about the room than the title does. Hooks may read them; changing
-their shape breaks the hooks that do.
+their shape breaks the hooks that do. Participants' names reach the machine
+through the timeline input (Files, below), never through the params, and the
+owner can already hear those people in the recording.
 
 A job is eligible only for the room owner's machines
 (`moil.OwnedBy(rooms.owner_sub)`, the room found by ID); administrators can
@@ -520,8 +582,12 @@ the job again; an end tide couldn't record by the time it stopped leaves the row
 (`moil.Job.Prepare`), not at submission, because a job can wait days for a
 laptop to wake. They last for the attempt's time limit plus 15 minutes, at
 most S3's 7 days: a GET for the recording (input `recording.ogg` or
-`recording.mp4`) and a PUT for each output. Machines never write where tide
-serves from: each attempt uploads to a staging directory of its own,
+`recording.mp4`), a GET for its speaker timeline (input `speakers.json`) if
+`Stat` finds one, and a PUT for each output. The bundle tells the two inputs
+apart by name, so the params don't mention them. A recording with no timeline
+just has no such input; any other `Stat` failure puts the job back in the
+queue like the rest of `Prepare`'s storage failures, because the attempt would
+otherwise lose the names for good. Machines never write where tide serves from: each attempt uploads to a staging directory of its own,
 
 ```
 transcripts-staging/<recording-id>/<attempt>-<16 hex digits>/transcript.txt
@@ -540,6 +606,7 @@ file that fails a check fails the row, and tide removes what it copied:
 recordings/<room>/<recording-id>/2026-09-27 14-00 - Standup.ogg
 recordings/<room>/<recording-id>/2026-09-27 14-00 - Standup.txt   transcript
 recordings/<room>/<recording-id>/2026-09-27 14-00 - Standup.vtt   WebVTT captions
+recordings/<room>/<recording-id>/speakers.json                    who was active (§8), written by tide
 ```
 
 A staging directory is named for the attempt tide made it for, and unique by
@@ -1173,6 +1240,7 @@ media server.*
 | Transcripts | moil jobs on the room owner's own machine | No model or GPU on the server, no fifth process, no new reader of the audio |
 | Transcript trigger | Automatic once the owner has paired a machine; otherwise on request | Pairing is the opt-in; no per-recording button for hosts who use it |
 | Transcripts availability | Follow recording, with no switch; pairing a machine is each host's opt-in | One less setting, and nothing runs until a host pairs. The accepted cost: every deployment with recording serves `/moil/`, including the unauthenticated `POST /moil/v1/pair`, and operators can't turn it off |
+| Speaker names | A hidden observer writes who was active beside the recording; the bundle matches that against its diarization | Diarization stays the truth, since active-speaker data is too coarse to say who said a word but enough to vote over a meeting. Grouped by display name because identities are per connection. Best effort: failing costs names, never a recording |
 | Default slugs | Readable random (`abc-defg-hij`), ~47 bits | Short enough to read aloud; unguessable behind the lookup and join limits; UUIDs made ugly links |
 | Calendar invites | `.ics` built in the browser, nothing stored | Covers "send people a time" without a scheduling model; server-side scheduling stays a later decision |
 | moil SDK | Vendored in `server/third_party/moil` | The forge sits behind Cloudflare Access, so Go can't fetch it in CI or Docker; same precedent as `web/vendor` |
