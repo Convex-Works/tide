@@ -22,11 +22,12 @@ import (
 
 // The transcribe bundle's hash. Machine owners approve the bundle by this
 // hash in the moil app, and a machine takes transcript jobs only while its
-// owner's approval matches it. Any change to a byte of bundle/ changes the
-// hash, and then every owner must read and approve the new bundle before
-// their machines transcribe anything again; until they do, transcripts
-// wait. So change the bundle only on purpose, and update this pin with it.
-const pinnedBundleHash = "42d30e3fb23030627d993330b1e2917a0ac2f4abef567fc6e82328d8acedeae6"
+// owner's approval matches it. Any change to a byte of job.py, job.py.lock or
+// manifest.json in bundle/ changes the hash, and then every owner must read
+// and approve the new bundle before their machines transcribe anything again;
+// until they do, transcripts wait. So change the bundle only on purpose, and
+// update this pin with it.
+const pinnedBundleHash = "402cb29e79c94d32388fef532099283666557a73aa889768dc0227c4d76f6b1f"
 
 func TestBundleHashIsPinned(t *testing.T) {
 	bundle, err := transcripts.Bundle()

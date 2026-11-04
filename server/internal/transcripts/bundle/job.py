@@ -17,13 +17,20 @@ Turns a meeting recording into a transcript of who said what, and when,
 on the machine it runs on. Two NVIDIA models do the work: Nemotron 3
 Diarization finds who speaks when (up to 8 speakers), Parakeet TDT 0.6B v3
 transcribes the speech (25 European languages, detected on its own), and
-each word goes to whoever was speaking at the time. Try it:
+each word goes to whoever was speaking at the time. When the job says who
+was active when, speakers who clearly match someone get that name. Try it:
 
     moil run examples/bundles/transcribe --input audio.ogg=meeting.ogg \\
         --output transcript.json --output transcript.vtt --output transcript.txt
 
-The job's one input is the recording, in any format FFmpeg reads: OGG/Opus
-and MP4/AAC from LiveKit Egress, WebM, WAV, MP3... Params, all optional:
+The job's input is the recording, in any format FFmpeg reads: OGG/Opus and
+MP4/AAC from LiveKit Egress, WebM, WAV, MP3... An input named speakers.json
+beside it is the timeline of who was active when, seconds from the start of
+the recording; a timeline that can't be used only costs the names:
+
+    {"v": 1, "participants": [{"name": "Ada", "spans": [[12.4, 18.0]]}]}
+
+Params, all optional:
 
     input         which input is the recording, when the job has several
     max_speakers  at most this many speakers, 1 to 8: the meeting's
@@ -41,11 +48,14 @@ runtime downloads them once, checks them and links them into the job's
 assets directory. The script only ever loads them from there.
 """
 
+import collections
 import json
+import math
 import os
 import sys
 import time
 import traceback
+import unicodedata
 import warnings
 
 # Events go to stdout, one JSON object per line. Libraries print there too
@@ -78,6 +88,15 @@ SPEAKING = 0.5  # the probability above which the diarizer counts someone as spe
 CHUNK_SECONDS = 30.0  # the longest stretch of audio transcribed in one go
 BATCH_SIZE = 8  # chunks transcribed together
 MAX_PAUSE = 1.5  # seconds of silence that end an utterance, even when the same person goes on
+
+TIMELINE = "speakers.json"  # the input saying who was active when
+MAX_NAME_CHARACTERS = 64  # guests type their own names, so a name's length is theirs to abuse
+# What it takes for a speaker to get a name: this many seconds of their speech
+# overlapping the name's spans, and this share of all their overlap with any
+# name. An unknown label beats a wrong name. These are starting points, not
+# yet tuned on real recordings.
+MIN_NAME_SECONDS = 2.0
+MIN_NAME_SHARE = 0.6
 
 # How far through the job each stage ends, for progress. Transcription
 # takes most of the time; the models load within their stages.
@@ -124,6 +143,7 @@ def main(job):
     device = pick_device(params.get("device"))
     for name in sorted(set(params) - {"input", "max_speakers", "device"}):
         log(f"ignoring unknown param {name!r}", level="warn")
+    timeline = load_timeline(job["inputs"])
     log(f"running on {device}")
 
     progress(0, "decoding audio")
@@ -141,6 +161,7 @@ def main(job):
     stage = time.monotonic()
     activity, frame_seconds = diarize(audio, f"{assets_dir}/diarization", device)
     speakers = pick_speakers(activity, max_speakers)
+    names = {} if timeline is None else match_names(activity, frame_seconds, speakers, timeline)
     timings["diarize"] = seconds_since(stage)
 
     # Only stretches where someone speaks are transcribed: it's faster, and
@@ -148,7 +169,7 @@ def main(job):
     chunks = plan_chunks(speech_regions(activity, frame_seconds), audio)
     batches = [chunks[i : i + BATCH_SIZE] for i in range(0, len(chunks), BATCH_SIZE)]
     stage = time.monotonic()
-    transcript = Transcript()
+    transcript = Transcript(names)
     if chunks:
         progress(DIARIZED, "loading the speech model")
         model, processor = load_asr(f"{assets_dir}/asr", device)
@@ -175,18 +196,17 @@ def main(job):
     timings["write"] = seconds_since(stage)
     timings["total"] = seconds_since(started)
 
-    emit(
-        "result",
-        files=files,
-        meta={
-            "duration": round(duration, 2),
-            "speakers": len(transcript.speakers),
-            "utterances": len(transcript.utterances),
-            "words": sum(len(u["words"]) for u in transcript.utterances),
-            "device": device,
-            "seconds": timings,
-        },
-    )
+    meta = {
+        "duration": round(duration, 2),
+        "speakers": len(transcript.speakers),
+        "utterances": len(transcript.utterances),
+        "words": sum(len(u["words"]) for u in transcript.utterances),
+        "device": device,
+        "seconds": timings,
+    }
+    if timeline is not None:
+        meta["speaker_map"] = [{"id": id, "name": name} for id, name in transcript.named().items()]
+    emit("result", files=files, meta=meta)
     return 0
 
 
@@ -194,14 +214,18 @@ def main(job):
 
 
 def pick_input(inputs, params):
-    """The path of the recording: the input params names, or the only one."""
+    """The path of the recording: the input params names, or the only one
+    besides the timeline."""
     if "input" in params:
         if params["input"] not in inputs:
             raise JobError(f"params.input names {params['input']!r}, which isn't one of the job's inputs")
+        if params["input"] == TIMELINE:
+            raise JobError(f"params.input names {TIMELINE}, which is the speaker timeline, not a recording")
         return inputs[params["input"]]
-    if len(inputs) != 1:
-        raise JobError(f"the job has {len(inputs)} inputs: send just the recording, or name it in params.input")
-    return next(iter(inputs.values()))
+    recordings = [path for name, path in inputs.items() if name != TIMELINE]
+    if len(recordings) != 1:
+        raise JobError(f"the job has {len(recordings)} inputs: send just the recording, or name it in params.input")
+    return recordings[0]
 
 
 def pick_max_speakers(params):
@@ -238,6 +262,73 @@ def pick_device(requested):
         # Another machine might have one.
         raise JobError(f"this machine has no {requested} device", retryable=True)
     return requested
+
+
+def load_timeline(inputs):
+    """The job's timeline as {name: spans}, or None if it has no usable one.
+
+    Names are decoration on a working transcript, so a bad timeline costs
+    the names with a warning, and never the job.
+    """
+    if TIMELINE not in inputs:
+        return None
+    try:
+        with open(inputs[TIMELINE], encoding="utf-8") as f:
+            return parse_timeline(json.load(f))
+    except OSError as error:
+        # The reason without the path: that's this machine's business.
+        reason = error.strerror
+    except (ValueError, RecursionError, OverflowError) as error:
+        reason = error
+    log(f"ignoring {TIMELINE}, so speakers stay unnamed: {reason}", "warn")
+    return None
+
+
+def parse_timeline(document):
+    """Checks a timeline and gathers each name's spans, in seconds.
+
+    Raises ValueError for anything but the shape tide writes. One person can
+    appear twice, under a new identity after rejoining, so spans of names
+    that are the same once cleaned go together. Nameless participants share
+    the key "": they get no label, but what they said must not count for
+    someone else (see match_names).
+    """
+    if not isinstance(document, dict):
+        raise ValueError("it isn't a JSON object")
+    if type(document.get("v")) is not int or document["v"] != 1:
+        raise ValueError("it isn't version 1")
+    if not isinstance(document.get("participants"), list):
+        raise ValueError("it has no list of participants")
+    timeline = {}
+    for participant in document["participants"]:
+        if not isinstance(participant, dict) or not isinstance(participant.get("name"), str):
+            raise ValueError("a participant has no name")
+        spans = participant.get("spans")
+        if not isinstance(spans, list) or not all(is_span(span) for span in spans):
+            raise ValueError("a participant's spans aren't pairs of times")
+        timeline.setdefault(clean_name(participant["name"]), []).extend(spans)
+    return timeline
+
+
+def is_span(span):
+    return (
+        isinstance(span, list)
+        and len(span) == 2
+        and all(type(seconds) in (int, float) and math.isfinite(seconds) for seconds in span)
+        and span[0] <= span[1]
+    )
+
+
+def clean_name(name):
+    """A participant's name, safe to show. Guests type their own, so this
+    drops everything invisible that could reorder or hide text: control and
+    format characters, bidi ones among them, and lone surrogates, which JSON
+    allows and a UTF-8 file doesn't. Only the joiners stay, inside a name,
+    since Persian names and emoji need them. Empty means there's no name."""
+    joiners = "\u200c\u200d"
+    name = unicodedata.normalize("NFC", name)
+    name = "".join(c for c in name if c.isspace() or c in joiners or unicodedata.category(c) not in ("Cc", "Cf", "Cs"))
+    return " ".join(name.split())[:MAX_NAME_CHARACTERS].strip(" " + joiners)
 
 
 # Audio
@@ -384,6 +475,44 @@ def speaker_at(activity, frame_seconds, word, speakers):
     return speakers[int(window.sum(axis=0).argmax())]
 
 
+def match_names(activity, frame_seconds, speakers, timeline):
+    """Which kept speakers the timeline names, as {speaker number: name}.
+
+    Each frame of speech counts for the likeliest kept speaker, as words do
+    in speaker_at, so a speaker is judged on the speech the transcript gives
+    them, including that of anyone pick_speakers dropped. A speaker takes
+    their best name only if it clears MIN_NAME_SECONDS and MIN_NAME_SHARE.
+
+    The match is per speaker, never per word: LiveKit samples who is active
+    every 400 ms with smoothing, too coarse to say who said a word, but
+    enough to vote over a whole meeting. It isn't one to one, since two
+    voices can share a mic and the diarizer can split one person in two.
+    It needs only diarization, so names are known before the first word.
+    """
+    if not speakers:
+        return {}
+    speaking = (activity > SPEAKING).any(axis=1)
+    owners = np.array(speakers)[activity[:, speakers].argmax(axis=1)]
+    length = len(activity) * frame_seconds
+    overlaps = {speaker: {} for speaker in speakers}
+    for name, spans in timeline.items():
+        # A mask counts time once when spans overlap, as they do for someone
+        # connected twice. Clamping first keeps wild times in the array.
+        active = np.zeros(len(activity), dtype=bool)
+        for start, end in spans:
+            active[round(max(start, 0) / frame_seconds) : round(min(max(end, 0), length) / frame_seconds)] = True
+        heard = owners[speaking & active]
+        for speaker in speakers:
+            overlaps[speaker][name] = int((heard == speaker).sum()) * frame_seconds
+    names = {}
+    for speaker, seconds in overlaps.items():
+        best = max(seconds, key=seconds.get, default="")
+        if best and seconds[best] >= MIN_NAME_SECONDS and seconds[best] / sum(seconds.values()) >= MIN_NAME_SHARE:
+            names[speaker] = best
+    log(f"the timeline names {len(names)} of {len(speakers)} speakers")
+    return names
+
+
 # What they say
 
 
@@ -423,49 +552,64 @@ class Transcript:
     speaker's words without a long pause.
 
     Each utterance is sent as a data event as soon as the next one starts,
-    so a service can show the transcript as it grows. Speakers are named
-    S1, S2... in the order they first speak.
+    so a service can show the transcript as it grows. Speakers get the ids
+    S1, S2... in the order they first speak, and utterances also carry the
+    name of a speaker who has one.
     """
 
-    def __init__(self):
+    def __init__(self, names):
         self.utterances = []
-        self.speakers = {}  # diarizer speaker number -> name
+        self.speakers = {}  # diarizer speaker number -> id
+        self.names = names  # diarizer speaker number -> participant's name
 
     def add(self, word, speaker):
-        name = self.speakers.setdefault(speaker, f"S{len(self.speakers) + 1}")
+        id = self.speakers.setdefault(speaker, f"S{len(self.speakers) + 1}")
         word = {"start": round(word["start"], 2), "end": round(word["end"], 2), "text": word["text"]}
         last = self.utterances[-1] if self.utterances else None
-        if last and last["speaker"] == name and word["start"] - last["end"] < MAX_PAUSE:
+        if last and last["speaker"] == id and word["start"] - last["end"] < MAX_PAUSE:
             last["words"].append(word)
             last["end"] = word["end"]
             return
         if last:
             self.publish(last)
-        self.utterances.append({"start": word["start"], "end": word["end"], "speaker": name, "words": [word]})
+        self.utterances.append({"start": word["start"], "end": word["end"], "speaker": id, "words": [word]})
+        if speaker in self.names:
+            self.utterances[-1]["name"] = self.names[speaker]
 
     def finish(self):
         if self.utterances:
             self.publish(self.utterances[-1])
 
+    def named(self):
+        """Each speaker in the transcript who has a name: {id: name}, in the
+        order they first speak. Speakers no word went to aren't in it."""
+        return {id: self.names[speaker] for speaker, id in self.speakers.items() if speaker in self.names}
+
     @staticmethod
     def publish(utterance):
         utterance["text"] = " ".join(word["text"] for word in utterance["words"])
-        emit("data", payload={"utterance": {key: utterance[key] for key in ("start", "end", "speaker", "text")}})
+        fields = ("start", "end", "speaker", "name", "text")
+        emit("data", payload={"utterance": {key: utterance[key] for key in fields if key in utterance}})
 
 
 # Output formats
 
 
 def write_json(f, transcript, duration):
-    speaking = {name: 0.0 for name in transcript.speakers.values()}
+    speaking = {id: 0.0 for id in transcript.speakers.values()}
     for utterance in transcript.utterances:
         speaking[utterance["speaker"]] += utterance["end"] - utterance["start"]
+    speakers = [{"id": id, "speaking_seconds": round(total, 2)} for id, total in speaking.items()]
+    names = transcript.named()
+    for speaker in speakers:
+        if speaker["id"] in names:
+            speaker["name"] = names[speaker["id"]]
+    fields = ("start", "end", "speaker", "name", "text", "words")
     document = {
         "duration": round(duration, 2),
-        "speakers": [{"id": name, "speaking_seconds": round(total, 2)} for name, total in speaking.items()],
+        "speakers": speakers,
         "utterances": [
-            {key: utterance[key] for key in ("start", "end", "speaker", "text", "words")}
-            for utterance in transcript.utterances
+            {key: utterance[key] for key in fields if key in utterance} for utterance in transcript.utterances
         ],
     }
     json.dump(document, f, ensure_ascii=False, indent=2)
@@ -474,13 +618,20 @@ def write_json(f, transcript, duration):
 
 def write_vtt(f, transcript, duration):
     """WebVTT captions, each cue tagged with its speaker's voice."""
+    labels = speaker_labels(transcript)
     f.write("WEBVTT\n")
     for utterance in transcript.utterances:
+        voice = escape_vtt(labels[utterance["speaker"]])
         for cue in caption_cues(utterance["words"]):
-            text = " ".join(word["text"] for word in cue)
-            text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            text = escape_vtt(" ".join(word["text"] for word in cue))
             f.write(f"\n{timestamp(cue[0]['start'], millis=True)} --> {timestamp(cue[-1]['end'], millis=True)}\n")
-            f.write(f"<v {speaker_name(utterance)}>{text}\n")
+            f.write(f"<v {voice}>{text}\n")
+
+
+def escape_vtt(text):
+    """Text safe in a cue, or a voice tag: nothing can close the tag or open
+    another, and with no ">" left, nothing can pass for a cue's "-->"."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
 def caption_cues(words, max_characters=84):
@@ -505,13 +656,29 @@ def caption_cues(words, max_characters=84):
 
 
 def write_text(f, transcript, duration):
+    labels = speaker_labels(transcript)
     for utterance in transcript.utterances:
-        f.write(f"[{timestamp(utterance['start'])}] {speaker_name(utterance)}: {utterance['text']}\n")
+        f.write(f"[{timestamp(utterance['start'])}] {labels[utterance['speaker']]}: {utterance['text']}\n")
 
 
-def speaker_name(utterance):
-    """How captions and plain text name a speaker: S2 is "Speaker 2"."""
-    return "Speaker " + utterance["speaker"].removeprefix("S")
+def speaker_labels(transcript):
+    """How captions and plain text call each speaker, by id: "Ada", or "Ada
+    (1)" and "Ada (2)" in order of first speaking when several speakers share
+    the name. A speaker without a name is "Speaker 2" for S2."""
+    names = transcript.named()
+    sharing = collections.Counter(names.values())
+    seen = collections.Counter()
+    labels = {}
+    for id in transcript.speakers.values():
+        name = names.get(id)
+        seen[name] += 1
+        if name is None:
+            labels[id] = "Speaker " + id.removeprefix("S")
+        elif sharing[name] > 1:
+            labels[id] = f"{name} ({seen[name]})"
+        else:
+            labels[id] = name
+    return labels
 
 
 # Helpers
