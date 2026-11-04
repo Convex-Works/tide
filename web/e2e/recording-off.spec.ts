@@ -12,7 +12,7 @@ test.use({ launchOptions: { args: fakeSfuLaunchArgs } });
 function recordingOff() {
   const state = defaultState();
   state.me.recording = false;
-  state.me.transcripts = false;
+  state.me.moil = false;
   // What the server kept from when recording was on: still there, never sent.
   state.recordings = [recording('kept', undefined)];
   return state;

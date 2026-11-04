@@ -161,8 +161,8 @@ services:
       TIDE_WAIT_RATE_LIMIT: "10000"
       TIDE_LOGIN_RATE_LIMIT: "10000"
       # The media gate covers meetings and recording, as a public install
-      # runs them: without transcripts.
-      TIDE_TRANSCRIPTS: "false"
+      # runs them: without moil.
+      TIDE_MOIL: "false"
     depends_on:
       dex:
         condition: service_healthy

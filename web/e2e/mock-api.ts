@@ -1,6 +1,7 @@
 import type { Page, Route } from '@playwright/test';
 import { slugError, suggestSlug } from '../src/lib/slug';
 import {
+  BotSessionPath,
   MachineIdle,
   MachineOffline,
   MachinePaused,
@@ -25,6 +26,7 @@ import {
   TranscriptCompleted,
   TranscriptFailed,
   TranscriptWaiting,
+  type BotSession,
   type CreateRoomRequest,
   type LobbyRequestInfo,
   type MachineInfo,
@@ -61,6 +63,8 @@ export interface ApiState {
   signedIn: boolean;
   /** Whether the session owns `rooms`, as every spec's host does; default true. */
   ownsRooms?: boolean;
+  /** An administrator manages rooms without owning them; default false. */
+  administrator?: boolean;
   me: Me;
   rooms: RoomInfo[];
   recordings: RecordingInfo[];
@@ -144,7 +148,7 @@ export function defaultState(): ApiState {
       sub: 'host',
       email: 'host@tide.dev',
       name: 'Ada Host',
-      transcripts: true,
+      moil: true,
       recording: true,
       anonymous: false
     },
@@ -270,7 +274,8 @@ export async function mockApi(page: Page, state: ApiState = defaultState()): Pro
 
     // A meeting's public face answers signed-out guests too (lobby/handler.go).
     // Every mock room belongs to the signed-in user, unless ownsRooms says not.
-    const manager = state.signedIn && state.ownsRooms !== false;
+    const owner = state.signedIn && state.ownsRooms !== false && !state.administrator;
+    const manager = owner || (state.signedIn && state.administrator === true);
     const publicSlug = match(RoomPath, path);
     if (method === 'GET' && publicSlug) {
       const room = state.rooms.find((item) => item.slug === publicSlug[0]);
@@ -279,9 +284,27 @@ export async function mockApi(page: Page, state: ApiState = defaultState()): Pro
         slug: room.slug,
         name: room.name,
         lobby_enabled: room.lobby_enabled,
-        can_manage: manager
+        can_manage: manager,
+        is_owner: owner
       };
       return json(200, info);
+    }
+    const botSlug = match(BotSessionPath, path);
+    if (method === 'POST' && botSlug) {
+      if (!state.signedIn) return json(401, { error: 'Authentication required.' });
+      const room = state.rooms.find((item) => item.slug === botSlug[0]);
+      if (!room) return json(404, { error: 'Room not found.' });
+      if (!owner) return json(403, { error: "Only the room's owner can connect a bot." });
+      const session: BotSession = {
+        ws_url: fakeSfuURL,
+        token: fakeToken('bot:0001', 'Bot'),
+        room: room.slug,
+        identity: 'bot:0001',
+        name: 'Bot',
+        owner_identity: 'host:owner',
+        expires_at: now + 600
+      };
+      return json(200, session);
     }
     const joinSlug = match(RoomJoinPath, path);
     if (method === 'POST' && joinSlug) {
@@ -356,14 +379,14 @@ export async function mockApi(page: Page, state: ApiState = defaultState()): Pro
     const slug = match(RoomRecordingsPath, path);
     if (method === 'GET' && slug) {
       const listed = state.recordings.filter((item) => item.room_slug === slug[0]);
-      // With transcripts off the server never fills a recording's transcript.
+      // With moil off the server never fills a recording's transcript.
       return json(
         200,
-        state.me.transcripts ? listed : listed.map((item) => ({ ...item, transcript: wireNull }))
+        state.me.moil ? listed : listed.map((item) => ({ ...item, transcript: wireNull }))
       );
     }
 
-    // With transcripts off (TIDE_TRANSCRIPTS) the server registers none of
+    // With moil off (TIDE_MOIL) the server registers none of
     // these routes, so each is the API's catch-all 404, whatever the method.
     const transcriptRoutes = [
       MachinesPath,
@@ -374,7 +397,7 @@ export async function mockApi(page: Page, state: ApiState = defaultState()): Pro
       RecordingTranscriptPath,
       RecordingTranscriptDownloadPath
     ];
-    if (!state.me.transcripts && transcriptRoutes.some((template) => match(template, path))) {
+    if (!state.me.moil && transcriptRoutes.some((template) => match(template, path))) {
       return json(404, { error: 'API route not found.' });
     }
 

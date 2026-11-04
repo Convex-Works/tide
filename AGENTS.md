@@ -15,15 +15,17 @@ Rules that bite:
   grants minted by the server.
 - Feature list is frozen (see ARCHITECTURE.md §1). Do not add features
   (polls, whiteboard, server-side AI, RTMP, file transfer…) — this restraint is
-  the product. Transcripts are the one exception, and only because they run on
-  the room owner's own machine through moil (§8.1); nothing model-shaped runs
-  on the server.
+  the product. There are two exceptions. Transcripts, only because they run on
+  the room owner's own machine through moil (§8.1). Bots, only because
+  they run outside the server, under the room owner's control, in view of
+  everyone (§1, docs/BOTS.md): tide mints the token and shows the
+  bot, and ships none. Nothing model-shaped runs on the server.
 - `server/third_party/moil` is a vendored copy of the moil Go SDK. Never edit
   it in place: fix moil upstream, then refresh with `scripts/vendor-moil.sh`.
-- The transcribe bundle's hash is pinned by a test. Changing any byte of
-  `job.py`, `job.py.lock` or `manifest.json` in
-  `server/internal/transcripts/bundle/` makes every machine owner review and
-  approve it again, so do it only on purpose.
+- `server/internal/transcripts/bundle/` is the source of the transcribe bundle.
+  tide owns it; moil doesn't ship it. A test pins its hash. Changing any byte of
+  `job.py`, `job.py.lock` or `manifest.json` there makes every machine owner
+  review and approve it again, so do it only on purpose.
 - Design tokens and density rules are in ARCHITECTURE.md §10 — small paddings,
   4-6px radii, phosphor-svelte 16px regular icons, Inter 13px base, Geist Mono
   for slugs/timers. Light shell, dark meeting stage, one accent blue.

@@ -1,15 +1,40 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, tick } from 'svelte';
   import { Popover } from 'bits-ui';
-  import { Check, Copy, Info } from 'phosphor-svelte';
+  import { Check, Copy, Info, Robot } from 'phosphor-svelte';
+  import { botSession } from '#lib/api/client.js';
 
-  let { url }: { url: string } = $props();
+  let {
+    url,
+    slug = '',
+    isOwner = false
+  }: {
+    url: string;
+    slug?: string;
+    /** Offers a bot session; the server checks for itself (ARCHITECTURE.md §4). */
+    isOwner?: boolean;
+  } = $props();
 
   let open = $state(false);
   let copied = $state(false);
   let copyFailed = $state(false);
   let link = $state<HTMLElement>();
   let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+  let sessionBusy = $state(false);
+  let sessionCopied = $state(false);
+  let sessionError = $state('');
+  // Only on screen when the clipboard refused it, to be copied by hand.
+  let sessionText = $state('');
+  let session = $state<HTMLElement>();
+  let sessionTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /** A selection copy of what an element shows, which stays selected if it fails. */
+  function copySelection(element: HTMLElement | undefined): void {
+    const selection = window.getSelection();
+    if (!element || !selection) throw new Error('No clipboard.');
+    selection.selectAllChildren(element);
+    if (!document.execCommand('copy')) throw new Error('No clipboard.');
+  }
 
   /** Clipboard API where the page is a secure context, a selection copy where it isn't. */
   async function writeClipboard(text: string): Promise<void> {
@@ -19,10 +44,37 @@
     } catch {
       // Plain-http deployments have no navigator.clipboard.
     }
-    const selection = window.getSelection();
-    if (!link || !selection) throw new Error('No clipboard.');
-    selection.selectAllChildren(link);
-    if (!document.execCommand('copy')) throw new Error('No clipboard.');
+    copySelection(link);
+  }
+
+  /** The way a program without moil gets its session.json (docs/BOTS.md). */
+  async function copySession(): Promise<void> {
+    clearTimeout(sessionTimer);
+    sessionBusy = true;
+    sessionCopied = false;
+    sessionError = '';
+    sessionText = '';
+    try {
+      const text = JSON.stringify(await botSession(slug), null, 2);
+      try {
+        await navigator.clipboard.writeText(text);
+      } catch {
+        sessionText = text;
+        await tick();
+        copySelection(session);
+        sessionText = '';
+      }
+      sessionCopied = true;
+      sessionTimer = setTimeout(() => (sessionCopied = false), 1_500);
+    } catch (cause) {
+      sessionError = sessionText
+        ? "Couldn't copy. The session is selected; copy it by hand."
+        : cause instanceof Error
+          ? cause.message
+          : 'Could not start a bot session. Try again.';
+    } finally {
+      sessionBusy = false;
+    }
   }
 
   async function copy(): Promise<void> {
@@ -47,9 +99,16 @@
     clearTimeout(copiedTimer);
     copied = false;
     copyFailed = false;
+    clearTimeout(sessionTimer);
+    sessionCopied = false;
+    sessionError = '';
+    sessionText = '';
   });
 
-  onDestroy(() => clearTimeout(copiedTimer));
+  onDestroy(() => {
+    clearTimeout(copiedTimer);
+    clearTimeout(sessionTimer);
+  });
 </script>
 
 <Popover.Root bind:open>
@@ -82,9 +141,34 @@
                 Copy link
               {/if}
             </button>
-            <span class="visually-hidden" role="status">{copied ? 'Link copied' : ''}</span>
+            <span class="visually-hidden" role="status">
+              {copied ? 'Link copied' : sessionCopied ? 'Bot session copied' : ''}
+            </span>
             {#if copyFailed}
               <p class="details-error">Couldn't copy. The link is selected; copy it by hand.</p>
+            {/if}
+            {#if isOwner}
+              <p class="details-label bot-label">Bot</p>
+              <button
+                type="button"
+                class="copy"
+                class:done={sessionCopied}
+                disabled={sessionBusy}
+                onclick={() => void copySession()}
+              >
+                {#if sessionCopied}
+                  <Check size={16} weight="regular" aria-hidden="true" />
+                  Copied
+                {:else}
+                  <Robot size={16} weight="regular" aria-hidden="true" />
+                  Copy bot session
+                {/if}
+              </button>
+              <p class="details-hint">
+                A program can connect with it for 10 minutes. Everyone sees it.
+              </p>
+              {#if sessionText}<pre class="session" bind:this={session}>{sessionText}</pre>{/if}
+              {#if sessionError}<p class="details-error" role="alert">{sessionError}</p>{/if}
             {/if}
           </div>
         </div>
@@ -143,6 +227,28 @@
     color: var(--ok);
   }
 
+  .copy:disabled {
+    cursor: default;
+    opacity: 0.45;
+  }
+
+  .bot-label {
+    padding-top: 8px;
+    border-top: 1px solid var(--border-d);
+  }
+
+  .session {
+    max-height: 96px;
+    margin: 0;
+    overflow: auto;
+    color: var(--text);
+    font-size: 11px;
+    line-height: 16px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: all;
+  }
+
   .details {
     /* bits-ui lifts its floating wrapper to the content's z-index: above
        tiles, side panels (15) and the control bar (20). */
@@ -178,6 +284,7 @@
     user-select: all;
   }
 
+  .details-hint,
   .details-error {
     margin: 0;
     color: var(--text-2);

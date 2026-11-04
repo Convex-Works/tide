@@ -20,6 +20,9 @@ Redis, and S3-compatible storage.
 - Optional transcripts of recordings, made by moil on the room owner's own
   computer (macOS, alpha; [how it works](docs/ARCHITECTURE.md#81-transcripts)).
   No AI runs on the server
+- [Bots](docs/BOTS.md): the room's owner can connect a
+  program of their own, which hears each speaker and answers, in view of
+  everyone
 
 ![A tide meeting with four people](docs/assets/meeting.png)
 

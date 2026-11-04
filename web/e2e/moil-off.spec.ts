@@ -8,14 +8,14 @@ import {
 } from '../src/lib/api/types.gen';
 import { defaultState, machine, mockApi, recording } from './mock-api';
 
-// A server with TIDE_TRANSCRIPTS off (ARCHITECTURE.md §8.1): /api/me says
+// A server with TIDE_MOIL off (ARCHITECTURE.md §8.1): /api/me says
 // so, the machine, pairing and transcript routes 404, and the SPA shows no
 // way to them. Against the Vite dev server with the API mocked in the browser.
 
-function transcriptsOff() {
+function moilOff() {
   const state = defaultState();
-  state.me.transcripts = false;
-  // What the server kept from when transcripts were on: still there, never sent.
+  state.me.moil = false;
+  // What the server kept from when moil was on: still there, never sent.
   state.machines.machines = [machine()];
   state.recordings = [
     recording('done', { status: TranscriptCompleted, speakers: 3 }),
@@ -25,7 +25,7 @@ function transcriptsOff() {
 }
 
 test('the dashboard has no Machines link', async ({ page }) => {
-  await mockApi(page, transcriptsOff());
+  await mockApi(page, moilOff());
   await page.goto('/');
   await expect(page.getByTestId('room-card')).toBeVisible();
   await expect(page.getByText('Ada Host')).toBeVisible();
@@ -33,7 +33,7 @@ test('the dashboard has no Machines link', async ({ page }) => {
 });
 
 test('/machines says transcripts are not enabled, and asks for no machines', async ({ page }) => {
-  const api = await mockApi(page, transcriptsOff());
+  const api = await mockApi(page, moilOff());
   await page.goto('/machines');
   await expect(
     page.getByRole('heading', { name: "Transcripts aren't enabled on this server" })
@@ -44,7 +44,7 @@ test('/machines says transcripts are not enabled, and asks for no machines', asy
 });
 
 test('a pairing link shows the same, and looks up no code', async ({ page }) => {
-  const api = await mockApi(page, transcriptsOff());
+  const api = await mockApi(page, moilOff());
   await page.goto('/machines?code=WDJB-MJHT');
   await expect(
     page.getByRole('heading', { name: "Transcripts aren't enabled on this server" })
@@ -54,7 +54,7 @@ test('a pairing link shows the same, and looks up no code', async ({ page }) => 
 });
 
 test('a room lists its recordings without transcript controls', async ({ page }) => {
-  const api = await mockApi(page, transcriptsOff());
+  const api = await mockApi(page, moilOff());
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.goto('/rooms/standup');
 
@@ -73,9 +73,9 @@ test('a room lists its recordings without transcript controls', async ({ page })
   await expect(page.getByText(/speakers?/)).toHaveCount(0);
 });
 
-test('the same server with transcripts on shows them all', async ({ page }) => {
-  const state = transcriptsOff();
-  state.me.transcripts = true;
+test('the same server with moil on shows them all', async ({ page }) => {
+  const state = moilOff();
+  state.me.moil = true;
   await mockApi(page, state);
   await page.goto('/');
   await expect(page.getByRole('link', { name: 'Machines' })).toBeVisible();

@@ -2,7 +2,9 @@ package recording
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -18,6 +20,10 @@ import (
 // reads the whole body BEFORE verifying the signature. Real events are small
 // JSON; anything larger is hostile.
 const maxWebhookBody = 1 << 20
+
+// speakersPutTimeout bounds storing a speaker timeline: storage being slow
+// mustn't hold back the end of a recording for long.
+const speakersPutTimeout = 10 * time.Second
 
 func (h *Handler) Webhook(w http.ResponseWriter, r *http.Request) {
 	if h.receiver == nil {
@@ -112,11 +118,63 @@ func (h *Handler) finishRecording(ctx context.Context, info *protocol.EgressInfo
 			update.S3Key = &key
 		}
 	}
+	h.finishing.Lock()
+	defer h.finishing.Unlock()
+	h.saveSpeakers(ctx, info, status, result)
 	if err := h.store.UpdateRecordingByEgress(ctx, info.EgressId, update); err != nil {
 		return err
 	}
 	h.recordingsChanged()
 	return nil
+}
+
+// saveSpeakers stops the observer of the recording info ended and, if it
+// completed, stores what the observer saw beside its file. This comes before
+// the row says completed, because that's when a transcript job can start,
+// and the job takes the file only if it's there by then (ARCHITECTURE.md §8.1).
+// It's best effort: a recording without the file is a transcript without
+// names, so nothing here stops the recording from completing.
+func (h *Handler) saveSpeakers(ctx context.Context, info *protocol.EgressInfo, status string, file *protocol.FileInfo) {
+	if h.speakers == nil {
+		return
+	}
+	recording, err := h.store.RecordingByEgressID(ctx, info.EgressId)
+	if errors.Is(err, sql.ErrNoRows) {
+		return // a Start that lost the race, which stopped its own observer
+	}
+	if err != nil {
+		log.Printf("recording: egress %s: stop its speaker observer: %v", info.EgressId, err)
+		return
+	}
+	activity := h.speakers.Stop(recording.ID)
+	if activity == nil || status != "completed" || file == nil {
+		return
+	}
+	key := objectKey(file)
+	length := time.Duration(file.Duration)
+	if length <= 0 {
+		length = time.Duration(file.EndedAt - file.StartedAt)
+	}
+	if key == "" || file.StartedAt <= 0 || length <= 0 {
+		log.Printf("recording %s: no speaker timeline: egress didn't say when its file starts and ends", recording.ID)
+		return
+	}
+	timeline := activity.Timeline(time.Unix(0, file.StartedAt), length)
+	if activity.Dropped > 0 {
+		log.Printf("recording %s: the speaker timeline lost %d spans to its limit", recording.ID, activity.Dropped)
+	}
+	if len(timeline.Participants) == 0 {
+		return
+	}
+	body, err := timeline.JSON()
+	if err == nil {
+		putCtx, cancel := context.WithTimeout(ctx, speakersPutTimeout)
+		defer cancel()
+		err = h.objects.Put(putCtx, store.Recording{S3Key: &key}.SpeakersKey(), body, "application/json")
+	}
+	if err != nil {
+		log.Printf("recording %s: its transcript won't name speakers: store the timeline: %v", recording.ID, err)
+	}
 }
 
 func recordingFileResult(info *protocol.EgressInfo) *protocol.FileInfo {

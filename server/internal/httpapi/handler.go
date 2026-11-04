@@ -43,7 +43,7 @@ type Handler struct {
 	lobby       *lobby.Handler
 	moderation  *moderation.Handler
 	recording   *recording.Handler
-	transcripts *transcriptsFeature // nil when TIDE_TRANSCRIPTS is off
+	transcripts *transcriptsFeature // nil when TIDE_MOIL is off
 	minter      *tidelivekit.Minter
 	// anonymous and recordingOn are the deployment's modes (ARCHITECTURE.md
 	// §2.1), for /api/me.
@@ -60,7 +60,7 @@ type Handler struct {
 type Background struct {
 	recording   *recording.Handler  // nil when recording is off
 	sweeper     *rooms.Sweeper      // nil unless tide is anonymous
-	transcripts *transcriptsFeature // nil when TIDE_TRANSCRIPTS is off
+	transcripts *transcriptsFeature // nil when TIDE_MOIL is off
 	// lobby's streams end when the HTTP server shuts down.
 	lobby *lobby.Handler
 }
@@ -80,23 +80,27 @@ func (b *Background) Run(ctx context.Context) {
 }
 
 // Close disconnects every machine, ends every transcript job with
-// moil.ErrClosed, and saves what machines last reported. Jobs' rows stay
-// pending until the next start resubmits them. Without transcripts there is
-// nothing to close.
+// moil.ErrClosed, and saves what machines last reported, then takes every
+// speaker observer out of its room. Jobs' rows stay pending until the next
+// start resubmits them. Without recording there is nothing to close.
 func (b *Background) Close() error {
-	return b.transcripts.close()
+	err := b.transcripts.close()
+	if b.recording != nil {
+		b.recording.CloseObservers()
+	}
+	return err
 }
 
 // New builds the HTTP handler and the Background work main must run beside it.
 // transcribe is the bundle machines run to transcribe recordings: main hands
 // in transcripts.Bundle(), as it hands in the embedded SPA. It is used only
-// when cfg.Transcripts is on, and may be nil when it is off. signal is the
+// when cfg.Moil is on, and may be nil when it is off. signal is the
 // embedded media server's signaling (media.Server.SignalHandler), mounted at
 // media.SignalPath; it is nil with an external media server, whose
 // signaling browsers reach directly.
 func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.Bundle, signal http.Handler) (http.Handler, *Background, error) {
-	if cfg.Transcripts && !cfg.Recording {
-		return nil, nil, errors.New("transcripts are on but recording is off: transcripts need recording")
+	if cfg.Moil && !cfg.Recording {
+		return nil, nil, errors.New("moil is on but recording is off: moil needs recording")
 	}
 	if cfg.Recording && cfg.Anonymous {
 		return nil, nil, errors.New("recording is on in anonymous mode: recording needs sign-in")
@@ -145,7 +149,7 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 	// Transcripts run on machines hosts pair through moil (ARCHITECTURE.md
 	// §8.1), only when the operator turns them on.
 	var transcriptsOn *transcriptsFeature
-	if cfg.Transcripts {
+	if cfg.Moil {
 		feature, err := newTranscriptsFeature(cfg, roomStore, objects, transcribe)
 		if err != nil {
 			return nil, nil, err
@@ -237,6 +241,11 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 		"POST "+api.RoomJoinPath,
 		withRateLimit(joinLimiter, ips, handler.csrf(http.HandlerFunc(handler.lobby.Join))),
 	)
+	// A bot session is a token for the room, so it counts as a join.
+	mux.Handle(
+		"POST "+api.BotSessionPath,
+		withRateLimit(joinLimiter, ips, handler.csrf(handler.requireAuth(http.HandlerFunc(handler.lobby.BotSession)))),
+	)
 	mux.Handle("GET "+api.RoomLobbyPath, handler.requireAuth(http.HandlerFunc(handler.lobby.Host)))
 	mux.Handle(
 		"GET "+api.LobbyWaitPath,
@@ -273,6 +282,7 @@ func New(cfg config.Config, web fs.FS, roomStore *store.Store, transcribe *moil.
 	registerMethodFallback(mux, api.RoomsPath, http.MethodGet+", "+http.MethodPost)
 	registerMethodFallback(mux, api.RoomPath, http.MethodGet+", "+http.MethodPatch+", "+http.MethodDelete)
 	registerMethodFallback(mux, api.RoomJoinPath, http.MethodPost)
+	registerMethodFallback(mux, api.BotSessionPath, http.MethodPost)
 	registerMethodFallback(mux, api.KickPath, http.MethodPost)
 	registerMethodFallback(mux, api.MutePath, http.MethodPost)
 	registerMethodFallback(mux, api.MeetingEndPath, http.MethodPost)
@@ -323,9 +333,9 @@ func (h *Handler) me(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) writeMe(w http.ResponseWriter, session auth.Session) {
 	httpx.WriteJSON(w, http.StatusOK, api.Me{
 		Sub: session.Sub, Email: session.Email, Name: session.Name,
-		Transcripts: h.transcripts.enabled(),
-		Recording:   h.recordingOn,
-		Anonymous:   h.anonymous,
+		Moil:      h.transcripts.enabled(),
+		Recording: h.recordingOn,
+		Anonymous: h.anonymous,
 	})
 }
 
@@ -368,7 +378,7 @@ func (h *Handler) devToken(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "Room and name are required.")
 		return
 	}
-	token, err := h.minter.MintToken("dev:"+name, name, room, false, 10*time.Minute)
+	token, err := h.minter.MintToken("dev:"+name, name, room, tidelivekit.RoleGuest, 10*time.Minute)
 	if err != nil {
 		httpx.WriteError(w, http.StatusInternalServerError, "Could not create a meeting token. Try again.")
 		return

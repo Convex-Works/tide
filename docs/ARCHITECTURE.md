@@ -30,7 +30,12 @@ Everything else is out of scope by design. Feature restraint is the product.
 - **Frozen feature list.** New features must displace an existing one.
   Transcripts were admitted as part of recording management, on one
   condition that stays load-bearing: no model runs on the server. Heavy
-  compute happens on machines the recording's owner paired (§8.1).
+  compute happens on machines the recording's owner paired (§8.1). Bots were
+  admitted on three conditions that stay load-bearing too: a
+  program runs outside the server, under the room owner's control, in view of
+  everyone (§4). tide mints its token and shows it to the room; tide ships no
+  bot, and nothing model-shaped runs on the server
+  ([BOTS.md](BOTS.md)).
 
 ## 2. System architecture
 
@@ -87,7 +92,7 @@ could contradict it:
 | no `TIDE_OIDC_ISSUER` | **Anonymous**: anyone creates rooms, rooms live in memory, no recording (§4.1) | tide |
 | `TIDE_OIDC_ISSUER` | **Signed-in**: hosts sign in, rooms persist in SQLite, no recording | tide |
 | `TIDE_OIDC_ISSUER` + `TIDE_S3_ENDPOINT` | **Signed-in with recording** (§8) | tide + recorder + Redis |
-| … + `TIDE_TRANSCRIPTS=true` | **… with transcripts** on owners' machines (§8.1) | tide + recorder + Redis |
+| … + `TIDE_MOIL=true` | **… with transcripts** on owners' machines (§8.1) | tide + recorder + Redis |
 
 tide refuses to start rather than guess: S3 without sign-in, transcripts
 without recording, or a recorder that would lack fixed keys or a Redis
@@ -115,6 +120,7 @@ not a YAML file:
   namespace reaches media through an internal address only when the address
   is discovered; with `TIDE_MEDIA_NODE_IP` set it must reach that address,
   which needs the network to route it back (hairpin) where it isn't local.
+  The speaker observer (§8) is in the same position, inside tide itself.
 - **Webhooks** go to tide's own `/api/webhooks/media` over loopback, signed
   as before.
 - **Keys**: with no recorder, nothing outside the process needs the API key
@@ -153,9 +159,10 @@ with that error.
 The server stops in order on SIGTERM or SIGINT (`httpapi.Serve`, then
 `main`): it stops taking connections and gives requests in flight 10 seconds,
 ending lobby streams at once; then it disconnects the machines, ending their
-jobs without touching the jobs' rows; then it waits for the reconcilers and
-job followers; then it stops the media server, which ends every room; and
-only then closes the database. A second signal stops it at
+jobs without touching the jobs' rows; then it takes the speaker observers
+(§8) out of their rooms, waiting up to 5 seconds; then it waits for the
+reconcilers and job followers; then it stops the media server, which ends
+every room; and only then closes the database. A second signal stops it at
 once.
 
 ## 3. Repository layout
@@ -174,9 +181,11 @@ tide/
       media/               the embedded media server and its /rtc
                            forwarding (§2.1)
       recording/           egress control, recording state machine
+      speakers/            who is active during a recording: the observer
+                           and its speakers.json (§8)
       machines/            pairing and managing hosts' moil machines
       transcripts/         transcript jobs, reconciler; bundle/ is the
-                           embedded moil bundle
+                           moil bundle tide publishes
       store/               SQLite (modernc.org/sqlite, CGO-free); a file,
                            or :memory: in anonymous mode
     third_party/moil/      vendored moil Go SDK (scripts/vendor-moil.sh)
@@ -187,14 +196,16 @@ tide/
       lib/rtc/             livekit-client wrapper (room store, tracks, devices)
       lib/ui/              design-system components
       routes/              pages (see §9)
+  examples/bots/           a program that joins a meeting (BOTS.md)
   deploy/
     compose.yaml           dev stack: recorder, minio, dex (tide, with its
                            media server, runs on the host)
     egress.yaml            Recorder config
     dex.yaml               Dev IdP config (static test users)
   docs/ARCHITECTURE.md     this document
+  docs/BOTS.md   the contract for programs joining a meeting
   Makefile                 dev, gen, check, build targets
-  .forgejo/workflows/      CI
+  .github/workflows/       CI and releases
 ```
 
 ## 4. Identity, auth, and the token model
@@ -212,17 +223,39 @@ pre-join screen and admitted through the lobby.
 
 **LiveKit access tokens** are minted exclusively by the tide server:
 
-| Grant | Host | Guest |
-|---|---|---|
-| `roomJoin`, `canSubscribe` | ✓ | ✓ |
-| `canPublish` (mic/cam) | ✓ | ✓ |
-| `canPublishSources` incl. screenshare | ✓ | ✓ |
-| `roomAdmin` | ✓ | ✗ |
-| metadata `{"role":"host"}` | ✓ | ✗ |
+| Grant | Host | Guest | Bot | Observer |
+|---|---|---|---|---|
+| `roomJoin`, `canSubscribe` | ✓ | ✓ | ✓ | ✓ |
+| `canPublish` | ✓ | ✓ | ✓ | ✗ |
+| `canPublishSources`: camera, microphone, screen share, screen-share audio | ✓ | ✓ | ✓ | ✗ |
+| `canPublishData` | ✓ | ✓ | ✓ | ✗ |
+| `roomAdmin` | ✓ | ✗ | ✗ | ✗ |
+| `hidden` | ✗ | ✗ | ✗ | ✓ |
+| kind | standard | standard | `AGENT` | `AGENT` |
+| metadata | `{"role":"host"}` | none | `{"role":"bot"}` | none |
 
 Token TTL is short (10 min) — it authorizes *connecting*; once connected the
-session lives independently. Identity is `host:<sub>` or `guest:<nanoid>`;
-display name travels in the token's `name` field.
+session lives independently. Identity is `host:<sub>:<nonce>`, `guest:<nanoid>`
+or `bot:<nanoid>`; display name travels in the token's `name` field.
+
+**Bots** are programs in a meeting, and the room's **owner** alone gets a
+session for one: `POST /api/rooms/:slug/bot-session` checks `session.Sub`
+against `rooms.owner_sub`, so an administrator is refused, unlike recording,
+because a bot is a new live listener and §8.1 keeps a room's audio with its
+owner. It needs no machine, so it works in anonymous mode too. The answer,
+`api.BotSession`, is the `session.json` a program reads, a stable contract
+([BOTS.md](BOTS.md)). There are no API keys.
+
+**The observer** is tide's own participant during a recording, not a program
+anyone connects: it watches who speaks and publishes nothing (`RoleObserver`).
+
+Kind `AGENT` makes a participant *dependent*: it doesn't hold a room open, so
+bots and the observer can't keep a meeting, or its recording, alive once the
+people have left. A client treats kind `AGENT` as a visible bot (§9, §10),
+which is safe for the observer only because `hidden` keeps it from every
+client: LiveKit leaves hidden participants out of join responses and participant
+updates alike, so one never reaches a browser. A test holds that against the
+real media server.
 
 ### 4.1 Anonymous mode
 
@@ -267,7 +300,7 @@ on the server, and capabilities still travel only in tokens tide mints.
   some. Many addresses are cheap (an IPv6 /48 is 256 of the /56s the
   limits count), so only a ceiling bounds memory.
 - **No recording, transcripts or machines.** Those routes answer 404 and
-  `/api/me` reports `anonymous: true, recording: false, transcripts: false`.
+  `/api/me` reports `anonymous: true, recording: false, moil: false`.
   The SPA shows the same dashboard (this browser's rooms and **New**) with no
   account and no sign-out, since signing out would only orphan this browser's
   rooms.
@@ -350,6 +383,9 @@ the LiveKit server SDK — so they hold at the SFU regardless of client behavior
 - `POST /api/rooms/:slug/participants/:identity/kick` → `RemoveParticipant`
 - `POST /api/rooms/:slug/participants/:identity/mute` → `MutePublishedTrack` (audio)
 
+Bots (§4) are moderated like anyone else, and a kicked one is denylisted like
+a guest: only the owner's own `host:` identities are never banned.
+
 The participant list itself is client-side LiveKit state (join/leave/track
 events) — no polling, no server involvement.
 
@@ -365,8 +401,8 @@ to the egress job, not to any participant's tab.
 
 **On only when configured.** Recording needs sign-in and object storage: it
 is on when `TIDE_OIDC_ISSUER` and `TIDE_S3_ENDPOINT` are both set (§2.1), and
-then the recorder must run too. When it is off, tide makes no storage client
-and runs no recording reconciler, registers none of the recording routes
+then the recorder must run too. When it is off, tide makes no storage client,
+runs no recording reconciler and no speaker observers, registers none of the recording routes
 (start, stop, list, delete, download: they answer 404 like any unknown path),
 and reports `recording: false` on `/api/me`, so the SPA hides the record
 control and every recording list. The media webhook route stays: it also
@@ -404,6 +440,48 @@ ended_at, duration_s, s3_key, size_bytes`.
 Stop on: explicit stop, room emptying (LiveKit auto-ends the egress), or
 egress failure (status `failed`, surfaced in management UI — never silent).
 
+**Who spoke when.** Each recording has one observer (`internal/speakers`), so
+that its transcript can name its speakers (§8.1). With `TIDE_MOIL` off there
+is no observer and no timeline, since nothing would read it. It is tide itself in the
+room: once `StartRoomCompositeEgress` has succeeded it connects over the
+loopback API in the background, as `observer:<recording-id>`, with the observer
+role of §4 (hidden, publishes nothing, kind `AGENT`, so it doesn't hold the
+room open, and not the Recorder grant, which would mark the room as recording).
+LiveKit reports speakers only among participants you subscribe to, so the
+observer subscribes to every microphone, including those published later, and
+throws the audio away. Each time the active speakers change it notes who they
+are, keeping spans in memory per display name, since identities are per
+connection and someone who rejoins gets a new one. It holds at most 200,000
+spans a recording.
+
+The observer stops when egress ends, and when the reconciler heals or fails the
+recording; a room closing only ends its connection, and what it saw waits for
+the recording to end. If the recording completed, tide writes the file beside it
+**before** the row becomes `completed`, on both the webhook and reconciler
+paths, because that is what lets a transcript job start:
+
+```
+recordings/<room>/<recording-id>/speakers.json
+```
+
+```json
+{"v": 1, "participants": [{"name": "Ada", "spans": [[12.4, 18.0], [31.2, 33.9]]}]}
+```
+
+Times are seconds from the start of the file, to a tenth of a second, by the
+egress file's own `StartedAt`, not `recordings.started_at`, which is earlier.
+Anything outside the file is dropped and a participant left with no spans is
+omitted, and if that leaves nobody, or egress doesn't say when its file starts
+and ends, no file is written.
+
+All of this is best effort. An observer that can't connect, loses its
+connection or stops with tide, or a file storage refuses within 10 seconds, is
+logged and costs that recording's transcript its names, nothing else: Start
+never waits for the observer, and the recording completes without the file. With
+`TIDE_MEDIA_URL`, a tide restart in the middle of a recording that survives it
+has the same result. The file is deleted with the recording
+(`store.Recording.ObjectKeys()`), and nothing reads it but transcript jobs.
+
 ### 8.1 Transcripts
 
 A completed recording can carry a transcript with speaker labels. It is made by
@@ -413,11 +491,11 @@ machine. The owner can already download the recording, so transcription adds
 no new reader of the audio.
 
 **Off unless the operator turns it on.** moil is alpha (macOS only, unsigned,
-no sandbox), so transcripts are behind `TIDE_TRANSCRIPTS` (§12), default
-`false`. When it is off, tide starts no moil server and no transcript
-reconciler, registers none of the machine, pairing, transcript or `/moil/`
-routes (they answer 404 like any unknown path), never fills
-`RecordingInfo.transcript`, and reports `transcripts: false` on `/api/me` so
+no sandbox), so the integration is behind `TIDE_MOIL` (§12), default
+`false`. When it is off, tide starts no moil server, no transcript reconciler
+and no speaker observer, registers none of the machine, pairing, transcript or
+`/moil/` routes (they answer 404 like any unknown path), never fills
+`RecordingInfo.transcript`, and reports `moil: false` on `/api/me` so
 the SPA hides `/machines` and every transcript control. Nothing is deleted:
 the `machines` and `transcripts` rows stay as they are, and paired machines
 stay paired. Turning it back on does not pick up exactly where it stopped,
@@ -452,11 +530,26 @@ name, version and the hash prefix the app shows. A machine is `idle`, `busy`,
 could report, shows as `busy`, since moil offers jobs only to idle machines.
 
 **The bundle.** tide publishes one moil bundle, `transcribe` (Nemotron 3
-Diarization and Parakeet TDT 0.6B v3), vendored in
-`server/internal/transcripts/bundle/` and embedded in the binary. Machine
+Diarization and Parakeet TDT 0.6B v3). Its source is
+`server/internal/transcripts/bundle/`, and the binary embeds it. Machine
 owners read and approve it by hash in the moil app. A test pins that hash: a
 new hash asks every owner to review and approve again, so it only ever changes
 on purpose.
+
+**Speaker names.** The model finds the speakers, and the timeline of who was
+active (§8) only says what to call them. For each diarized speaker the bundle
+sums their speech inside each name's spans, and gives them the best name only
+if it has at least 2 seconds of that overlap and 60% of their overlap with all
+names; otherwise they stay `Speaker N`, because an unknown label beats a wrong
+one. Several speakers can take one name, as `Ada (1)` and `Ada (2)`. The names
+are in the transcript's lines and captions, where a hook sees them too, and in
+`meta.speaker_map` (`[{"id": "S1", "name": "Ada"}]`) beside the integer
+`meta.speakers`, which is what tide reads. Names are written by the bundle, not
+by tide, because hooks get the machine's own outputs. A recording with no
+timeline gets exactly the transcript it would have had before. Names are
+whatever people typed, so the bundle strips control and format characters and
+escapes them in WebVTT, and nothing checks a name against a voice: a voice on
+someone else's microphone gets that person's name.
 
 **Intent and projection.** The `transcripts` table is the source of truth: one
 row per recording that should have a transcript, in status `pending`,
@@ -491,7 +584,9 @@ owner's hooks, which a machine runs after a job succeeds, with the job's title
 and params (moil's `spec/machine.md` §2): a hook filing meeting notes can tell
 when the meeting was, not only when its transcript was made. The params say
 nothing more about the room than the title does. Hooks may read them; changing
-their shape breaks the hooks that do.
+their shape breaks the hooks that do. Participants' names reach the machine
+through the timeline input (Files, below), never through the params, and the
+owner can already hear those people in the recording.
 
 A job is eligible only for the room owner's machines
 (`moil.OwnedBy(rooms.owner_sub)`, the room found by ID); administrators can
@@ -519,8 +614,12 @@ the job again; an end tide couldn't record by the time it stopped leaves the row
 (`moil.Job.Prepare`), not at submission, because a job can wait days for a
 laptop to wake. They last for the attempt's time limit plus 15 minutes, at
 most S3's 7 days: a GET for the recording (input `recording.ogg` or
-`recording.mp4`) and a PUT for each output. Machines never write where tide
-serves from: each attempt uploads to a staging directory of its own,
+`recording.mp4`), a GET for its speaker timeline (input `speakers.json`) if
+`Stat` finds one, and a PUT for each output. The bundle tells the two inputs
+apart by name, so the params don't mention them. A recording with no timeline
+just has no such input; any other `Stat` failure puts the job back in the
+queue like the rest of `Prepare`'s storage failures, because the attempt would
+otherwise lose the names for good. Machines never write where tide serves from: each attempt uploads to a staging directory of its own,
 
 ```
 transcripts-staging/<recording-id>/<attempt>-<16 hex digits>/transcript.txt
@@ -539,6 +638,7 @@ file that fails a check fails the row, and tide removes what it copied:
 recordings/<room>/<recording-id>/2026-09-27 14-00 - Standup.ogg
 recordings/<room>/<recording-id>/2026-09-27 14-00 - Standup.txt   transcript
 recordings/<room>/<recording-id>/2026-09-27 14-00 - Standup.vtt   WebVTT captions
+recordings/<room>/<recording-id>/speakers.json                    who was active (§8), written by tide
 ```
 
 A staging directory is named for the attempt tide made it for, and unique by
@@ -615,9 +715,9 @@ State architecture: one `lib/rtc/room.svelte.ts` class wraps `livekit-client`'s
 `Room` and exposes reactive state (participants, tracks, connection state,
 active speakers, devices) as runes. UI components read this store and call its
 methods (`toggleMic`, `setCamera`, `shareScreen`, …); nothing else touches
-livekit-client. Chat is a thin layer on LiveKit data messages (topic `chat`),
-ephemeral by design: no history, no persistence, late joiners see only what
-arrives after them.
+livekit-client. Chat is a thin layer on LiveKit data messages (`api.ChatTopic`,
+each an `api.ChatPayload`), ephemeral by design: no history, no persistence,
+late joiners see only what arrives after them.
 
 Meeting chrome:
 
@@ -626,7 +726,9 @@ Meeting chrome:
   room's human name (ellipsized), and an (i) button. The (i) opens a small
   popover with the meeting link, shown whole and wrapped rather than cut
   off, and a **Copy link** button; it doesn't repeat the name beside it. It
-  is the only place in the meeting the link appears. The REC chip and the autoplay
+  is the only place in the meeting the link appears. The room's owner, and
+  only the owner (`is_owner`, narrower than `can_manage`), also gets **Copy
+  bot session** there (§4). The REC and BOT chips and the autoplay
   unlock join this cluster; the connection state stays on the right.
 - **Control bar**, left to right: microphone and camera side by side (each
   with its device caret), screen share, record (hosts only), then view,
@@ -756,8 +858,9 @@ the clock, names, "(You)" — stay in Inter.
 
 **Roles are words, not badges.** No pills or outlined chips for roles: the
 local participant is "Name (You)" and the host carries a secondary line,
-"Meeting host", in `--text-2` (Meet's pattern). The pre-join account line
-says "· Host" in secondary ink. The human room name is shown during join and lobby
+"Meeting host", in `--text-2` (Meet's pattern). A bot carries the word
+"Bot" with a robot icon, in the same ink, on its tile and in the list. The
+pre-join account line says "· Host" in secondary ink. The human room name is shown during join and lobby
 transitions and in the stage's top-left cluster (§9); room slugs are kept out
 of the meeting UI except inside the meeting URL in its details popover.
 
@@ -772,6 +875,13 @@ device controls). No filled/duotone variants.
 (inherited from the Convex Works site) that doubles as the status channel:
 accent blue when idle/connected, amber while reconnecting, pulsing `--rec` red
 while the room is being recorded. State lives in the chrome, not in a toast.
+
+A bot in the room adds a static `--ok` green line of its own rather than
+another state, because it's the only thing that tells guests a program is
+listening, and no other state may hide it: alone it takes the whole width;
+beside recording, reconnecting or offline it takes the right half. Everyone
+sees it for as long as a bot is in the room, and the BOT chip in the
+stage's cluster says in words what it means, as REC does for recording.
 
 Motion: 120ms ease-out on hovers and panel slides; the only ambient animation
 permitted is the recording hairline pulse (2s); `prefers-reduced-motion`
@@ -816,7 +926,7 @@ TIDE_RECORDER_REDIS_ADDR=127.0.0.1:6379  TIDE_RECORDER_REDIS_PASSWORD=…
 TIDE_TRUSTED_PROXIES=…          TIDE_DEV_MODE=false
 TIDE_JOIN_RATE_LIMIT=10         TIDE_WAIT_RATE_LIMIT=20
 TIDE_LOGIN_RATE_LIMIT=10        TIDE_PAIR_RATE_LIMIT=10
-TIDE_TRANSCRIPTS=false
+TIDE_MOIL=false
 ```
 
 **Every variable is optional.** `tide` with an empty environment is an
@@ -838,7 +948,7 @@ whole:
   characters) and `TIDE_RECORDER_REDIS_PASSWORD` (at least 32), which the
   recorder is configured with too, and `TIDE_RECORDER_REDIS_ADDR` names the
   Redis they share (`host:port`, a name or an address).
-- **Transcripts**: `TIDE_TRANSCRIPTS=true` needs recording.
+- **moil**: `TIDE_MOIL=true` needs recording.
 - **Media server**: embedded unless `TIDE_MEDIA_URL` is non-empty. Embedded,
   the token's `ws_url` is the base URL's origin with `ws`/`wss` (so
   `TIDE_MEDIA_PUBLIC_URL` is normally unset, though it wins when set), the
@@ -865,10 +975,10 @@ stack (§13) sets `TIDE_OIDC_ISSUER` and `TIDE_S3_ENDPOINT` itself. It refuses
 a `TIDE_BASE_URL` that may be public: the host must be localhost, a loopback,
 private or link-local address, or a one-label name like a Compose service.
 
-`TIDE_TRANSCRIPTS` turns on transcripts and machine pairing (§8.1). Like
-`TIDE_DEV_MODE` it is read with `strconv.ParseBool`, and a value it can't
-parse means the default, off; tide logs at startup whether transcripts are
-on.
+`TIDE_MOIL` turns on the moil integration: machine pairing, transcripts and
+the speaker observer (§8.1). Like `TIDE_DEV_MODE` it is read with
+`strconv.ParseBool`, and a value it can't parse means the default, off; tide
+logs at startup whether moil is on.
 
 The four rate limits are per-client ceilings over a one-minute window, an IPv6
 client counting by its /56. `TIDE_JOIN_RATE_LIMIT` also sizes the separate
@@ -953,19 +1063,17 @@ signalling too).
 
 ## 14. CI
 
-Forgejo Actions (`.forgejo/workflows/ci.yml`), on every push/PR:
+GitHub Actions (`.github/workflows/ci.yml`), on every push/PR:
 
-1. **server** — `go vet`, `go test ./...`
+1. **server** — `go vet`, `go test ./...`, the transcribe bundle's tests
 2. **web** — `svelte-check`, prettier check, `vite build`, and the browser
    specs that run against the mock API and fake SFU alone (no server)
 3. **typesync** — `make gen && git diff --exit-code` (§11)
 4. **site** — the documentation site in `site/`: `npm run check`, prettier
    check, prerendered build
 5. **media-e2e** — the full real-SFU gate (below), against the sealed stack
-6. **build** — full binary build (SPA embed included) as the merge gate
 
-GitHub Actions runs the same gate (`.github/workflows/ci.yml`). A pushed `v*`
-tag runs `.github/workflows/release.yml`, which publishes the linux/amd64 and
+A pushed `v*` tag runs `.github/workflows/release.yml`, which publishes the linux/amd64 and
 linux/arm64 image to `ghcr.io/convex-works/tide` and creates the GitHub
 release from `docs/releases/<tag>.md`, with the static binaries
 (`tide-linux-amd64`, `tide-linux-arm64`) and their `SHA256SUMS` attached. A
@@ -981,7 +1089,8 @@ It covers, in order: the lifecycle scenarios, recording, the reliability suite
 (chromium + webkit), the seeded fuzzer, and a rerun under `netem` loss/latency.
 The lifecycle scenarios run on chromium only: Playwright's Linux WebKit
 deadlocks in its GStreamer media backend under them (issue #55), a code path
-Safari does not have.
+Safari does not have. The audio recording scenario skips WebKit for the same
+reason.
 
 **The rule the lifecycle suite encodes.** Assertions must prove *presence*
 before they prove flow. `expectMediaInvariant` only checks that whatever a
@@ -1091,7 +1200,20 @@ up between runs for iteration.
 - The transcript bundle runs with the machine owner's permissions and no
   sandbox (moil's alpha). Owners read and approve it in the moil app; tide
   pins its hash so it cannot change silently.
-- No secrets in the SPA: the client knows only its own token and public URLs.
+- Bots (§4): a session goes only to the room's owner, with the CSRF header,
+  under the join limit, and marks the room active as every token does (§5). Its
+  token subscribes to everything in that one room, so it carries everything
+  said there: the owner is choosing to add a listener, and the room's only
+  protection is seeing it, so the tag, hairline and chip must stay (§10). The
+  token has no `roomAdmin`, and its kind and name are fixed in it. A
+  bot runs outside tide, and what it does with the audio is up to its owner.
+  Anything said or typed in a meeting reaches it, so a program that gives that
+  to a model with tools is open to prompt injection from anyone in the call
+  ([BOTS.md](BOTS.md#prompt-injection)). The LiveKit API
+  secret never leaves tide.
+- No secrets in the SPA: the client knows only its own token and public URLs,
+  and a session it requested, which goes to the owner's clipboard. It stays on
+  screen only if the clipboard refuses it, until the details close.
 - `window.tideDiagnostics()` (§9.1) contains participant identities and display
   names. It is written to the user's own machine by an explicit action and is
   never transmitted anywhere; treat an exported file as personal data.
@@ -1178,7 +1300,11 @@ media server.*
 | Recording | Egress room composite + custom template | Server-owned lifetime; recordings wear tide's design |
 | Transcripts | moil jobs on the room owner's own machine | No model or GPU on the server, no fifth process, no new reader of the audio |
 | Transcript trigger | Automatic once the owner has paired a machine; otherwise on request | Pairing is the opt-in; no per-recording button for hosts who use it |
-| Transcripts switch | `TIDE_TRANSCRIPTS`, default off | moil is alpha; tide ships publicly without asking operators to run it |
+| moil switch | `TIDE_MOIL`, default off; needs recording | moil is alpha, and `/moil/` takes unauthenticated pairing requests, so an operator opts in |
+| Speaker names | A hidden observer writes who was active beside the recording; the bundle matches that against its diarization | Diarization stays the truth, since active-speaker data is too coarse to say who said a word but enough to vote over a meeting. Grouped by display name because identities are per connection. Best effort: failing costs names, never a recording |
+| Bots | Admitted to the frozen list: a program with a token, outside the server, under the owner's control, in view of everyone | People want programs in a meeting, AI agents among them, and it costs tide one route and three signs in the UI. tide ships no bot, and no model runs on the server |
+| Bot sessions | Owner only, from the meeting's details; no API keys, no pre-join notice | A bot is a new live listener and §8.1 keeps audio with the owner, so administrators don't get one. A key would be a credential that outlives a meeting. Bots show in the room once you're in it, and nothing more |
+| Bot on the hairline | Its own green line, not a hairline state, plus a BOT chip | A state would lose to recording or a reconnect; this is the only thing telling guests a program is listening, so nothing may hide it |
 | Default slugs | Readable random (`abc-defg-hij`), ~47 bits | Short enough to read aloud; unguessable behind the lookup and join limits; UUIDs made ugly links |
 | Calendar invites | `.ics` built in the browser, nothing stored | Covers "send people a time" without a scheduling model; server-side scheduling stays a later decision |
 | moil SDK | Vendored in `server/third_party/moil` | The forge sits behind Cloudflare Access, so Go can't fetch it in CI or Docker; same precedent as `web/vendor` |

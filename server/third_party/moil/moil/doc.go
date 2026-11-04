@@ -22,8 +22,8 @@
 // Mount the Server's Handler under the service's moil base URL:
 //
 //	srv, err := moil.NewServer(moil.Config{
-//		Name:            "klisi",
-//		VerificationURL: "https://klisi.example.com/machines/pair",
+//		Name:            "acme",
+//		VerificationURL: "https://acme.example.com/machines/pair",
 //		Store:           store,
 //	})
 //	mux.Handle("/moil/", http.StripPrefix("/moil", srv.Handler()))

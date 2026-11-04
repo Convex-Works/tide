@@ -7,8 +7,8 @@ import (
 	"git.convex.works/ConvexWorks/moil/sdk/go/moil"
 )
 
-// bundleFiles is the moil bundle tide publishes, vendored from moil's
-// examples/bundles/transcribe by scripts/vendor-moil.sh.
+// bundleFiles is the moil bundle tide publishes. Its source is the bundle
+// directory.
 //
 //go:embed bundle/job.py bundle/job.py.lock bundle/manifest.json
 var bundleFiles embed.FS

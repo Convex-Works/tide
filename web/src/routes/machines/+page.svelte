@@ -36,7 +36,7 @@
 
   // One route, two jobs (ARCHITECTURE.md §8.1): with ?code= the moil app sent
   // the host here to confirm a pairing; without one it lists their machines.
-  // 'off': this server doesn't run transcripts (TIDE_TRANSCRIPTS), so it
+  // 'off': this server doesn't run moil (TIDE_MOIL), so it
   // has no machines to show and nothing to pair with.
   type View =
     'loading' | 'signed-out' | 'error' | 'off' | 'confirm' | 'expired' | 'denied' | 'list';
@@ -110,11 +110,11 @@
     const stale = () => destroyed || current !== shownCode;
     let next: View;
     try {
-      // Without transcripts the server has no machine or pairing routes, so
+      // Without moil the server has no machine or pairing routes, so
       // whether it runs them comes first.
       const host = await me();
       if (stale()) return;
-      if (!host.transcripts) {
+      if (!host.moil) {
         next = 'off';
       } else if (current) {
         const waiting = await pairing(current);

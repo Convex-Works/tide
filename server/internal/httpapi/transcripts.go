@@ -21,7 +21,7 @@ import (
 	"tide/internal/transcripts"
 )
 
-// transcriptsFeature is everything TIDE_TRANSCRIPTS turns on
+// transcriptsFeature is everything TIDE_MOIL turns on
 // (ARCHITECTURE.md §8.1): the moil server machines connect to, the
 // transcripts service and its reconciler, the machines and pairing routes,
 // and the transcript routes. New builds one only when the switch is on; a

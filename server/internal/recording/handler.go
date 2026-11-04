@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 
@@ -22,6 +23,7 @@ import (
 	"tide/internal/api"
 	"tide/internal/auth"
 	"tide/internal/httpx"
+	"tide/internal/speakers"
 	"tide/internal/store"
 )
 
@@ -54,6 +56,19 @@ type RoomServiceClient interface {
 type ObjectStore interface {
 	Remove(context.Context, string) error
 	PresignedGet(context.Context, string, time.Duration) (string, error)
+	Put(ctx context.Context, key string, body []byte, contentType string) error
+}
+
+// SpeakerObservers follow who is active during each recording, for its
+// transcript (ARCHITECTURE.md §8). speakers.Observers is the real one.
+type SpeakerObservers interface {
+	// Start returns at once, and what becomes of the observer never
+	// concerns the recording.
+	Start(recordingID, room string)
+	// Stop ends the recording's observer and says what it saw, or nil if
+	// it has none.
+	Stop(recordingID string) *speakers.Activity
+	Close()
 }
 
 // TranscriptSource adds transcript state to listed recordings
@@ -83,6 +98,33 @@ type Handler struct {
 	onRecordingsChanged func()
 	// removeDueTimeout bounds each reconciler pass's removals.
 	removeDueTimeout time.Duration
+	// speakers is nil when recording is off.
+	speakers SpeakerObservers
+	// finishing keeps the end of a recording in one piece. A webhook and the
+	// reconciler can both finish a recording at once, and the one that finds
+	// the observer gone must not complete the row while the other is still
+	// storing the timeline: a transcript job could then start without it.
+	finishing sync.Mutex
+}
+
+// SetSpeakerObservers replaces the handler's observers, for tests.
+func (h *Handler) SetSpeakerObservers(observers SpeakerObservers) {
+	h.speakers = observers
+}
+
+// CloseObservers ends every speaker observer, for tide to stop before its
+// media server does. Recordings keep their rows, as tide stopping leaves them.
+func (h *Handler) CloseObservers() {
+	if h.speakers != nil {
+		h.speakers.Close()
+	}
+}
+
+func (h *Handler) stopObserver(recordingID string) *speakers.Activity {
+	if h.speakers == nil {
+		return nil
+	}
+	return h.speakers.Stop(recordingID)
 }
 
 // SetTranscripts makes the list path report each recording's transcript.
@@ -197,12 +239,18 @@ func (h *Handler) Start(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadGateway, "LiveKit could not start recording. Try again.")
 		return
 	}
+	// Before the row exists, so that nothing can end the recording first and
+	// leave this observer running with nothing to stop it.
+	if h.speakers != nil {
+		h.speakers.Start(id, room.Slug)
+	}
 	recording := store.Recording{
 		ID: id, RoomID: room.ID, RoomSlug: room.Slug, EgressID: info.EgressId,
 		Status: "starting", StartedBy: session.Sub, StartedAt: startedAt,
 		AudioOnly: audioOnly,
 	}
 	if err := h.store.InsertRecording(r.Context(), recording); err != nil {
+		h.stopObserver(id)
 		_, _ = h.egress.StopEgress(r.Context(), &protocol.StopEgressRequest{EgressId: info.EgressId})
 		if store.IsActiveRecordingConflict(err) {
 			httpx.WriteError(w, http.StatusConflict, activeRecordingMessage)
@@ -212,6 +260,7 @@ func (h *Handler) Start(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.setRecordingMetadata(r.Context(), room.Slug, true); err != nil {
+		h.stopObserver(id)
 		_, _ = h.egress.StopEgress(r.Context(), &protocol.StopEgressRequest{EgressId: info.EgressId})
 		_ = h.store.UpdateRecordingByEgress(r.Context(), info.EgressId, store.RecordingUpdate{Status: "failed"})
 		httpx.WriteError(w, http.StatusBadGateway, "The recording started, but its room state could not be updated. Try again.")
