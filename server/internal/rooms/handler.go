@@ -199,6 +199,7 @@ func (h *Handler) Public(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, api.PublicRoomInfo{
 		Slug: room.Slug, Name: room.Name, LobbyEnabled: room.LobbyEnabled,
 		CanManage: session.Sub != "" && httpx.CanManageRoom(session, room),
+		IsOwner:   session.Sub != "" && session.Sub == room.OwnerSub,
 	})
 }
 

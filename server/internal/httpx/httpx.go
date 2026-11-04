@@ -59,6 +59,31 @@ func RequireRoomManager(
 	slug string,
 	forbidden string,
 ) (store.Room, sessionctx.Session, bool) {
+	return requireRoom(w, r, rooms, slug, forbidden, CanManageRoom)
+}
+
+// RequireRoomOwner is RequireRoomManager for what only a room's owner may do:
+// an administrator is refused like anyone else.
+func RequireRoomOwner(
+	w http.ResponseWriter,
+	r *http.Request,
+	rooms RoomLoader,
+	slug string,
+	forbidden string,
+) (store.Room, sessionctx.Session, bool) {
+	return requireRoom(w, r, rooms, slug, forbidden, func(session sessionctx.Session, room store.Room) bool {
+		return room.OwnerSub == session.Sub
+	})
+}
+
+func requireRoom(
+	w http.ResponseWriter,
+	r *http.Request,
+	rooms RoomLoader,
+	slug string,
+	forbidden string,
+	allowed func(sessionctx.Session, store.Room) bool,
+) (store.Room, sessionctx.Session, bool) {
 	session, ok := sessionctx.FromContext(r.Context())
 	if !ok {
 		WriteError(w, http.StatusUnauthorized, "Authentication required.")
@@ -73,7 +98,7 @@ func RequireRoomManager(
 		WriteError(w, http.StatusInternalServerError, "Could not load the room. Try again.")
 		return store.Room{}, sessionctx.Session{}, false
 	}
-	if !CanManageRoom(session, room) {
+	if !allowed(session, room) {
 		WriteError(w, http.StatusForbidden, forbidden)
 		return store.Room{}, sessionctx.Session{}, false
 	}

@@ -10,6 +10,7 @@ const (
 	RoomPath              = "/api/rooms/{slug}"
 	RoomJoinPath          = "/api/rooms/{slug}/join"
 	RoomLobbyPath         = "/api/rooms/{slug}/lobby"
+	AgentSessionPath      = "/api/rooms/{slug}/agent-session"
 	KickPath              = "/api/rooms/{slug}/participants/{identity}/kick"
 	MutePath              = "/api/rooms/{slug}/participants/{identity}/mute"
 	MeetingEndPath        = "/api/rooms/{slug}/meeting/end"
@@ -87,6 +88,11 @@ type PublicRoomInfo struct {
 	// CanManage is true when the requesting session owns this room or is a
 	// global administrator. The capability is enforced server-side on every route.
 	CanManage bool `json:"can_manage"`
+	// IsOwner is true when the requesting session owns this room. It is
+	// narrower than CanManage: an administrator manages every room but owns
+	// only their own, and only an owner can connect an agent (ARCHITECTURE.md
+	// §4). The SPA uses it to show that control; the route checks for itself.
+	IsOwner bool `json:"is_owner"`
 }
 
 // CreateRoomRequest: both fields are optional (ARCHITECTURE.md §5). A blank
@@ -112,6 +118,33 @@ type JoinResponse struct {
 	Token     string `json:"token,omitempty"`
 	WSURL     string `json:"ws_url,omitempty"`
 	RequestID string `json:"request_id,omitempty"`
+}
+
+// AgentSessionRequest is the optional body of a request for an agent session.
+// A missing body or name means "Agent"; a name that is present is
+// held to a guest's rules.
+type AgentSessionRequest struct {
+	Name *string `json:"name,omitempty"`
+}
+
+// AgentSession is everything a program needs to join a meeting as a visible
+// participant, and the contents of the session.json an agent reads. It is a
+// stable contract (docs/MEETING-AGENTS.md): moil delivers this same file, so
+// changing it changes every agent.
+type AgentSession struct {
+	// WSURL and Token are what LiveKit's connect takes. The token grants the
+	// agent role and nothing more (ARCHITECTURE.md §4).
+	WSURL string `json:"ws_url"`
+	Token string `json:"token"`
+	// Room is the room's slug.
+	Room string `json:"room"`
+	// Identity is the agent's LiveKit identity, agent:<random>.
+	Identity string `json:"identity"`
+	// Name is the display name everyone in the room sees.
+	Name string `json:"name"`
+	// ExpiresAt is Unix seconds: the last moment Token can connect. It says
+	// nothing about how long a connected agent may stay.
+	ExpiresAt int64 `json:"expires_at"`
 }
 
 type LobbyRequestInfo struct {
