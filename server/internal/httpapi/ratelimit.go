@@ -113,7 +113,7 @@ func withRateLimit(limiter *rateLimiter, ips *clientIPResolver, next http.Handle
 
 // withLookupRateLimit limits a route that answers anyone, such as the room
 // lookup, whose 404s would otherwise let a client test slugs as fast as it
-// can ask (ARCHITECTURE.md §15). A guest is counted by client address; a
+// can ask (docs/internals/auth.md). A guest is counted by client address; a
 // signed-in host by their sub, in a bucket of their own, so colleagues behind
 // one NAT don't share it and an account from a broad issuer can't test slugs
 // without a limit either. perSub is false in anonymous mode, where anyone can

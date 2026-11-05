@@ -3,7 +3,7 @@ export type HairlineState = 'connected' | 'reconnecting' | 'offline' | 'recordin
 class ConnectionChromeState {
   state = $state<HairlineState>('connected');
   // Beside the state, not one of them: nothing else on the hairline may hide
-  // that a program is listening (ARCHITECTURE.md §10).
+  // that a program is listening (docs/internals/web.md).
   bot = $state(false);
 }
 

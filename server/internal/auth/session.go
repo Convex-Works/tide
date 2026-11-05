@@ -43,7 +43,7 @@ type RevocationStore interface {
 
 type Sessions struct {
 	secret []byte
-	// anonymous is the deployment's mode (ARCHITECTURE.md §4.1): its
+	// anonymous is the deployment's mode (docs/internals/auth.md): its
 	// sessions are anonymous ones, signed with a key of their own, and Read
 	// refuses every other kind, as a signed-in deployment refuses anonymous
 	// ones.

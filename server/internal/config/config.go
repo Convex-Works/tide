@@ -66,22 +66,22 @@ type Config struct {
 	// endpoint that takes no credentials.
 	PairRateLimit int
 	// Moil turns on the moil integration: machine pairing, transcripts and
-	// the speaker timeline they use (TIDE_MOIL, ARCHITECTURE.md §8.1). Off by
+	// the speaker timeline they use (TIDE_MOIL, docs/internals/transcripts.md). Off by
 	// default: moil is alpha, so an operator opts in. It needs Recording.
 	Moil bool
 
 	// Anonymous is true when TIDE_OIDC_ISSUER is unset or empty: there is no
 	// sign-in, anyone may create a room and owns it through an anonymous
-	// session, and rooms live in memory (ARCHITECTURE.md §4.1). DBPath is
+	// session, and rooms live in memory (docs/internals/auth.md). DBPath is
 	// then ":memory:" whatever TIDE_DB_PATH says.
 	Anonymous bool
 	// Recording is true when hosts sign in and TIDE_S3_ENDPOINT is set
-	// (ARCHITECTURE.md §8). Without it there is no recorder, no object
+	// (docs/internals/recording.md). Without it there is no recorder, no object
 	// storage, and no recording route.
 	Recording bool
 
 	// MediaEmbedded is true when TIDE_MEDIA_URL is unset or empty: tide runs
-	// the media server itself (ARCHITECTURE.md §2.1). LiveKitURL is then
+	// the media server itself (docs/internals/architecture.md). LiveKitURL is then
 	// filled in by main once the server is up, LiveKitPublicURL defaults to
 	// the base URL's origin with a ws or wss scheme, and the API key and
 	// secret are generated per start unless the recorder needs them fixed.
@@ -115,7 +115,7 @@ const (
 )
 
 // The embedded media server's ports, and where it finds the Redis beside the
-// recorder: in tide's network namespace (ARCHITECTURE.md §2.1).
+// recorder: in tide's network namespace (docs/internals/architecture.md).
 const (
 	DefaultMediaInternalPort = 7880
 	DefaultMediaTCPPort      = 7881
@@ -123,7 +123,7 @@ const (
 	DefaultRecorderRedisAddr = "127.0.0.1:6379"
 )
 
-// Load reads configuration from the environment (ARCHITECTURE.md §12).
+// Load reads configuration from the environment (docs/operations/deployment.md).
 // Every variable is optional: an empty environment is an anonymous
 // deployment with its media server embedded. Each group of variables turns
 // something on and is then checked as a whole. Load reports every problem
@@ -181,7 +181,7 @@ func Load() (Config, error) {
 	}
 	cfg.TrustedProxies = trusted
 
-	// Sign-in, or anonymous mode with its rooms in memory (§4.1).
+	// Sign-in, or anonymous mode with its rooms in memory.
 	cfg.Anonymous = cfg.OIDCIssuer == ""
 	if cfg.Anonymous && (len(cfg.UserGroups) > 0 || len(cfg.AdminGroups) > 0) {
 		// Groups mean the operator meant to restrict who hosts: a missing
@@ -200,7 +200,7 @@ func Load() (Config, error) {
 		cfg.OIDCClientSecret = secret("TIDE_OIDC_CLIENT_SECRET", devOIDCSecret)
 	}
 
-	// Recording needs sign-in and object storage (§8).
+	// Recording needs sign-in and object storage.
 	if cfg.S3Endpoint != "" {
 		if cfg.Anonymous {
 			problems = append(problems,
@@ -218,7 +218,7 @@ func Load() (Config, error) {
 			"TIDE_MOIL=true needs recording (TIDE_OIDC_ISSUER and TIDE_S3_ENDPOINT)")
 	}
 
-	// The media server: embedded unless TIDE_MEDIA_URL names one (§2.1).
+	// The media server: embedded unless TIDE_MEDIA_URL names one.
 	cfg.MediaEmbedded = cfg.LiveKitURL == ""
 	if cfg.MediaEmbedded {
 		problems = append(problems, cfg.loadEmbeddedMedia(secret)...)
@@ -452,7 +452,7 @@ func parseTrustedProxies(raw string) ([]*net.IPNet, error) {
 }
 
 // env reads a variable, trimmed; an empty value means unset, for every
-// variable (ARCHITECTURE.md §12), so it takes fallback.
+// variable (docs/operations/deployment.md), so it takes fallback.
 func env(name, fallback string) string {
 	if value := strings.TrimSpace(os.Getenv(name)); value != "" {
 		return value

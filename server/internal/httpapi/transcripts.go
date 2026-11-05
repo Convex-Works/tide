@@ -22,7 +22,7 @@ import (
 )
 
 // transcriptsFeature is everything TIDE_MOIL turns on
-// (ARCHITECTURE.md §8.1): the moil server machines connect to, the
+// (docs/internals/transcripts.md): the moil server machines connect to, the
 // transcripts service and its reconciler, the machines and pairing routes,
 // and the transcript routes. New builds one only when the switch is on; a
 // nil *transcriptsFeature is tide without transcripts, and its methods do
@@ -34,7 +34,7 @@ import (
 // always runs, removes every queued key when it is due, including the
 // transcripts-staging/ keys Prepare queued while transcripts were on. The
 // machines and transcripts rows stay. Turning it back on is not a pause
-// ending (ARCHITECTURE.md §8.1): pending rows' 14 days count from their
+// ending (docs/internals/transcripts.md): pending rows' 14 days count from their
 // request, so the old ones fail on the first pass, and that pass adds rows
 // for the recordings that completed while it was off.
 type transcriptsFeature struct {
@@ -59,7 +59,7 @@ func newTranscriptsFeature(cfg config.Config, db *store.Store, objects transcrip
 		Logger:          slog.Default(),
 		// A transcript travels as files, and tide ignores data events: a
 		// machine may make a job hold 4 MiB of them at most, and a finished
-		// job leaves moil's memory after 5 minutes (ARCHITECTURE.md §8.1).
+		// job leaves moil's memory after 5 minutes (docs/internals/transcripts.md).
 		MaxDataBytes: 4 << 20,
 		KeepFinished: 5 * time.Minute,
 	})

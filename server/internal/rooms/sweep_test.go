@@ -170,7 +170,7 @@ func (f *fakeEnder) EndMeeting(_ context.Context, slug string) error {
 }
 
 // A room joined after the sweep listed it idle stays: the delete checks
-// again (ARCHITECTURE.md §5). The meetings in the rooms it does delete are
+// again (docs/internals/auth.md). The meetings in the rooms it does delete are
 // ended, even when ending one fails.
 func TestSweepSparesARoomJoinedAsItSweeps(t *testing.T) {
 	now := time.Unix(1_800_000_000, 0)

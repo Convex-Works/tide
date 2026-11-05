@@ -3,7 +3,7 @@ import { fakeSfu, fakeSfuLaunchArgs } from './fake-sfu';
 import { defaultState, fakeSfuURL, mockApi, type ApiState } from './mock-api';
 import { BotSessionPath, type BotSession } from '../src/lib/api/types.gen';
 
-// A program in a meeting (docs/BOTS.md) as the people there see it.
+// A program in a meeting (docs/user/bots.md) as the people there see it.
 // The tag and the hairline are all that tell a guest something is listening,
 // so they are not polish. The API is mocked and the SFU is fake-sfu.ts, so
 // this runs against the Vite dev server alone.

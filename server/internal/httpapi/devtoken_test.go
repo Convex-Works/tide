@@ -11,7 +11,7 @@ import (
 )
 
 // Dev mode's token route mints for anyone who asks, so it must never mint
-// admin (ARCHITECTURE.md §4).
+// admin (docs/internals/auth.md).
 func TestDevTokenIsAGuestToken(t *testing.T) {
 	k := startTide(t, func(cfg *config.Config, _ *http.Server) { cfg.DevMode = true })
 	status, _, body := k.request(http.MethodGet, api.DevTokenPath+"?room=calm-otter-412&name=Ada", "", nil, false)

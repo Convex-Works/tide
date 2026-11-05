@@ -21,9 +21,9 @@ import (
 	"tide/internal/machines"
 )
 
-// These tests hold tide to the limits of ARCHITECTURE.md §8.1 and §15, the
-// way clients meet them: over HTTP, with machines speaking moil and hosts
-// using the /machines page's API with real session cookies. Where a test
+// These tests hold tide to the limits of docs/internals/transcripts.md and
+// docs/internals/auth.md, the way clients meet them: over HTTP, with machines
+// speaking moil and hosts using the /machines page's API with real session cookies. Where a test
 // needs clients on different networks, they come through a reverse proxy
 // tide trusts, as in production, which says where each one is.
 

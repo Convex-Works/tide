@@ -53,7 +53,7 @@ func (r Recording) HasFile() bool {
 }
 
 // A TranscriptFormat is one of the files a transcript is kept as, beside
-// its recording (ARCHITECTURE.md §8.1).
+// its recording (docs/internals/transcripts.md).
 type TranscriptFormat struct {
 	// Extension is the file's extension, and the format's name in the
 	// download route's format parameter.
@@ -91,7 +91,7 @@ func (r Recording) TranscriptKey(format TranscriptFormat) string {
 }
 
 // SpeakersFile is the name of the file saying who was active during a
-// recording (ARCHITECTURE.md §8), beside it in storage and as the input of a
+// recording (docs/internals/recording.md), beside it in storage and as the input of a
 // transcript job.
 const SpeakersFile = "speakers.json"
 
@@ -392,7 +392,7 @@ func (s *Store) IdleRooms(ctx context.Context, before int64) ([]Room, error) {
 // never move the timestamp backwards.
 // MarkRoomActive records that room id is in use at ts, as tide mints a
 // token for it, and says whether the room still exists: a room deleted since
-// the caller loaded it must not get a token (ARCHITECTURE.md §5).
+// the caller loaded it must not get a token (docs/internals/auth.md).
 func (s *Store) MarkRoomActive(ctx context.Context, id string, ts int64) (bool, error) {
 	result, err := s.db.ExecContext(ctx,
 		`UPDATE rooms SET last_active_at = MAX(COALESCE(last_active_at, 0), ?) WHERE id = ?`, ts, id)

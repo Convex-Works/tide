@@ -1,7 +1,7 @@
 <script lang="ts">
   import { Button } from 'bits-ui';
 
-  // The shell's standard button (ARCHITECTURE.md §10): a 28px control with a
+  // The shell's standard button (docs/internals/web.md): a 28px control with a
   // 4px radius. Renders an <a> when `href` is set, otherwise a <button> —
   // bits-ui Button handles the anchor/button + disabled semantics.
   //   variant="default"  paper, subtle border (Copy link, secondary actions)

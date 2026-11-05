@@ -38,7 +38,7 @@ export interface ParticipantView {
   name: string;
   isLocal: boolean;
   role?: 'host';
-  /** A program in the meeting (ARCHITECTURE.md §4). Hidden ones never reach a client. */
+  /** A program in the meeting (docs/internals/auth.md). Hidden ones never reach a client. */
   bot: boolean;
   publications: Record<string, MediaTrackView>;
   cameras: Record<string, MediaTrackView>;

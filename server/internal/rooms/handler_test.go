@@ -372,7 +372,7 @@ func TestDeleteRemovesFilesAndCascadesRows(t *testing.T) {
 		t.Fatalf("expected 204, got %d", response.Code)
 	}
 	// The recording goes with its transcript sidecars and speaker timeline
-	// (ARCHITECTURE.md §8.1).
+	// (docs/internals/transcripts.md).
 	want := []string{key, "recordings/calm-otter-412/100.txt", "recordings/calm-otter-412/100.vtt", "recordings/calm-otter-412/speakers.json"}
 	if removed := objects.removedKeys(); !slices.Equal(removed, want) {
 		t.Fatalf("removed objects = %#v, want %#v", removed, want)

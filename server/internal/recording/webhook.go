@@ -131,7 +131,7 @@ func (h *Handler) finishRecording(ctx context.Context, info *protocol.EgressInfo
 // saveSpeakers stops the observer of the recording info ended and, if it
 // completed, stores what the observer saw beside its file. This comes before
 // the row says completed, because that's when a transcript job can start,
-// and the job takes the file only if it's there by then (ARCHITECTURE.md §8.1).
+// and the job takes the file only if it's there by then (docs/internals/transcripts.md).
 // It's best effort: a recording without the file is a transcript without
 // names, so nothing here stops the recording from completing.
 func (h *Handler) saveSpeakers(ctx context.Context, info *protocol.EgressInfo, status string, file *protocol.FileInfo) {

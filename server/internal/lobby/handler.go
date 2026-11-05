@@ -166,9 +166,9 @@ func displayName(raw string) (string, bool) {
 }
 
 // BotSession hands a room's owner a session for a program to join the
-// meeting with (docs/BOTS.md). Only the owner gets one, not an
+// meeting with (docs/user/bots.md). Only the owner gets one, not an
 // administrator, unlike recording: a bot is a new live listener, and
-// ARCHITECTURE.md §8.1 keeps a room's audio with its owner. It needs no
+// docs/internals/transcripts.md keeps a room's audio with its owner. It needs no
 // machine, so it works in every mode, anonymous too.
 func (h *Handler) BotSession(w http.ResponseWriter, r *http.Request) {
 	room, _, ok := httpx.RequireRoomOwner(
@@ -361,7 +361,7 @@ func (h *Handler) requireManager(w http.ResponseWriter, r *http.Request, slug st
 }
 
 // markActive marks room in use before a token for it leaves tide, so that
-// the anonymous sweep (ARCHITECTURE.md §5), which deletes a room only if it
+// the anonymous sweep (docs/internals/auth.md), which deletes a room only if it
 // is still idle, never deletes one somebody is about to meet in. The media
 // server's participant_joined webhook marks it again, later. It answers the
 // request itself, and returns false, when the room can't be marked: in

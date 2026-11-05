@@ -13,7 +13,7 @@ import (
 const testSecret = "test-livekit-secret-with-enough-bytes"
 
 // A token carries exactly the grants tide means it to, for each role. The
-// media server trusts these and nothing else (ARCHITECTURE.md §4).
+// media server trusts these and nothing else (docs/internals/auth.md).
 func TestMintTokenGrants(t *testing.T) {
 	minter := NewMinter(config.Config{
 		LiveKitAPIKey: "devkey", LiveKitAPISecret: testSecret, LiveKitPublicURL: "ws://public.example",

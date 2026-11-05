@@ -215,7 +215,7 @@ func TestSessionRevocationStore(t *testing.T) {
 
 // A slug freed by deleting or renaming its room stays unavailable for as
 // long as a token minted for the old room could still be used
-// (ARCHITECTURE.md §5), then comes free.
+// (docs/internals/auth.md), then comes free.
 func TestFreedSlugsAreHeld(t *testing.T) {
 	ctx := context.Background()
 	db, err := Open(":memory:")

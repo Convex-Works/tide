@@ -60,7 +60,7 @@ func (s *liveKitSource) ActiveRooms(ctx context.Context) (map[string]LiveRoom, e
 
 // A MeetingEnder ends the meeting live in a room, if there is one, as End
 // meeting does: everyone in it is disconnected. Deleting a room calls it
-// (ARCHITECTURE.md §5), so nobody stays on in a meeting whose slug someone
+// (docs/internals/auth.md), so nobody stays on in a meeting whose slug someone
 // else can now create and own.
 type MeetingEnder interface {
 	EndMeeting(ctx context.Context, slug string) error

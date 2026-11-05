@@ -130,7 +130,7 @@ func TestStoppingTideWaitsForItsBackgroundWork(t *testing.T) {
 // stops tide all the same: Serve closes moil and returns, as it does on a
 // signal, rather than wait for the server to stop a second time.
 // Observers must leave their rooms before main stops the media server, which
-// is what returning from Serve lets it do (ARCHITECTURE.md §2.1).
+// is what returning from Serve lets it do (docs/internals/architecture.md).
 func TestStoppingTideClosesItsSpeakerObservers(t *testing.T) {
 	observers := &closeCounter{}
 	handler := recording.NewHandler(nil, nil, nil, nil, "", nil)

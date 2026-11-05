@@ -11,8 +11,8 @@ import (
 	"git.convex.works/ConvexWorks/moil/sdk/go/moil"
 )
 
-// The Store keeps the machines hosts paired through moil (ARCHITECTURE.md
-// §8.1): it is the moil.Server's Store.
+// The Store keeps the machines hosts paired through moil
+// (docs/internals/transcripts.md): it is the moil.Server's Store.
 var _ moil.Store = (*Store)(nil)
 
 const machineColumns = `id, owner_sub, token_hash, paired_at, report`

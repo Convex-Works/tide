@@ -75,7 +75,7 @@ func TestAnonymousLoginKeepsASessionOrIssuesOne(t *testing.T) {
 	}
 }
 
-// A session belongs to the mode that issued it (ARCHITECTURE.md §4.1): an
+// A session belongs to the mode that issued it (docs/internals/auth.md): an
 // operator who adds sign-in to an anonymous deployment, or drops it, keeping
 // the session secret, must not turn one kind of cookie into the other.
 func TestSessionsBelongToTheirMode(t *testing.T) {

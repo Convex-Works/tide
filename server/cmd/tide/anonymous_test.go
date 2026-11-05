@@ -17,7 +17,7 @@ import (
 	"tide/internal/api"
 )
 
-// An anonymous tide (ARCHITECTURE.md §4.1) keeps nothing: what one start
+// An anonymous tide (docs/internals/auth.md) keeps nothing: what one start
 // made, the next doesn't know. These start the real binary with an
 // external media server named, since none needs to run for them; the
 // embedded one has tests of its own.

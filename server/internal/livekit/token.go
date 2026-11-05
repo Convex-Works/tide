@@ -32,7 +32,7 @@ func NewMinter(cfg config.Config) *Minter {
 }
 
 // A Role is what a participant may do in a room. It decides every grant in
-// the token, and nothing a client sends can change it (ARCHITECTURE.md §4).
+// the token, and nothing a client sends can change it (docs/internals/auth.md).
 type Role int
 
 const (
@@ -46,7 +46,7 @@ const (
 	RoleBot
 	// RoleObserver is tide itself watching who speaks during a recording: it
 	// subscribes, publishes nothing, is hidden from the room, and doesn't
-	// keep the room open. It's kind BOT rather than the Recorder grant,
+	// keep the room open. It's kind AGENT rather than the Recorder grant,
 	// which would tell clients the room is recording.
 	RoleObserver
 )

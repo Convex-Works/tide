@@ -3,7 +3,7 @@ import { RoomRecordingsPath } from '../src/lib/api/types.gen';
 import { fakeSfu, fakeSfuLaunchArgs } from './fake-sfu';
 import { defaultState, mockApi, recording } from './mock-api';
 
-// A signed-in server without object storage (ARCHITECTURE.md §8): /api/me
+// A signed-in server without object storage (docs/internals/recording.md): /api/me
 // says `recording: false`, the recording routes 404, and the SPA offers no
 // way to them. Against the Vite dev server with the API mocked in the browser.
 

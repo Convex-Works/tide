@@ -152,7 +152,7 @@
           </a>
         {/if}
         <!-- Without sign-in there is no account, and signing out would only
-             orphan the rooms this browser created (ARCHITECTURE.md §4.1). -->
+             orphan the rooms this browser created (docs/internals/auth.md). -->
         {#if !currentUser?.anonymous}
           <span>{currentUser?.name}</span>
           <button type="button" onclick={() => void signOut()}>Sign out</button>

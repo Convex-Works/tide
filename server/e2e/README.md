@@ -1,6 +1,6 @@
 # Transcripts end to end, with the real moil
 
-The transcripts pipeline (ARCHITECTURE.md §8.1) as people run it: tide
+The transcripts pipeline (docs/internals/transcripts.md) as people run it: tide
 composed as `main` composes it, machines running the real `moil` binary
 and real uv, and real S3 storage. The other transcript tests use moil's
 in-process fake machine (`moiltest`); these check that the real one agrees

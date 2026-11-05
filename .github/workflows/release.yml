@@ -76,7 +76,7 @@ jobs:
             org.opencontainers.image.description=Self-hosted video meetings
             org.opencontainers.image.source=https://github.com/Convex-Works/tide
             org.opencontainers.image.url=https://tide.convex.works
-            org.opencontainers.image.documentation=https://github.com/Convex-Works/tide/blob/main/docs/DEPLOYMENT.md
+            org.opencontainers.image.documentation=https://github.com/Convex-Works/tide/blob/main/docs/operations/deployment.md
             org.opencontainers.image.licenses=MIT
           annotations: |
             org.opencontainers.image.title=tide

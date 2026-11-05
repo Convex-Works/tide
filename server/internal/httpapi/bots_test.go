@@ -19,7 +19,7 @@ import (
 	"tide/internal/store"
 )
 
-// The bot session route (docs/BOTS.md), through tide's real
+// The bot session route (docs/user/bots.md), through tide's real
 // handler over HTTP.
 
 const botRoomSlug = "calm-otter-412"
@@ -51,7 +51,7 @@ func (k *tideServer) signedIn(from string, session auth.Session) *browser {
 
 // Only the room's owner gets a session, which is narrower than the room's
 // managers: an administrator can record any room, but a bot is a new live
-// listener and the room's audio stays with its owner (§8.1).
+// listener and the room's audio stays with its owner.
 func TestBotSessionIsTheOwnersAlone(t *testing.T) {
 	k := signedInBots(t, nil)
 	path := fill(api.BotSessionPath, botRoomSlug)
@@ -94,7 +94,7 @@ func TestBotSessionOnlyTakesPost(t *testing.T) {
 	}
 }
 
-// The token is the whole of what a bot may do (§4): this is what the
+// The token is the whole of what a bot may do: this is what the
 // media server will read.
 func TestBotSessionCarriesTheBotGrants(t *testing.T) {
 	k := signedInBots(t, nil)
@@ -217,7 +217,7 @@ func TestBotSessionCountsAsAJoin(t *testing.T) {
 	k.signedIn("192.0.2.2", auth.Session{Sub: "owner"}).want(http.MethodPost, path, "", http.StatusOK, nil)
 }
 
-// It needs no machine, so it works with no sign-in at all (§4.1): an
+// It needs no machine, so it works with no sign-in at all: an
 // anonymous owner is an owner, every other session a guest.
 func TestBotSessionInAnonymousMode(t *testing.T) {
 	k := startTide(t, anonymousMode(100))
@@ -241,7 +241,7 @@ func TestBotSessionInAnonymousMode(t *testing.T) {
 	if kind := grants(t, k.cfg, session.Token).GetParticipantKind(); kind != livekit.ParticipantInfo_AGENT {
 		t.Fatalf("kind = %v", kind)
 	}
-	// Every token marks its room active before it leaves tide (§5), or the
+	// Every token marks its room active before it leaves tide, or the
 	// sweep could delete the room under the bot.
 	stored, err = k.db.RoomBySlug(context.Background(), room.Slug)
 	if err != nil {

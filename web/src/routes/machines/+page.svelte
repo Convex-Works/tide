@@ -34,7 +34,7 @@
   } from '#lib/api/types.gen.js';
   import { compactAgo, osLabel, shortHash, systemLabel } from '#lib/format.js';
 
-  // One route, two jobs (ARCHITECTURE.md §8.1): with ?code= the moil app sent
+  // One route, two jobs (docs/internals/transcripts.md): with ?code= the moil app sent
   // the host here to confirm a pairing; without one it lists their machines.
   // 'off': this server doesn't run moil (TIDE_MOIL), so it
   // has no machines to show and nothing to pair with.

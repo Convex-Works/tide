@@ -25,8 +25,9 @@ import (
 //  4. Serve waits for the reconcilers and the jobs' followers to return.
 //
 // When Serve returns, nothing uses the store New was given, and the caller
-// may stop the media server and close the store (ARCHITECTURE.md §2). Serve returns nil when ctx ended it, or the error the server
-// failed with.
+// may stop the media server and close the store
+// (docs/internals/architecture.md). Serve returns nil when ctx ended it, or
+// the error the server failed with.
 func Serve(ctx context.Context, server *http.Server, listener net.Listener, background *Background, grace time.Duration) error {
 	server.RegisterOnShutdown(background.lobby.EndStreams)
 	// The reconcilers outlive ctx: they keep recording what machines finish

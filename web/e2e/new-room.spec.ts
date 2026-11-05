@@ -3,8 +3,8 @@ import { expect, test, type Download, type Page } from '@playwright/test';
 import { RoomsPath, type CreateRoomRequest } from '../src/lib/api/types.gen';
 import { mockApi, now, type MockApi } from './mock-api';
 
-// The dashboard's New dialog and a card's Add to calendar (ARCHITECTURE.md
-// §5), against the Vite dev server with the API mocked in the browser.
+// The dashboard's New dialog and a card's Add to calendar (docs/internals/auth.md),
+// against the Vite dev server with the API mocked in the browser.
 
 // Local times below are Athens time (UTC+3 in October), so the invite's UTC
 // times are three hours earlier.

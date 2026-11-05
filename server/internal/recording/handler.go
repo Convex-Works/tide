@@ -60,7 +60,7 @@ type ObjectStore interface {
 }
 
 // SpeakerObservers follow who is active during each recording, for its
-// transcript (ARCHITECTURE.md §8). speakers.Observers is the real one.
+// transcript (docs/internals/recording.md). speakers.Observers is the real one.
 type SpeakerObservers interface {
 	// Start returns at once, and what becomes of the observer never
 	// concerns the recording.
@@ -72,7 +72,7 @@ type SpeakerObservers interface {
 }
 
 // TranscriptSource adds transcript state to listed recordings
-// (ARCHITECTURE.md §8.1). The map is keyed by recording ID; a recording
+// (docs/internals/transcripts.md). The map is keyed by recording ID; a recording
 // missing from it has no transcript and can't get one.
 type TranscriptSource interface {
 	Transcripts(ctx context.Context, room store.Room, recordings []store.Recording) (map[string]*api.TranscriptInfo, error)
@@ -351,7 +351,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The row goes, and its files and transcript sidecars are queued for
-	// removal, at once (ARCHITECTURE.md §8.1): from then on the files are
+	// removal, at once (docs/internals/transcripts.md): from then on the files are
 	// removed even if storage is down now.
 	now := h.now().Unix()
 	keys, err := h.store.DeleteRecording(r.Context(), recording.ID, now)

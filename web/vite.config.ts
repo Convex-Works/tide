@@ -30,10 +30,10 @@ export default defineConfig({
     allowedHosts: ['host.docker.internal'],
     proxy: {
       '/api': 'http://localhost:8080',
-      // moil machines pair and keep their WebSocket here (ARCHITECTURE.md §8.1).
+      // moil machines pair and keep their WebSocket here (docs/internals/transcripts.md).
       '/moil': { target: 'http://localhost:8080', ws: true },
       // Meeting signaling: tide forwards it to its media server, so the SPA
-      // signals through its own origin here too (ARCHITECTURE.md §2.1, §13).
+      // signals through its own origin here too (docs/internals/architecture.md, docs/operations/development.md).
       '/rtc': { target: 'http://localhost:8080', ws: true }
     }
   }

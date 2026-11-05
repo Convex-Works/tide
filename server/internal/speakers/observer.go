@@ -1,5 +1,5 @@
 // Package speakers records who is active during a recording, so that its
-// transcript can name its speakers (ARCHITECTURE.md §8).
+// transcript can name its speakers (docs/internals/recording.md).
 //
 // Each recording gets one observer: tide itself in the room, hidden, hearing
 // the microphones and publishing nothing. All of it is best effort: an

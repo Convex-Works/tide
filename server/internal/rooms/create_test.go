@@ -17,7 +17,7 @@ import (
 )
 
 // POST /api/rooms takes an optional name and an optional slug
-// (ARCHITECTURE.md §5).
+// (docs/internals/auth.md).
 
 func create(t *testing.T, handler *Handler, body string) (int, api.RoomInfo, string) {
 	t.Helper()
@@ -124,8 +124,8 @@ func TestCreateRoomRefusesAnotherOwnersSlug(t *testing.T) {
 	}
 }
 
-// An anonymous deployment caps how many rooms it keeps (ARCHITECTURE.md
-// §4.1): at the ceiling creating one answers 503 until a room goes.
+// An anonymous deployment caps how many rooms it keeps (docs/internals/auth.md):
+// at the ceiling creating one answers 503 until a room goes.
 func TestCreateRoomStopsAtTheCap(t *testing.T) {
 	handler, _, db, existing := deleteTestHandler(t)
 	handler.SetRoomCap(3)
@@ -157,7 +157,7 @@ func TestCreateRoomStopsAtTheCap(t *testing.T) {
 	}
 }
 
-// Deleting a room ends the meeting in it (ARCHITECTURE.md §5), so that
+// Deleting a room ends the meeting in it (docs/internals/auth.md), so that
 // nobody stays on under a slug someone else can now create; a media server
 // that can't be reached doesn't stop the delete.
 func TestDeleteEndsTheMeetingInTheRoom(t *testing.T) {
