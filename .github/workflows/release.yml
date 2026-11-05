@@ -7,6 +7,8 @@ name: Release
 # their SHA256SUMS attached. Tag only a commit on main that CI passed; this
 # workflow doesn't run the checks again. The commit must also pin the new
 # version in the install docs and manifests (scripts/check-release-pins.sh).
+# Push the tag as soon as CI passes on the merged release PR: until then the
+# docs on main pin an image that doesn't exist, and CI's release-pin job warns.
 # A pre-release tag (v1.2.0-rc.1) gets only its own image tag and a
 # pre-release, and the docs keep pinning the last release.
 #
