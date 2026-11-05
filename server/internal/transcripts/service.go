@@ -1,5 +1,5 @@
 // Package transcripts makes speaker-labelled transcripts of recordings on
-// machines their room's owner paired, through moil (ARCHITECTURE.md §8.1).
+// machines their room's owner paired, through moil (docs/internals/transcripts.md).
 //
 // The transcripts table is the truth: one row per recording that should have
 // a transcript. The reconciler projects every pending row onto a moil job,
@@ -330,7 +330,7 @@ func (s *Service) submit(ctx, ends context.Context, transcript store.PendingTran
 }
 
 // jobParams are a transcript job's params: the recording's times
-// (ARCHITECTURE.md §8.1). The bundle ignores them, logging a warning. They
+// (docs/internals/transcripts.md). The bundle ignores them, logging a warning. They
 // are for the hooks machine owners run after a job succeeds (moil's
 // spec/machine.md §2), which get the job's title and params, and would
 // otherwise know only when the transcript was made, which can be hours after

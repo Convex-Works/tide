@@ -32,7 +32,7 @@ In the meeting, open **Meeting details** (the (i) beside the room's name) and
 select **Copy bot session**. Only the room's owner sees it, and it works
 without sign-in too, for the browser that created the room. An administrator who
 manages the room gets neither the control nor a session: a bot is a new live
-listener, and a room's audio stays with its owner.
+listener, and adding one is the owner's choice.
 
 Save what you copied as `session.json`:
 
@@ -236,7 +236,7 @@ removal tide removes you again.
 
 ## Long meetings
 
-`expires_at` is about connecting. A token can connect for 10 minutes, and an
+`expires_at` is about connecting. A token can connect for 10 minutes, and a
 bot that connected stays for as long as the meeting runs, for hours if need
 be. Nothing needs renewing.
 
@@ -273,7 +273,7 @@ Treat everything from the room as untrusted:
 
 ## An example
 
-[`examples/bots/hello_bot.py`](../examples/bots/hello_bot.py) does all
+[`examples/bots/hello_bot.py`](../../examples/bots/hello_bot.py) does all
 of the above in one file: it prints who it hears and what's said in chat, says
 hello in chat, plays a tone as its microphone, and leaves when the meeting
 ends. With `--screen` it shares a screen as well. [uv](https://docs.astral.sh/uv/)

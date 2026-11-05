@@ -20,7 +20,7 @@ import (
 )
 
 // Bots and tide's own observer on a real media server, with the tokens
-// tide mints (ARCHITECTURE.md §4, docs/BOTS.md).
+// tide mints (docs/internals/auth.md, docs/user/bots.md).
 
 const botTestRoom = "abc-defg-hij"
 
@@ -106,7 +106,7 @@ func TestRoomClosesWhenOnlyAnBotRemains(t *testing.T) {
 	}
 }
 
-// Clients see a bot, as kind BOT, and never tide's hidden observer,
+// Clients see a bot, as kind AGENT, and never tide's hidden observer,
 // whether it arrived before them or after: that kind alone is what makes a
 // client say a program is in the room, and the observer has it too.
 func TestClientsSeeBotsAndNeverTheObserver(t *testing.T) {
@@ -162,7 +162,7 @@ func TestClientsSeeBotsAndNeverTheObserver(t *testing.T) {
 }
 
 // A token only authorizes connecting: a connected bot stays past expires_at
-// for as long as the meeting runs (docs/BOTS.md).
+// for as long as the meeting runs (docs/user/bots.md).
 func TestAConnectedBotOutlivesItsToken(t *testing.T) {
 	s := startServer(t, testOptions(t))
 	service := lksdk.NewRoomServiceClient(s.URL(), testKey, testSecret)

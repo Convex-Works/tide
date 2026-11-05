@@ -138,7 +138,7 @@ func TestLoadEmptyEnvironmentIsAnonymousAndEmbedded(t *testing.T) {
 
 // Empty values mean unset, so a Compose file can leave a variable blank.
 // A variable set to the empty string (or spaces) is unset, for every
-// variable (ARCHITECTURE.md §12): it takes its default, in both modes.
+// variable (docs/operations/deployment.md): it takes its default, in both modes.
 func TestLoadEmptyValuesAreUnset(t *testing.T) {
 	empty := map[string]string{}
 	for _, name := range []string{
@@ -178,7 +178,7 @@ func TestLoadEmptyValuesAreUnset(t *testing.T) {
 }
 
 // Groups say the operator meant to restrict who hosts: without an issuer
-// tide refuses to start rather than run open (ARCHITECTURE.md §12).
+// tide refuses to start rather than run open (docs/operations/deployment.md).
 func TestLoadRefusesGroupsWithoutSignIn(t *testing.T) {
 	for _, name := range []string{"TIDE_USER_GROUPS", "TIDE_ADMIN_GROUPS"} {
 		if problem := loadErr(t, map[string]string{name: "staff"}); !strings.Contains(problem, "groups need TIDE_OIDC_ISSUER") {

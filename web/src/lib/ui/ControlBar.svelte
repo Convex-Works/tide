@@ -40,7 +40,7 @@
     chatOpen?: boolean;
     unreadChat?: number;
     canManage?: boolean;
-    /** Shows record: a host, on a deployment that records (ARCHITECTURE.md §8). */
+    /** Shows record: a host, on a deployment that records (docs/internals/recording.md). */
     canRecord?: boolean;
     roomSlug?: string;
     view?: 'grid' | 'speaker';
@@ -572,7 +572,7 @@
   }
 
   /* Still clickable (a click while busy sets the next request), but visibly
-     waiting — on the permission prompt, usually. Static: §10 allows no
+     waiting — on the permission prompt, usually. Static: the design language allows no
      ambient motion here. */
   button[aria-busy='true'] {
     cursor: progress;

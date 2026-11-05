@@ -1,4 +1,4 @@
-// Room slugs as the server reads them (ARCHITECTURE.md §5): 3–64 lowercase
+// Room slugs as the server reads them (docs/internals/auth.md): 3–64 lowercase
 // letters, numbers and single hyphens. Pure, so specs import it directly.
 
 export const slugMinLength = 3;

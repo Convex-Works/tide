@@ -22,7 +22,7 @@ import { MEMBER, OWNER, sessionFor, type TestUser } from './session';
  * flips camEnabled on capture failure) and the actor would publish nothing.
  * Synthetic tracks take the identical publishTrack -> SFU path, which is the
  * path these scenarios are about. Covering local capture as well needs the
- * stack served over TLS; see docs/ARCHITECTURE.md.
+ * stack served over TLS; see docs/internals/media-gate.md.
  */
 
 export type ActorRole = 'owner' | 'member' | 'guest';

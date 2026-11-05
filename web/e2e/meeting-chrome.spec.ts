@@ -2,7 +2,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { defaultState, mockApi, type ApiState } from './mock-api';
 import { fakeSfu, fakeSfuLaunchArgs } from './fake-sfu';
 
-// The meeting's own chrome (ARCHITECTURE.md §9 "Meeting chrome"): the control
+// The meeting's own chrome (docs/internals/web.md "Meeting chrome"): the control
 // bar's order and the stage's top-left cluster. The API is mocked and the SFU
 // is fake-sfu.ts, so this runs against the Vite dev server alone.
 

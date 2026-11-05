@@ -14,7 +14,7 @@ import (
 // media server's loopback HTTP address. Everything else answers 404, so the
 // media server's API (/twirp/...) is never reachable through tide.
 //
-// Only GET requests without a body go through (ARCHITECTURE.md §15): every
+// Only GET requests without a body go through (docs/internals/auth.md): every
 // signaling request is a GET (the WebSocket and its validate endpoints), and
 // a body nobody means to send would otherwise hold a connection open.
 //

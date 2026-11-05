@@ -19,7 +19,7 @@ import (
 	"tide/internal/store"
 )
 
-// TIDE_MOIL (ARCHITECTURE.md §8.1): with it off, tide has no
+// TIDE_MOIL (docs/internals/transcripts.md): with it off, tide has no
 // machine, pairing, transcript or moil routes, says so on /api/me, and
 // still removes every file of what is deleted.
 

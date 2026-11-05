@@ -19,9 +19,9 @@ import (
 	"tide/internal/store"
 )
 
-// The deployment modes (ARCHITECTURE.md §2.1), through tide's real handler
-// over HTTP: anonymous (§4.1), signed in without recording (§8), and the
-// embedded media server's signaling (§2.1).
+// The deployment modes (docs/internals/architecture.md), through tide's real handler
+// over HTTP: anonymous, signed in without recording, and the
+// embedded media server's signaling.
 
 // anonymousMode configures startTide as a deployment without sign-in, with
 // every per-client limit set to limit, behind a reverse proxy that says
@@ -238,7 +238,7 @@ func TestAnonymousLoginIssuesASessionAndRedirects(t *testing.T) {
 }
 
 // Anyone can mint an anonymous session, so the limits count client
-// addresses, never sessions (ARCHITECTURE.md §15): issuing sessions shares
+// addresses, never sessions (docs/internals/auth.md): issuing sessions shares
 // the login limit, and creating rooms has a bucket of its own.
 func TestAnonymousLimitsCountAddressesNotSessions(t *testing.T) {
 	const limit = 3
@@ -415,7 +415,7 @@ func TestNewRefusesWhatTheModesForbid(t *testing.T) {
 	}
 }
 
-// A session belongs to the mode that issued it (ARCHITECTURE.md §4.1), even
+// A session belongs to the mode that issued it (docs/internals/auth.md), even
 // when an operator switches modes keeping the session secret: an anonymous
 // cookie is no host in a deployment with sign-in, and a host's (or an
 // administrator's) cookie is nobody in an anonymous one.
@@ -456,7 +456,7 @@ func TestSessionsDontCrossModes(t *testing.T) {
 	}
 }
 
-// An anonymous deployment stops creating rooms at its ceiling (§4.1); a
+// An anonymous deployment stops creating rooms at its ceiling; a
 // deployment with sign-in has none.
 func TestOnlyAnonymousRoomsHaveACeiling(t *testing.T) {
 	saved := anonymousRoomCap
@@ -484,7 +484,7 @@ func TestOnlyAnonymousRoomsHaveACeiling(t *testing.T) {
 }
 
 // Every token tide mints for a room marks the room active before it leaves
-// (§5), so the anonymous sweep, which deletes only rooms still idle, never
+//, so the anonymous sweep, which deletes only rooms still idle, never
 // deletes one a meeting is starting in, though the media server's webhook
 // hasn't arrived (here it never does).
 func TestTokensMarkTheirRoomActive(t *testing.T) {
@@ -549,7 +549,7 @@ func TestOnlyAnAnonymousDeploymentSweeps(t *testing.T) {
 
 // A join tide began before the room was deleted gets no token: the room's
 // slug is free for someone else's room now, and a token names its room by
-// slug (ARCHITECTURE.md §5). The guest's body arrives after the delete, as a
+// slug (docs/internals/auth.md). The guest's body arrives after the delete, as a
 // slow client's would.
 func TestNoTokenForARoomDeletedMidJoin(t *testing.T) {
 	k := startTide(t, anonymousMode(100))

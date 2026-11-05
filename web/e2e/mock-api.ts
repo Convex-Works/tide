@@ -58,7 +58,7 @@ export interface ApiState {
   /**
    * Whether this browser has a session. Without sign-in (`me.anonymous`)
    * the server issues one on GET /api/me, so a signed-out browser becomes a
-   * signed-in one there, owning nothing yet (ARCHITECTURE.md §4.1).
+   * signed-in one there, owning nothing yet (docs/internals/auth.md).
    */
   signedIn: boolean;
   /** Whether the session owns `rooms`, as every spec's host does; default true. */
@@ -203,7 +203,7 @@ const unknownCode =
   'No machine is waiting with this code. Check the code, or start pairing again in the moil app.';
 
 /**
- * POST /api/rooms as the server answers it (ARCHITECTURE.md §5): a blank
+ * POST /api/rooms as the server answers it (docs/internals/auth.md): a blank
  * name becomes the slug, a missing or blank slug is drawn, a given one is
  * validated and a taken one is a 409, never replaced. Names are limited in
  * characters (code points), not UTF-16 units.
@@ -364,7 +364,7 @@ export async function mockApi(page: Page, state: ApiState = defaultState()): Pro
       return json(created.status, created.body);
     }
 
-    // Without recording (§8) the server registers none of these routes.
+    // Without recording the server registers none of these routes.
     const recordingRoutes = [
       RecordingStartPath,
       RecordingStopPath,

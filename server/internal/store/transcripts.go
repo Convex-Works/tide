@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// A Transcript is the transcripts row of a recording (ARCHITECTURE.md §8.1):
+// A Transcript is the transcripts row of a recording (docs/internals/transcripts.md):
 // the truth about whether the recording should have a transcript, and how
 // making it went. A moil job is only ever a projection of a pending one.
 type Transcript struct {

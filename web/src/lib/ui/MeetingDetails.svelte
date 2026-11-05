@@ -11,7 +11,7 @@
   }: {
     url: string;
     slug?: string;
-    /** Offers a bot session; the server checks for itself (ARCHITECTURE.md §4). */
+    /** Offers a bot session; the server checks for itself (docs/internals/auth.md). */
     isOwner?: boolean;
   } = $props();
 
@@ -47,7 +47,7 @@
     copySelection(link);
   }
 
-  /** The way a program without moil gets its session.json (docs/BOTS.md). */
+  /** The way a program without moil gets its session.json (docs/user/bots.md). */
   async function copySession(): Promise<void> {
     clearTimeout(sessionTimer);
     sessionBusy = true;

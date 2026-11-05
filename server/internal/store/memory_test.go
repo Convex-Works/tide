@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// Anonymous mode keeps its rooms in ":memory:" (ARCHITECTURE.md §4.1): the
+// Anonymous mode keeps its rooms in ":memory:" (docs/internals/auth.md): the
 // same schema and code on one connection that must never be recycled, since
 // a new connection would be a new, empty database.
 func TestMemoryStoreIsWholeAndPrivate(t *testing.T) {

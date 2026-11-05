@@ -22,7 +22,7 @@ FROM --platform=$BUILDPLATFORM golang:1.26.10-alpine3.23 AS go-builder
 WORKDIR /src/server
 
 COPY server/go.mod server/go.sum ./
-# go.mod replaces the moil SDK with its vendored copy (ARCHITECTURE.md §17),
+# go.mod replaces the moil SDK with its vendored copy (docs/internals/decisions.md),
 # which module resolution needs before anything is downloaded.
 COPY server/third_party ./third_party
 RUN go mod download

@@ -337,7 +337,7 @@ func TestStartStartsAnObserverOnceEgressHasStarted(t *testing.T) {
 }
 
 // Only transcripts read the timeline, so observers need recording and moil
-// (ARCHITECTURE.md §8).
+// (docs/internals/recording.md).
 func TestObserversNeedRecordingAndMoil(t *testing.T) {
 	if handler := New(config.Config{Moil: true}, nil, nil); handler.speakers != nil {
 		t.Fatal("there are observers with recording off")

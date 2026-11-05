@@ -3,7 +3,7 @@ import { MePath, RoomJoinPath, RoomsPath, type JoinRequest } from '../src/lib/ap
 import { fakeSfu, fakeSfuLaunchArgs } from './fake-sfu';
 import { defaultState, mockApi, type ApiState } from './mock-api';
 
-// A server without sign-in (ARCHITECTURE.md §4.1): /api/me issues a browser
+// A server without sign-in (docs/internals/auth.md): /api/me issues a browser
 // with no session an anonymous one instead of answering 401, the creator of a
 // room owns it, and there is no account, sign-in or sign-out anywhere.
 // Against the Vite dev server with the API mocked in the browser.
@@ -114,7 +114,7 @@ test('a guest sees no sign-in, and waits in the lobby', async ({ page }) => {
   ).toBeVisible();
 });
 
-/** Issuing a session counts against the login limit (§15); this one is refused. */
+/** Issuing a session counts against the login limit; this one is refused. */
 async function refuseSession(page: Page): Promise<void> {
   await page.route(
     (url) => url.pathname === MePath,

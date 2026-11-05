@@ -15,7 +15,7 @@ CREATE INDEX IF NOT EXISTS rooms_owner_created_idx
     ON rooms (owner_sub, created_at DESC);
 
 -- Room links freed by deleting a room or changing its slug, held until every
--- token minted for them has expired (ARCHITECTURE.md §5): a token names its
+-- token minted for them has expired (docs/internals/auth.md): a token names its
 -- room by slug, so a new room under a freed slug would let the old room's
 -- tokens into its meeting, past its lobby.
 CREATE TABLE IF NOT EXISTS freed_slugs (
@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS revoked_sessions (
     expires_at INTEGER NOT NULL
 );
 
--- Machines hosts paired with tide through moil (ARCHITECTURE.md §8.1). The
+-- Machines hosts paired with tide through moil (docs/internals/transcripts.md). The
 -- Store implements moil.Store over this table. A machine's token is never
 -- stored, only its SHA-256; report is the machine's last moil.MachineReport as
 -- JSON (name, hardware, approved bundle hashes, last seen).
@@ -79,7 +79,7 @@ CREATE TABLE IF NOT EXISTS machines (
 CREATE INDEX IF NOT EXISTS machines_owner_paired_idx
     ON machines (owner_sub, paired_at);
 
--- One row per recording that should have a transcript (ARCHITECTURE.md §8.1).
+-- One row per recording that should have a transcript (docs/internals/transcripts.md).
 -- The row is the truth; a moil job is only a projection of a pending row, so a
 -- restart resubmits every pending one.
 CREATE TABLE IF NOT EXISTS transcripts (
@@ -98,7 +98,7 @@ DROP INDEX IF EXISTS transcripts_pending_idx;
 CREATE INDEX IF NOT EXISTS transcripts_pending_requested_idx
     ON transcripts (requested_at, recording_id) WHERE status = 'pending';
 
--- Objects to remove from storage (ARCHITECTURE.md §8.1), each once due_at
+-- Objects to remove from storage (docs/internals/transcripts.md), each once due_at
 -- (Unix seconds) has passed. Deleting a recording or its room queues its
 -- files, due at once, in the transaction that deletes the rows; handing a
 -- machine an attempt queues the attempt's staging keys, due when their URLs

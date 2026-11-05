@@ -2,7 +2,7 @@
   import type { Snippet } from 'svelte';
   import { X } from 'phosphor-svelte';
 
-  // A modal on the light shell (ARCHITECTURE.md §10): the native <dialog>
+  // A modal on the light shell (docs/internals/web.md): the native <dialog>
   // opened with showModal(), so the page behind is inert (focus stays
   // inside), Escape closes it and focus returns to the opener. 6px radius,
   // 1px border and the one elevation dialogs are allowed.

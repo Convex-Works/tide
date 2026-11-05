@@ -33,7 +33,7 @@ const slugLength = 10
 // GenerateSlug returns a default room slug: ten letters a–z drawn uniformly
 // from crypto/rand, grouped 3-4-3 (abc-defg-hij), short enough to read
 // aloud and, behind the join rate limit, too many to guess at
-// (ARCHITECTURE.md §5). Owners can replace it with a slug of their own.
+// (docs/internals/auth.md). Owners can replace it with a slug of their own.
 func GenerateSlug() (string, error) {
 	return generateSlug(rand.Reader)
 }

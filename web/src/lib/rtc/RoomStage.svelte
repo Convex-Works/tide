@@ -33,9 +33,9 @@
     roomName: string;
     onleave: () => void;
     canManage?: boolean;
-    /** The room's owner, not only a manager: offers a bot session (ARCHITECTURE.md §4). */
+    /** The room's owner, not only a manager: offers a bot session (docs/internals/auth.md). */
     isOwner?: boolean;
-    /** A host on a deployment that records (ARCHITECTURE.md §8). */
+    /** A host on a deployment that records (docs/internals/recording.md). */
     canRecord?: boolean;
     pending?: LobbyRequestInfo[];
     peopleOpen?: boolean;

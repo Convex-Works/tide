@@ -351,4 +351,4 @@ A job needs up to 10 GB of memory. The first job downloads 2.9 GB.
 
 ## Bots
 
-A room's owner can connect a program to a meeting as a visible participant. It hears each speaker separately and can answer with audio, video, chat or a screen share. It runs wherever the owner runs it, not on your server, and there is nothing to configure. See [Bots](https://github.com/Convex-Works/tide/blob/main/docs/BOTS.md).
+A room's owner can connect a program to a meeting as a visible participant. It hears each speaker separately and can answer with audio, video, chat or a screen share. It runs wherever the owner runs it, not on your server, and there is nothing to configure. See [Bots](https://github.com/Convex-Works/tide/blob/main/docs/user/bots.md).

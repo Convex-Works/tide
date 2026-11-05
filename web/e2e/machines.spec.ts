@@ -16,8 +16,8 @@ import {
 } from '../src/lib/api/types.gen';
 import { bundle, machine, mockApi, now, recording, wireNull } from './mock-api';
 
-// The /machines page and the recordings' transcript cells (ARCHITECTURE.md
-// §8.1), against the Vite dev server with the API mocked in the browser.
+// The /machines page and the recordings' transcript cells (docs/internals/transcripts.md),
+// against the Vite dev server with the API mocked in the browser.
 
 const code = 'WDJB-MJHT';
 const pairingInfo: PairingInfo = {

@@ -14,7 +14,7 @@ import (
 )
 
 // downloadExpiry is how long a transcript's download URL lasts
-// (ARCHITECTURE.md §15).
+// (docs/internals/auth.md).
 const downloadExpiry = 5 * time.Minute
 
 // Request serves POST api.RecordingTranscriptPath: requests a transcript of

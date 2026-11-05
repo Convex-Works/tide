@@ -42,7 +42,7 @@ const mediaStartTimeout = 3 * time.Minute
 var startMediaServer = media.Start
 
 // redisWait bounds how long tide waits at startup for the Redis it shares
-// with the recorder to answer (ARCHITECTURE.md §2.1): beside the recorder,
+// with the recorder to answer (docs/internals/architecture.md): beside the recorder,
 // in a pod or a Compose project, Redis may come up a moment after tide. A
 // variable so that main's process tests can wait less.
 var redisWait = 30 * time.Second
@@ -54,7 +54,7 @@ var version = "dev"
 const usage = `usage: tide [version]
 
 tide takes no other arguments: it is configured through TIDE_ environment
-variables (docs/DEPLOYMENT.md). With none, it serves.
+variables (docs/operations/deployment.md). With none, it serves.
 `
 
 // command handles tide's arguments. It reports whether tide should go on to
@@ -106,8 +106,8 @@ func main() {
 	}
 }
 
-// run serves tide until ctx is done, starting and stopping its parts in the
-// order ARCHITECTURE.md §2 gives: the listener comes up, then, with
+// run serves tide until ctx is done, starting and stopping its parts in
+// order: the listener comes up, then, with
 // recording on, Redis must answer, then the media server starts, all before
 // tide serves; once httpapi.Serve has stopped the server and the background
 // work, the media server stops, and the database closes last, once nothing
@@ -126,7 +126,7 @@ func run(ctx context.Context, cfg config.Config) error {
 			log.Printf("close database: %v", err)
 		}
 	}()
-	// moil is off unless the operator turns it on (ARCHITECTURE.md §8.1);
+	// moil is off unless the operator turns it on (docs/internals/transcripts.md);
 	// only then does tide need the bundle.
 	var transcribe *moil.Bundle
 	if cfg.Moil {
@@ -169,9 +169,9 @@ func run(ctx context.Context, cfg config.Config) error {
 	return httpapi.Serve(ctx, server, listener, background, shutdownGrace)
 }
 
-// embeddedMedia is the media server tide runs itself (ARCHITECTURE.md
-// §2.1). With an external media server it is nil, and there is nothing to
-// run.
+// embeddedMedia is the media server tide runs itself
+// (docs/internals/architecture.md). With an external media server it is nil,
+// and there is nothing to run.
 type embeddedMedia struct {
 	server *media.Server
 }
@@ -279,7 +279,7 @@ func waitForRedis(ctx context.Context, addr, password string) error {
 // Redis without requirepass accepts any password, so the PING that
 // authenticated proves nothing; the recorder's jobs carry S3 credentials,
 // and tide won't put them where anyone who reaches the address can read
-// them (ARCHITECTURE.md §15).
+// them (docs/internals/auth.md).
 func requireRedisPassword(ctx context.Context, addr string) error {
 	anonymous := redis.NewClient(&redis.Options{
 		Addr: addr, MaxRetries: -1, Protocol: 2,

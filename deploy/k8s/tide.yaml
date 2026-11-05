@@ -2,7 +2,7 @@
 # origin (/rtc), so there is one Service and one ingress route; audio and video
 # go straight to the pod on 7882/udp (and 7881/tcp as the fallback), which this
 # base deliberately does not expose. An overlay must select one media path:
-# read docs/DEPLOYMENT.md#choose-the-media-path.
+# read docs/operations/deployment.md#choose-the-media-path.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -95,7 +95,7 @@ spec:
             - name: TIDE_DEV_MODE
               value: "false"
             - name: TIDE_MOIL
-              value: "false" # OVERLAY: With the recording component, "true" runs transcripts through moil (alpha); see docs/DEPLOYMENT.md.
+              value: "false" # OVERLAY: With the recording component, "true" runs transcripts through moil (alpha); see docs/operations/deployment.md.
           # Every meeting's media passes through this container.
           resources:
             requests:
