@@ -23,7 +23,7 @@ import (
 	"tide/internal/api"
 )
 
-// The one-binary acceptance test (ARCHITECTURE.md §16, Phase 6): tide with
+// The one-binary acceptance test: tide with
 // nothing configured but its ports is an anonymous deployment that holds a
 // meeting by itself. Two browsers' worth of clients take the SPA's API path:
 // the one that creates the room is its host, the other comes through the

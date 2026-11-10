@@ -17,7 +17,7 @@ repository_root="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 pins='ghcr\.io/convex-works/tide:[0-9][0-9A-Za-z.-]*|newTag: [0-9][0-9A-Za-z.-]*|--branch v[0-9][0-9A-Za-z.-]*'
 
 status=0
-for file in README.md docs/DEPLOYMENT.md deploy/k8s/tide.yaml site/src/content/docs/index.md; do
+for file in README.md docs/operations/deployment.md deploy/k8s/tide.yaml site/src/content/docs/index.md; do
   found="$(grep -Eo "$pins" "$repository_root/$file" || true)"
   if [ -z "$found" ]; then
     echo "$file: no tide version pin" >&2

@@ -122,7 +122,7 @@ func TestRecordingCRUD(t *testing.T) {
 		t.Fatalf("recording list = %#v, %v", list, err)
 	}
 	keys, err := db.DeleteRecording(ctx, recording.ID, 1)
-	if want := []string{key, "recordings/calm-otter-412/100.txt", "recordings/calm-otter-412/100.vtt"}; err != nil || !slices.Equal(keys, want) {
+	if want := []string{key, "recordings/calm-otter-412/100.txt", "recordings/calm-otter-412/100.vtt", "recordings/calm-otter-412/speakers.json"}; err != nil || !slices.Equal(keys, want) {
 		t.Fatalf("DeleteRecording() = %q, %v; want %q", keys, err, want)
 	}
 	if _, err := db.RecordingByID(ctx, recording.ID); !errors.Is(err, sql.ErrNoRows) {
@@ -215,7 +215,7 @@ func TestSessionRevocationStore(t *testing.T) {
 
 // A slug freed by deleting or renaming its room stays unavailable for as
 // long as a token minted for the old room could still be used
-// (ARCHITECTURE.md §5), then comes free.
+// (docs/internals/auth.md), then comes free.
 func TestFreedSlugsAreHeld(t *testing.T) {
 	ctx := context.Background()
 	db, err := Open(":memory:")

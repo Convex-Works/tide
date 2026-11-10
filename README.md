@@ -3,8 +3,9 @@
 <p align="center">
   <a href="https://tide.convex.works">Website</a> ·
   <a href="https://demo.tide.convex.works">Demo</a> ·
-  <a href="docs/DEPLOYMENT.md">Deployment</a> ·
-  <a href="docs/ARCHITECTURE.md">Architecture</a>
+  <a href="docs/user/guide.md">Guide</a> ·
+  <a href="docs/operations/deployment.md">Deployment</a> ·
+  <a href="docs/internals/architecture.md">Architecture</a>
 </p>
 
 tide is a self-hosted video meeting service. Its Go binary embeds the SvelteKit
@@ -18,8 +19,11 @@ Redis, and S3-compatible storage.
 - Ephemeral in-room chat
 - Optional audio and video recording, with download and delete controls
 - Optional transcripts of recordings, made by moil on the room owner's own
-  computer (macOS, alpha; [how it works](docs/ARCHITECTURE.md#81-transcripts)).
+  computer (macOS, alpha; [how to use them](docs/user/guide.md#get-a-transcript)).
   No AI runs on the server
+- [Bots](docs/user/bots.md): the room's owner can connect a
+  program of their own, which hears each speaker and answers, in view of
+  everyone
 
 ![A tide meeting with four people](docs/assets/meeting.png)
 
@@ -71,11 +75,11 @@ S3-compatible bucket, storage credentials, and shared media and Redis secrets.
 For production, serve tide behind an HTTPS proxy that forwards WebSocket
 upgrades. Media reaches the server directly over UDP 7882, with TCP 7881 as a
 fallback; there is no TURN relay on 443, so networks that allow only HTTPS out
-get no media. The [deployment guide](docs/DEPLOYMENT.md) covers the binary, Docker
+get no media. The [deployment guide](docs/operations/deployment.md) covers the binary, Docker
 Compose, Kubernetes, and all required configuration.
 
 Restarting tide restarts its embedded media server and ends live meetings and
-recordings. An [external media server](docs/DEPLOYMENT.md#external-media-server)
+recordings. An [external media server](docs/operations/deployment.md#external-media-server)
 can keep meetings running across a tide restart.
 
 ## Recording
@@ -93,49 +97,13 @@ empties.
 Install the web dependencies as in Quickstart, then run:
 
 ```sh
-make dev
+make dev     # the signed-in deployment with recording; needs Docker with Compose
+make check   # must pass before committing
 ```
 
-This requires Docker with Compose. It starts Dex, MinIO, Redis, and Egress in
-containers, with the Go server and Vite on the host. Open
-`http://localhost:5173` and sign in with `host@tide.dev` / `tide-dev`.
-
-`make dev` detects the LAN address on macOS and writes it to `deploy/.env`.
-On Linux, set `TIDE_MEDIA_NODE_IP=<your LAN address>` in `.env` at the
-repository root so the recorder can reach the media server.
-
-Stop the Go server and Vite with Ctrl-C. Stop the containers with:
-
-```sh
-docker compose -f deploy/compose.yaml down
-```
-
-## Checks and tests
-
-```sh
-make check   # Go vet/tests, web type/format checks, generated API type drift
-make gen     # regenerate TypeScript API types from Go
-make build   # build bin/tide with the web app embedded
-```
-
-`make check` must pass before committing. API wire types live in
-`server/internal/api`; regenerate them with `make gen` after a change.
-
-The media gate tests real meetings and recording in its own Docker Compose
-stack. It runs lifecycle, reliability, fuzz, and network-chaos scenarios in CI
-on every pull request:
-
-```sh
-make media
-make media-dev ARGS="media-lifecycle.spec.ts --project=chromium"
-```
-
-`make media` builds and tears down the stack. `make media-dev` keeps it running
-and rebuilds changed code for iteration. Stop that stack with
-`make media-dev ARGS="--down"`.
-
-The [architecture contract](docs/ARCHITECTURE.md) defines the system, API,
-authorization rules, design language, and frozen feature scope.
+Open `http://localhost:5173` and sign in with `host@tide.dev` / `tide-dev`.
+[Development](docs/operations/development.md) covers the rest, and
+[docs/internals](docs/internals/architecture.md) explains how tide works and why.
 
 ## License
 

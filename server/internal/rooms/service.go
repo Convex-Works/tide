@@ -34,7 +34,7 @@ func NewService(roomStore roomCreator) *Service {
 // another room.
 var ErrSlugTaken = errors.New("room slug is taken")
 
-// Create creates a room owned by ownerSub (ARCHITECTURE.md §5). slug, if
+// Create creates a room owned by ownerSub (docs/internals/auth.md). slug, if
 // not empty, must be valid already, and a room that has it makes Create
 // return ErrSlugTaken; an empty slug is generated, again on each collision.
 // An empty name becomes the room's slug.

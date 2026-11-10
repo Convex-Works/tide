@@ -1,4 +1,5 @@
 import {
+  BotSessionPath,
   AuthLogoutPath,
   DevTokenPath,
   KickPath,
@@ -24,6 +25,7 @@ import {
   RoomPath,
   RoomRecordingsPath,
   RoomsPath,
+  type BotSession,
   type CreateRoomRequest,
   type ErrorResponse,
   type JoinRequest,
@@ -111,7 +113,7 @@ function jsonRequest(method: string, body: unknown): RequestInit {
 
 /**
  * Who this browser is, and what the deployment offers them. Without sign-in
- * (ARCHITECTURE.md §4.1) the server answers a browser with no session by
+ * (docs/internals/auth.md) the server answers a browser with no session by
  * issuing an anonymous one, so it never throws AuthRequiredError there; it
  * may refuse with 429 instead (see rateLimited).
  */
@@ -119,7 +121,7 @@ export function me(): Promise<Me> {
   return requestJSON<Me>(MePath);
 }
 
-/** What to say when the server refused under a per-client limit (§15). */
+/** What to say when the server refused under a per-client limit. */
 export const rateLimitedMessage = 'Too many requests from this network. Try again in a minute.';
 
 /** Whether the server refused under a per-client rate limit. */
@@ -129,7 +131,7 @@ export function rateLimited(cause: unknown): boolean {
 
 /**
  * Creates a room. Both fields are optional: a blank name becomes the slug,
- * a missing slug is generated, and a taken one is a 409 (ARCHITECTURE.md §5).
+ * a missing slug is generated, and a taken one is a 409 (docs/internals/auth.md).
  */
 export async function createRoom(request: CreateRoomRequest): Promise<RoomInfo> {
   // The New dialog can't be dismissed while it creates, so a stalled request
@@ -274,6 +276,13 @@ export function denyPairing(code: string): Promise<void> {
 export function joinRoom(slug: string, name: string): Promise<JoinResponse> {
   const body: JoinRequest = { name };
   return requestJSON<JoinResponse>(pathWith(RoomJoinPath, 'slug', slug), jsonRequest('POST', body));
+}
+
+export function botSession(slug: string): Promise<BotSession> {
+  return requestJSON<BotSession>(pathWith(BotSessionPath, 'slug', slug), {
+    method: 'POST',
+    headers: csrfHeaders
+  });
 }
 
 export function approveLobby(id: string): Promise<void> {

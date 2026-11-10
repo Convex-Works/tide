@@ -10,7 +10,7 @@
   import Dialog from './Dialog.svelte';
   import MeetingTimesFields from './MeetingTimesFields.svelte';
 
-  // The dashboard's New dialog (ARCHITECTURE.md §5): an optional name, the
+  // The dashboard's New dialog (docs/internals/auth.md): an optional name, the
   // link prefilled with a suggestion in the server's format, and optional
   // times that turn into a downloaded .ics.
   let {

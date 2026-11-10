@@ -17,7 +17,7 @@ import (
 	"tide/internal/api"
 )
 
-// An anonymous tide (ARCHITECTURE.md §4.1) keeps nothing: what one start
+// An anonymous tide (docs/internals/auth.md) keeps nothing: what one start
 // made, the next doesn't know. These start the real binary with an
 // external media server named, since none needs to run for them; the
 // embedded one has tests of its own.
@@ -78,7 +78,7 @@ func TestAnonymousTideForgetsEverythingAtRestart(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &me); response.StatusCode != http.StatusOK || err != nil {
 		t.Fatalf("/api/me = %d %s", response.StatusCode, body)
 	}
-	if !me.Anonymous || me.Recording || me.Transcripts || !strings.HasPrefix(me.Sub, "anon:") {
+	if !me.Anonymous || me.Recording || me.Moil || !strings.HasPrefix(me.Sub, "anon:") {
 		t.Fatalf("/api/me = %+v", me)
 	}
 	var cookie *http.Cookie

@@ -109,7 +109,8 @@ func TestDeletionsQueueTheirFiles(t *testing.T) {
 	}
 
 	keys, err := db.DeleteRecording(ctx, "one", 50)
-	want := []string{"recordings/a/one/x.ogg", "recordings/a/one/x.txt", "recordings/a/one/x.vtt"}
+	want := []string{"recordings/a/one/speakers.json", "recordings/a/one/x.ogg", "recordings/a/one/x.txt", "recordings/a/one/x.vtt"}
+	slices.Sort(keys)
 	if err != nil || !slices.Equal(keys, want) || !slices.Equal(queued(), want) {
 		t.Fatalf("DeleteRecording() = %q, %v; queued %q; want %q", keys, err, queued(), want)
 	}
@@ -121,7 +122,8 @@ func TestDeletionsQueueTheirFiles(t *testing.T) {
 	}
 
 	keys, err = db.DeleteRoom(ctx, alice.ID, 60)
-	roomKeys := []string{"recordings/a/two/y.mp4", "recordings/a/two/y.txt", "recordings/a/two/y.vtt"}
+	roomKeys := []string{"recordings/a/two/speakers.json", "recordings/a/two/y.mp4", "recordings/a/two/y.txt", "recordings/a/two/y.vtt"}
+	slices.Sort(keys)
 	if err != nil || !slices.Equal(keys, roomKeys) {
 		t.Fatalf("DeleteRoom() = %q, %v", keys, err)
 	}

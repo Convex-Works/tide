@@ -4,7 +4,7 @@
 # image is per-platform: the SPA and the CA and zone files are the same on
 # every architecture, and Go cross-compiles the static binary. A multi-arch
 # build (.github/workflows/release.yml) needs no emulation.
-FROM --platform=$BUILDPLATFORM node:24.22.1-alpine3.23 AS web-builder
+FROM --platform=$BUILDPLATFORM node:24.22.2-alpine3.23 AS web-builder
 WORKDIR /src/web
 ARG VITE_TIDE_TEST=false
 ENV VITE_TIDE_TEST=${VITE_TIDE_TEST}
@@ -22,7 +22,7 @@ FROM --platform=$BUILDPLATFORM golang:1.26.10-alpine3.23 AS go-builder
 WORKDIR /src/server
 
 COPY server/go.mod server/go.sum ./
-# go.mod replaces the moil SDK with its vendored copy (ARCHITECTURE.md §17),
+# go.mod replaces the moil SDK with its vendored copy (docs/internals/decisions.md),
 # which module resolution needs before anything is downloaded.
 COPY server/third_party ./third_party
 RUN go mod download

@@ -12,7 +12,7 @@ import (
 )
 
 // Anonymous sessions are how a deployment without sign-in knows who created
-// a room (ARCHITECTURE.md §4.1). One is the same signed cookie as a host's,
+// a room (docs/internals/auth.md). One is the same signed cookie as a host's,
 // with an anon: sub, no email, no name and no administrator capability: it
 // owns the rooms its browser created and grants nothing else.
 const (

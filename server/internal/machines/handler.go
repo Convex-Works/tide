@@ -1,5 +1,5 @@
 // Package machines lets hosts pair their own computers with tide through
-// moil, and see and unpair them (ARCHITECTURE.md §8.1). The moil SDK serves
+// moil, and see and unpair them (docs/internals/transcripts.md). The moil SDK serves
 // the machines' side of the protocol; this package is the hosts' side: the
 // /machines page's API. A machine always belongs to the signed-in host who
 // confirmed its pairing code, and hosts only ever see their own machines.

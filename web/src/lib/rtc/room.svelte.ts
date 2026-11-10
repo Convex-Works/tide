@@ -18,6 +18,7 @@ import {
   playParticipantExitedSound,
   playRecordingStartedSound
 } from '#lib/sounds.js';
+import { ChatTopic, type ChatPayload } from '#lib/api/types.gen.js';
 import { setConnectionChrome } from './connection.svelte';
 import { projectParticipants, type MediaSubscriptionFailure, type ParticipantView } from './media';
 import {
@@ -66,14 +67,6 @@ export interface ChatMessage {
   text: string;
   ts: number;
   mine: boolean;
-}
-
-// The payload deliberately carries no sender name: attribution comes only
-// from the authenticated LiveKit participant, so a guest cannot claim to be
-// someone else (chat impersonation, review finding #7).
-interface ChatPayload {
-  text: string;
-  ts: number;
 }
 
 const maximumChatMessages = 200;
@@ -133,6 +126,7 @@ function projectionSignature(views: ParticipantView[]): string {
         view.identity,
         view.name,
         view.role ?? '',
+        view.bot ? 'bot' : '',
         ...Object.values(view.publications).map((publication) =>
           [
             publication.publicationSid,
@@ -181,6 +175,7 @@ export class RoomState {
 
   connectionState = $state<ConnectionState>(ConnectionState.Disconnected);
   participants = $state<ParticipantView[]>([]);
+  readonly botPresent = $derived(this.participants.some((participant) => participant.bot));
   hiddenCameraIdentities = $state<string[]>([]);
   micEnabled = $state(false);
   camEnabled = $state(false);
@@ -345,7 +340,7 @@ export class RoomState {
       }
     });
     this.listen(RoomEvent.DataReceived, (payload, participant, _kind, topic) => {
-      if (topic === 'chat') this.receiveChat(payload, participant);
+      if (topic === ChatTopic) this.receiveChat(payload, participant);
     });
     // Speaker changes fire continuously during speech; they must NOT rebuild
     // the participants array (that churns every tile's media element).
@@ -720,7 +715,7 @@ export class RoomState {
     };
     await this.room.localParticipant.publishData(
       new TextEncoder().encode(JSON.stringify(payload)),
-      { reliable: true, topic: 'chat' }
+      { reliable: true, topic: ChatTopic }
     );
     this.appendChat({
       from: this.room.localParticipant.name || this.room.localParticipant.identity,

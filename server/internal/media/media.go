@@ -1,4 +1,4 @@
-// Package media runs the media server inside tide (ARCHITECTURE.md §2.1):
+// Package media runs the media server inside tide (docs/internals/architecture.md):
 // LiveKit's SFU as a library, started from Options rather than a YAML file.
 // With recording on it shares a Redis, which tide doesn't run, with the
 // recorder; without, it keeps its state in memory.
@@ -42,7 +42,7 @@ type Options struct {
 	// 127.0.0.1 when Loopback, else the public address found over STUN,
 	// advertised alongside the interface addresses: a recorder in tide's
 	// network namespace reaches media through those only when the address is
-	// discovered (ARCHITECTURE.md §2.1).
+	// discovered (docs/internals/architecture.md).
 	NodeIP   string
 	Loopback bool
 
@@ -212,7 +212,7 @@ func (s *Server) SignalHandler() http.Handler { return s.signal }
 // Close stops the server at once: every room ends, and every participant is
 // told the server is shutting down. Their clients disconnect rather than
 // retry, and the meeting page offers Rejoin, which asks tide for a new token
-// (ARCHITECTURE.md §2.1). It returns once the media ports are released and
+// (docs/internals/architecture.md). It returns once the media ports are released and
 // the signaling connections SignalHandler forwards have ended, or after
 // drainTimeout: the server's leave travels through them, and tide exiting
 // before they are copied would cut it off, leaving clients to retry a server

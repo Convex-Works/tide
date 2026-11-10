@@ -1,5 +1,5 @@
 // Package transcripts makes speaker-labelled transcripts of recordings on
-// machines their room's owner paired, through moil (ARCHITECTURE.md §8.1).
+// machines their room's owner paired, through moil (docs/internals/transcripts.md).
 //
 // The transcripts table is the truth: one row per recording that should have
 // a transcript. The reconciler projects every pending row onto a moil job,
@@ -37,7 +37,8 @@ type ObjectStore interface {
 	// a file called filename, served as contentType.
 	PresignedDownload(ctx context.Context, key string, expiry time.Duration, filename, contentType string) (string, error)
 	// Stat returns the size and entity tag of the object at key, or an
-	// error wrapping fs.ErrNotExist if there is none.
+	// error wrapping fs.ErrNotExist if there is none, or fs.ErrPermission if
+	// storage won't say.
 	Stat(ctx context.Context, key string) (size int64, etag string, err error)
 	// Copy copies src to dst within storage, stored as contentType, only
 	// while src's entity tag is still etag.
@@ -329,7 +330,7 @@ func (s *Service) submit(ctx, ends context.Context, transcript store.PendingTran
 }
 
 // jobParams are a transcript job's params: the recording's times
-// (ARCHITECTURE.md §8.1). The bundle ignores them, logging a warning. They
+// (docs/internals/transcripts.md). The bundle ignores them, logging a warning. They
 // are for the hooks machine owners run after a job succeeds (moil's
 // spec/machine.md §2), which get the job's title and params, and would
 // otherwise know only when the transcript was made, which can be hours after
@@ -405,6 +406,24 @@ func (s *Service) files(ctx context.Context, j *job, a moil.Assignment) (map[str
 	if err != nil {
 		return nil, nil, prepareError(err)
 	}
+	inputs := map[string]moil.Download{inputName(recording): {URL: input}}
+	// The bundle tells the two inputs apart by name. A recording without a
+	// timeline just keeps its speakers unnamed.
+	switch _, _, err := s.cfg.Objects.Stat(ctx, recording.SpeakersKey()); {
+	case err == nil:
+		timeline, err := s.cfg.Objects.PresignedGet(ctx, recording.SpeakersKey(), valid)
+		if err != nil {
+			return nil, nil, prepareError(err)
+		}
+		inputs[store.SpeakersFile] = moil.Download{URL: timeline}
+	case errors.Is(err, fs.ErrNotExist):
+	case errors.Is(err, fs.ErrPermission):
+		// S3 answers 403 for a missing object without ListBucket. Names aren't
+		// worth a transcript.
+		log.Printf("transcripts: recording %s: no speaker names, storage refused to show the timeline: %v", recording.ID, err)
+	default:
+		return nil, nil, prepareError(err)
+	}
 	outputs := make(map[string]moil.Upload, len(store.TranscriptFormats))
 	for _, format := range store.TranscriptFormats {
 		output, err := s.cfg.Objects.PresignedPut(ctx, stagedKey(dir.dir, format), valid)
@@ -416,7 +435,7 @@ func (s *Service) files(ctx context.Context, j *job, a moil.Assignment) (map[str
 	s.mu.Lock()
 	j.staging[a.Attempt] = dir
 	s.mu.Unlock()
-	return map[string]moil.Download{inputName(recording): {URL: input}}, outputs, nil
+	return inputs, outputs, nil
 }
 
 // stagingFor is where the machine taking attempt a of j uploads: a new

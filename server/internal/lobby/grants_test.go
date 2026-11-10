@@ -23,7 +23,7 @@ import (
 const grantsTestSecret = "test-livekit-secret-with-enough-bytes"
 
 // Every way into a room mints a token, and only the room's managers get
-// admin in it (ARCHITECTURE.md §4): its owner, and a global administrator.
+// admin in it (docs/internals/auth.md): its owner, and a global administrator.
 // Everyone else, signed in or not, admitted directly or through the lobby,
 // is a guest.
 func TestAdmissionTokenGrants(t *testing.T) {

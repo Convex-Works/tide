@@ -4,8 +4,8 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig, type Plugin } from 'vite';
 
-// CI's browser specs need no hot reload, and the Forgejo runner's
-// containers run out of file watches before Vite can start (EMFILE). Set
+// CI's browser specs need no hot reload, and a container can run out of file
+// watches before Vite can start (EMFILE). Set
 // after resolution: SvelteKit's plugin merges its own `server.watch` options
 // over any `null` given in the config, and `null` is what turns watching off.
 const noWatchInCI: Plugin = {
@@ -30,10 +30,10 @@ export default defineConfig({
     allowedHosts: ['host.docker.internal'],
     proxy: {
       '/api': 'http://localhost:8080',
-      // moil machines pair and keep their WebSocket here (ARCHITECTURE.md §8.1).
+      // moil machines pair and keep their WebSocket here (docs/internals/transcripts.md).
       '/moil': { target: 'http://localhost:8080', ws: true },
       // Meeting signaling: tide forwards it to its media server, so the SPA
-      // signals through its own origin here too (ARCHITECTURE.md §2.1, §13).
+      // signals through its own origin here too (docs/internals/architecture.md, docs/operations/development.md).
       '/rtc': { target: 'http://localhost:8080', ws: true }
     }
   }

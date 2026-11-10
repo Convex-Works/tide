@@ -53,7 +53,7 @@ func (r Recording) HasFile() bool {
 }
 
 // A TranscriptFormat is one of the files a transcript is kept as, beside
-// its recording (ARCHITECTURE.md §8.1).
+// its recording (docs/internals/transcripts.md).
 type TranscriptFormat struct {
 	// Extension is the file's extension, and the format's name in the
 	// download route's format parameter.
@@ -90,9 +90,24 @@ func (r Recording) TranscriptKey(format TranscriptFormat) string {
 	return strings.TrimSuffix(key, path.Ext(key)) + "." + format.Extension
 }
 
-// ObjectKeys names every file stored for the recording: the recording itself
-// and its transcript sidecars, whether or not they exist yet. Whatever
-// deletes a recording removes all of them.
+// SpeakersFile is the name of the file saying who was active during a
+// recording (docs/internals/recording.md), beside it in storage and as the input of a
+// transcript job.
+const SpeakersFile = "speakers.json"
+
+// SpeakersKey is where the recording's speaker timeline is stored, if it has
+// one: in the recording's own directory. It is "" when the recording has no
+// file.
+func (r Recording) SpeakersKey() string {
+	if !r.HasFile() {
+		return ""
+	}
+	return path.Join(path.Dir(*r.S3Key), SpeakersFile)
+}
+
+// ObjectKeys names every file stored for the recording: the recording itself,
+// its transcript sidecars and its speaker timeline, whether or not they exist
+// yet. Whatever deletes a recording removes all of them.
 func (r Recording) ObjectKeys() []string {
 	if !r.HasFile() {
 		return nil
@@ -101,6 +116,7 @@ func (r Recording) ObjectKeys() []string {
 	for _, format := range TranscriptFormats {
 		keys = append(keys, r.TranscriptKey(format))
 	}
+	keys = append(keys, r.SpeakersKey())
 	return keys
 }
 
@@ -376,7 +392,7 @@ func (s *Store) IdleRooms(ctx context.Context, before int64) ([]Room, error) {
 // never move the timestamp backwards.
 // MarkRoomActive records that room id is in use at ts, as tide mints a
 // token for it, and says whether the room still exists: a room deleted since
-// the caller loaded it must not get a token (ARCHITECTURE.md §5).
+// the caller loaded it must not get a token (docs/internals/auth.md).
 func (s *Store) MarkRoomActive(ctx context.Context, id string, ts int64) (bool, error) {
 	result, err := s.db.ExecContext(ctx,
 		`UPDATE rooms SET last_active_at = MAX(COALESCE(last_active_at, 0), ?) WHERE id = ?`, ts, id)

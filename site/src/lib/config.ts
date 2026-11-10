@@ -71,7 +71,7 @@ export const envGroups: EnvGroup[] = [
         name: 'TIDE_USER_GROUPS',
         default: '',
         description:
-          'Groups that can sign in, with commas between them. Empty lets all users sign in.'
+          'Groups that can sign in, with commas between them. Empty lets all users sign in. Members of `TIDE_ADMIN_GROUPS` can always sign in.'
       },
       {
         name: 'TIDE_ADMIN_GROUPS',
@@ -104,7 +104,7 @@ export const envGroups: EnvGroup[] = [
         name: 'TIDE_MEDIA_API_PORT',
         default: '7880',
         description:
-          "The media server's API, on 127.0.0.1 only. Change it to run two tides on one host."
+          "The media server's API, on 127.0.0.1 only. Change it to run two tides on one host. With recording, set the recorder's `ws_url` to the same port."
       },
       {
         name: 'TIDE_MEDIA_API_KEY',
@@ -161,7 +161,8 @@ export const envGroups: EnvGroup[] = [
       {
         name: 'TIDE_S3_BUCKET',
         default: 'tide-recordings',
-        description: 'The bucket. tide puts recordings in `recordings/`.'
+        description:
+          'An existing bucket. tide does not make it. tide puts recordings in `recordings/`.'
       },
       { name: 'TIDE_S3_REGION', default: 'us-east-1', description: 'The bucket region.' },
       {
@@ -221,7 +222,8 @@ export const envGroups: EnvGroup[] = [
       {
         name: 'TIDE_LOGIN_RATE_LIMIT',
         default: '10',
-        description: 'Sign-ins for each client in a minute.'
+        description:
+          'Sign-ins for each client in a minute. Without sign-in, new browsers for each client.'
       },
       {
         name: 'TIDE_PAIR_RATE_LIMIT',
@@ -234,9 +236,10 @@ export const envGroups: EnvGroup[] = [
     title: 'Transcripts',
     vars: [
       {
-        name: 'TIDE_TRANSCRIPTS',
+        name: 'TIDE_MOIL',
         default: 'false',
-        description: 'Turns [transcripts](/docs#transcripts) on. Needs recording.'
+        description:
+          'Turns on machine pairing and [transcripts](/docs#transcripts) through moil. Needs recording.'
       }
     ]
   }

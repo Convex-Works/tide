@@ -1,4 +1,4 @@
-// Calendar invites built in the browser (ARCHITECTURE.md §5): one RFC 5545
+// Calendar invites built in the browser (docs/internals/auth.md): one RFC 5545
 // VEVENT per file, times in UTC, nothing stored on the server. Pure apart
 // from downloadIcs, so specs import it directly.
 

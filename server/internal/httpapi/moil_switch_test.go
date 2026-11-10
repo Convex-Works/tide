@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path"
 	"slices"
 	"strings"
 	"sync"
@@ -18,11 +19,11 @@ import (
 	"tide/internal/store"
 )
 
-// TIDE_TRANSCRIPTS (ARCHITECTURE.md §8.1): with it off, tide has no
+// TIDE_MOIL (docs/internals/transcripts.md): with it off, tide has no
 // machine, pairing, transcript or moil routes, says so on /api/me, and
 // still removes every file of what is deleted.
 
-func transcriptsOff(cfg *config.Config, _ *http.Server) { cfg.Transcripts = false }
+func transcriptsOff(cfg *config.Config, _ *http.Server) { cfg.Moil = false }
 
 // transcriptRoutes are a request to every route transcripts add, as the
 // SPA or a machine would send it.
@@ -66,12 +67,12 @@ func (h *host) me() api.Me {
 	return me
 }
 
-func TestTranscriptsOffAnswer404ForTheirRoutes(t *testing.T) {
+func TestMoilOffAnswer404ForTheirRoutes(t *testing.T) {
 	k := startTide(t, transcriptsOff)
 	alice := k.signIn(auth.Session{Sub: "alice", Name: "Alice", Email: "alice@example.com"})
 
-	if me := alice.me(); me.Transcripts || me.Sub != "alice" || me.Email != "alice@example.com" {
-		t.Fatalf("/api/me = %+v, want alice without transcripts", me)
+	if me := alice.me(); me.Moil || me.Sub != "alice" || me.Email != "alice@example.com" {
+		t.Fatalf("/api/me = %+v, want alice without moil", me)
 	}
 	for _, route := range transcriptRoutes() {
 		status, _, body := k.request(route.method, route.path, route.body, alice.cookie, true)
@@ -85,11 +86,11 @@ func TestTranscriptsOffAnswer404ForTheirRoutes(t *testing.T) {
 	}
 }
 
-func TestTranscriptsOnServeTheirRoutes(t *testing.T) {
+func TestMoilOnServeTheirRoutes(t *testing.T) {
 	k := startTide(t, nil)
 	alice := k.signIn(auth.Session{Sub: "alice", Name: "Alice"})
 
-	if me := alice.me(); !me.Transcripts {
+	if me := alice.me(); !me.Moil {
 		t.Fatalf("/api/me = %+v, want transcripts", me)
 	}
 	// Every route is there: none answers 404 for want of a route. Those
@@ -111,7 +112,7 @@ func TestTranscriptsOnServeTheirRoutes(t *testing.T) {
 // The SPA answers every path it doesn't serve a file for with its index,
 // but not the moil paths: a moil app pairing with a tide without
 // transcripts gets 404, not a web page.
-func TestTranscriptsOffMoilPathsAreNotTheSPA(t *testing.T) {
+func TestMoilOffMoilPathsAreNotTheSPA(t *testing.T) {
 	db, _ := openStore(t)
 	web := fstest.MapFS{"index.html": {Data: []byte("<!doctype html><title>tide</title>")}}
 	handler, background, err := New(config.Config{
@@ -123,7 +124,7 @@ func TestTranscriptsOffMoilPathsAreNotTheSPA(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := background.Close(); err != nil {
-		t.Fatalf("closing tide without transcripts: %v", err)
+		t.Fatalf("closing tide without moil: %v", err)
 	}
 	for path, want := range map[string]int{
 		"/machines":                      http.StatusOK, // the SPA shows "not enabled"
@@ -171,7 +172,7 @@ func (s *fakeStorage) removedKeys() []string {
 
 func withStorage(endpoint string) func(*config.Config, *http.Server) {
 	return func(cfg *config.Config, _ *http.Server) {
-		cfg.Transcripts = false
+		cfg.Moil = false
 		cfg.S3Endpoint, cfg.S3PublicEndpoint = endpoint, endpoint
 		cfg.S3Bucket, cfg.S3Region = "tide-recordings", "us-east-1"
 		cfg.S3AccessKey, cfg.S3SecretKey = "tide", "tide-test-secret"
@@ -222,7 +223,7 @@ func wantRemoved(t *testing.T, storage *fakeStorage, db *store.Store, keys []str
 	}
 }
 
-func TestTranscriptsOffDeletingARecordingRemovesItsTranscriptFiles(t *testing.T) {
+func TestMoilOffDeletingARecordingRemovesItsTranscriptFiles(t *testing.T) {
 	storage, endpoint := startFakeStorage(t)
 	k := startTide(t, withStorage(endpoint))
 	alice := k.signIn(auth.Session{Sub: "alice", Name: "Alice"})
@@ -238,8 +239,9 @@ func TestTranscriptsOffDeletingARecordingRemovesItsTranscriptFiles(t *testing.T)
 	// ...but deleting the recording removes its transcript files with it.
 	alice.send(http.MethodDelete, fill(api.RecordingPath, recording.ID), http.StatusNoContent, nil)
 	keys := recording.ObjectKeys()
-	if len(keys) != 3 || !strings.HasSuffix(keys[1], ".txt") || !strings.HasSuffix(keys[2], ".vtt") {
-		t.Fatalf("ObjectKeys = %q, want the recording and both transcript files", keys)
+	if len(keys) != 4 || !strings.HasSuffix(keys[1], ".txt") || !strings.HasSuffix(keys[2], ".vtt") ||
+		keys[3] != path.Join(path.Dir(keys[0]), "speakers.json") {
+		t.Fatalf("ObjectKeys = %q, want the recording, both transcript files and the speaker timeline", keys)
 	}
 	wantRemoved(t, storage, k.db, keys)
 	if _, err := k.db.Transcript(context.Background(), recording.ID); err == nil {
@@ -247,7 +249,7 @@ func TestTranscriptsOffDeletingARecordingRemovesItsTranscriptFiles(t *testing.T)
 	}
 }
 
-func TestTranscriptsOffDeletingARoomRemovesItsTranscriptFiles(t *testing.T) {
+func TestMoilOffDeletingARoomRemovesItsTranscriptFiles(t *testing.T) {
 	storage, endpoint := startFakeStorage(t)
 	k := startTide(t, withStorage(endpoint))
 	alice := k.signIn(auth.Session{Sub: "alice", Name: "Alice"})
@@ -261,7 +263,7 @@ func TestTranscriptsOffDeletingARoomRemovesItsTranscriptFiles(t *testing.T) {
 // A staging key Prepare queued while transcripts were on is removed when
 // it comes due with them off: the recording reconciler, which always runs,
 // owns every queued removal.
-func TestTranscriptsOffStagingKeysAreStillRemoved(t *testing.T) {
+func TestMoilOffStagingKeysAreStillRemoved(t *testing.T) {
 	storage, endpoint := startFakeStorage(t)
 	db, dbPath := openStore(t)
 	staged := "transcripts-staging/rec-1/1-0123456789abcdef/transcript.txt"
@@ -273,16 +275,16 @@ func TestTranscriptsOffStagingKeysAreStillRemoved(t *testing.T) {
 }
 
 // /api/me is the SPA's one source for whether to show transcripts.
-func TestMeReportsTheTranscriptsSwitch(t *testing.T) {
+func TestMeReportsTheMoilSwitch(t *testing.T) {
 	for _, on := range []bool{false, true} {
-		k := startTide(t, func(cfg *config.Config, _ *http.Server) { cfg.Transcripts = on })
+		k := startTide(t, func(cfg *config.Config, _ *http.Server) { cfg.Moil = on })
 		status, _, body := k.request(http.MethodGet, api.MePath, "", k.signIn(auth.Session{Sub: "alice"}).cookie, false)
 		var me map[string]any
 		if err := json.Unmarshal([]byte(body), &me); status != http.StatusOK || err != nil {
 			t.Fatalf("/api/me = %d %s", status, body)
 		}
-		if me["transcripts"] != on {
-			t.Fatalf("with TIDE_TRANSCRIPTS=%v, /api/me = %s", on, body)
+		if me["moil"] != on {
+			t.Fatalf("with TIDE_MOIL=%v, /api/me = %s", on, body)
 		}
 	}
 }

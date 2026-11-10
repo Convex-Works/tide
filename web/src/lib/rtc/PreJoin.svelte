@@ -12,6 +12,7 @@
   import { clampAspect, observeAspect } from './aspect';
   import { attachMediaTrack } from './mediaElement';
   import Button from '#lib/ui/Button.svelte';
+  import { pickDevice, readPrejoinPrefs, rememberDevice, writePrejoinPrefs } from './prejoinPrefs';
 
   let {
     room = $bindable(),
@@ -33,12 +34,20 @@
     account?: Snippet;
   } = $props();
 
+  const prefs = readPrejoinPrefs();
+  const sessionName = name;
+  if (!sessionName && prefs.name) name = prefs.name;
+
   let cameras = $state<MediaDeviceInfo[]>([]);
   let microphones = $state<MediaDeviceInfo[]>([]);
   let videoDeviceId = $state('');
   let audioDeviceId = $state('');
-  let camEnabled = $state(true);
-  let micEnabled = $state(true);
+  let camEnabled = $state(prefs.camEnabled ?? true);
+  let micEnabled = $state(prefs.micEnabled ?? true);
+  // What the guest chose. A device that fails turns its toggle off, and that
+  // isn't a choice, so it mustn't be remembered.
+  let camChoice = prefs.camEnabled;
+  let micChoice = prefs.micEnabled;
   let cameraTrack = $state<LocalVideoTrack>();
   let previewAspect = $state(clampAspect(0, 0));
   let audioTrack: LocalAudioTrack | undefined;
@@ -60,10 +69,10 @@
     microphones = devices.filter((device) => device.kind === 'audioinput');
 
     if (!cameras.some((device) => device.deviceId === videoDeviceId)) {
-      videoDeviceId = cameras[0]?.deviceId ?? '';
+      videoDeviceId = pickDevice(cameras, prefs.camera);
     }
     if (!microphones.some((device) => device.deviceId === audioDeviceId)) {
-      audioDeviceId = microphones[0]?.deviceId ?? '';
+      audioDeviceId = pickDevice(microphones, prefs.microphone);
     }
   }
 
@@ -176,12 +185,14 @@
 
   async function toggleCamera(): Promise<void> {
     camEnabled = !camEnabled;
+    camChoice = camEnabled;
     if (camEnabled) await startCamera();
     else stopCamera();
   }
 
   async function toggleMicrophone(): Promise<void> {
     micEnabled = !micEnabled;
+    micChoice = micEnabled;
     if (micEnabled) await startMicrophone();
     else stopMeter();
   }
@@ -211,6 +222,13 @@
     // LiveKit's playback unlock must begin in the Join click stack, before
     // token fetches, lobby waits, or the WebSocket connection consume it.
     onactivateplayback();
+    writePrejoinPrefs({
+      name: sessionName ? prefs.name : name,
+      camera: rememberDevice(cameras, videoDeviceId) ?? prefs.camera,
+      microphone: rememberDevice(microphones, audioDeviceId) ?? prefs.microphone,
+      camEnabled: camChoice,
+      micEnabled: micChoice
+    });
     await disposePreview();
     await onjoin({ name, micEnabled, camEnabled, videoDeviceId, audioDeviceId });
   }

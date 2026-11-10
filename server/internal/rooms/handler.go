@@ -41,7 +41,7 @@ type Handler struct {
 	// tests.
 	ender MeetingEnder
 	// roomCap is how many rooms may exist before Create refuses another; 0
-	// means no cap. Only an anonymous deployment has one (§4.1).
+	// means no cap. Only an anonymous deployment has one.
 	roomCap int
 	// onRoomDeleted is called after a room and its recordings are deleted,
 	// so that the transcripts reconciler can stop their jobs at once.
@@ -49,7 +49,7 @@ type Handler struct {
 }
 
 // AnonymousRoomCap is how many rooms an anonymous deployment keeps in
-// memory before creating another answers 503 (ARCHITECTURE.md §4.1): with
+// memory before creating another answers 503 (docs/internals/auth.md): with
 // addresses cheap, only a ceiling bounds memory.
 const AnonymousRoomCap = 10_000
 
@@ -96,7 +96,7 @@ func (h *Handler) Create(w http.ResponseWriter, r *http.Request) {
 		httpx.WriteError(w, http.StatusBadRequest, "Request body must be valid JSON.")
 		return
 	}
-	// Both are optional (ARCHITECTURE.md §5): a blank name becomes the
+	// Both are optional (docs/internals/auth.md): a blank name becomes the
 	// slug, and a blank slug is generated, like a missing one.
 	name := strings.TrimSpace(request.Name)
 	if utf8.RuneCountInString(name) > maxNameLength {
@@ -199,6 +199,7 @@ func (h *Handler) Public(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, api.PublicRoomInfo{
 		Slug: room.Slug, Name: room.Name, LobbyEnabled: room.LobbyEnabled,
 		CanManage: session.Sub != "" && httpx.CanManageRoom(session, room),
+		IsOwner:   session.Sub != "" && session.Sub == room.OwnerSub,
 	})
 }
 
@@ -314,7 +315,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// The room and its recordings go, and every file of those recordings is
-	// queued for removal, at once (ARCHITECTURE.md §8.1): from then on the
+	// queued for removal, at once (docs/internals/transcripts.md): from then on the
 	// files are removed even if storage is down now.
 	now := time.Now().Unix()
 	keys, err := h.store.DeleteRoom(r.Context(), room.ID, now)
@@ -331,7 +332,7 @@ func (h *Handler) Delete(w http.ResponseWriter, r *http.Request) {
 	}
 	endMeeting(r.Context(), h.ender, room.Slug)
 	// Without recording there is no storage to remove them from: the keys
-	// stay queued until storage is configured again (ARCHITECTURE.md §8).
+	// stay queued until storage is configured again (docs/internals/recording.md).
 	if h.objects != nil {
 		recording.RemoveDeleted(r.Context(), h.objects, h.store, keys, now)
 	}

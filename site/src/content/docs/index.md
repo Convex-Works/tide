@@ -336,7 +336,7 @@ Hosts can transcribe recordings on their own Mac with the moil app. Nothing runs
 
 1. Let the bucket key also get, put and delete objects in `transcripts-staging/`.
 2. Make sure that `TIDE_S3_PUBLIC_ENDPOINT` (or `TIDE_S3_ENDPOINT`) is HTTPS.
-3. Set `TIDE_TRANSCRIPTS=true`.
+3. Set `TIDE_MOIL=true`.
 
 Hosts open `/machines` and select **Add a machine**, or use the command line:
 
@@ -348,3 +348,7 @@ moil agent
 ```
 
 A job needs up to 10 GB of memory. The first job downloads 2.9 GB.
+
+## Bots
+
+A room's owner can connect a program to a meeting as a visible participant. It hears each speaker separately and can answer with audio, video, chat or a screen share. It runs wherever the owner runs it, not on your server, and there is nothing to configure. See [Bots](https://github.com/Convex-Works/tide/blob/main/docs/user/bots.md).

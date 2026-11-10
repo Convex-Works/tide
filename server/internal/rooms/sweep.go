@@ -12,7 +12,7 @@ import (
 )
 
 // An anonymous deployment's rooms live in memory until nobody has used them
-// for a day (ARCHITECTURE.md §4.1); the sweep looks every five minutes.
+// for a day (docs/internals/auth.md); the sweep looks every five minutes.
 const (
 	AnonymousRoomIdle = 24 * time.Hour
 	SweepInterval     = 5 * time.Minute

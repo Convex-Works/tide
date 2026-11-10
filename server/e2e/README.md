@@ -1,6 +1,6 @@
 # Transcripts end to end, with the real moil
 
-The transcripts pipeline (ARCHITECTURE.md §8.1) as people run it: tide
+The transcripts pipeline (docs/internals/transcripts.md) as people run it: tide
 composed as `main` composes it, machines running the real `moil` binary
 and real uv, and real S3 storage. The other transcript tests use moil's
 in-process fake machine (`moiltest`); these check that the real one agrees
@@ -38,6 +38,7 @@ It needs:
 | `TestTranscriptsSurviveATideRestart` | tide stops as `main` does (`httpapi.Serve`: HTTP drains, moil closes, the background work returns, then the database closes) while the machine is on a transcript, and a new tide starts on the same database and address. The agent reconnects, drops the attempt the old tide gave it and ends its process, and runs the resubmitted job, which completes. The transcript row goes from `pending` to `completed`, and nothing in between. |
 | `TestOnlyTheOwnersMachinesGetTheJob` | Bob's machine is paired, approved and idle while alice's recording waits for her offline laptop, well past moil's bid window; it never starts an attempt. Alice's laptop comes online and transcribes it. Bob's machine then transcribes bob's own recording, so it could have. |
 | `TestARealMeetingIsTranscribed` | Opt-in: with `TIDE_E2E_MEETING` naming a meeting recording, tide publishes the real transcribe bundle, and a real machine transcribes the recording with the real models, from `egress_ended` to downloadable text (a timed, labelled utterance per line) and WebVTT captions. See below. |
+| `TestATimelineReachesTheMachine` | A `speakers.json` stored beside a recording with tide's own `Put`, in real S3, reaches a real machine as a second input, which still finds the recording; the transcript shows it read both, a recording with no timeline runs as ever, and deleting the recording deletes the timeline. |
 | `TestTheStubIsABundleMoilAccepts` | `moil check` accepts the stub bundle, and `moil hash` agrees with the Go SDK's hash of it. |
 
 ## Transcribe a real meeting
@@ -49,13 +50,19 @@ environment:
 ```sh
 TIDE_E2E_MEETING=~/meetings/ES2004a.ogg \
 TIDE_E2E_MOIL_CACHE=~/Library/Caches/moil \
+TIDE_E2E_UV_CACHE="$(uv cache dir)" \
 TIDE_E2E_MEETING_SPEAKERS=4 \
   make moil-e2e
 ```
 
 `TIDE_E2E_MOIL_CACHE` lends the machine a moil cache that already holds
-the models and environment (`moil run` keeps one there), and
-`TIDE_E2E_MEETING_SPEAKERS`, if set, is how many speakers it must find. On
+the models and environment (`moil run` keeps one there),
+`TIDE_E2E_UV_CACHE` lends it a uv cache, without which uv fetches the bundle's
+git dependency again even for a built environment, and
+`TIDE_E2E_MEETING_SPEAKERS`, if set, is how many speakers it must find.
+`TIDE_E2E_MEETING_TIMELINE`, if set, names a `speakers.json` to store beside
+the recording: every name in it must then label a transcript line, and no
+speaker may stay a `Speaker N`. On
 an M3 Max, the 17.5-minute, four-speaker [AMI] meeting ES2004a is
 transcribed 32 seconds after egress ends, with all four speakers found. Run
 it whenever the vendored bundle changes.
@@ -75,8 +82,9 @@ it whenever the vendored bundle changes.
   `moil pair`, `moil approve`, `moil agent`.
 - `testdata/transcribe-stub`: the bundle tide publishes in these tests,
   since the real one downloads 2.9 GB of models. It keeps the real one's
-  contract (one input, outputs by extension, progress events, `speakers` in
-  the result's meta), and writes the input's SHA-256 and size instead of a
+  contract (the recording, and maybe `speakers.json`, as inputs, outputs by
+  extension, progress events, `speakers` in the result's meta), and writes the
+  recording's SHA-256 and size, and the timeline's names, instead of a
   transcript. It holds mid-job while a `hold` file exists, and records each
   attempt it starts in `attempts.log`, both in `$TRANSCRIBE_STUB_DIR`: each
   machine's uv is a wrapper that sets it. Change it, then run

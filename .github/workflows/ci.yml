@@ -1,9 +1,7 @@
 name: CI
 
-# The same gate as .forgejo/workflows/ci.yml, on GitHub's hosted runners:
-# the checks, then the whole real-SFU media suite. Forgejo pushes an image of
-# every main commit to its own registry; release.yml publishes v* tags to
-# ghcr.io/convex-works/tide.
+# The checks, then the whole real-SFU media suite. release.yml publishes v* tags
+# to ghcr.io/convex-works/tide.
 
 on:
   push:
@@ -31,6 +29,9 @@ jobs:
           node-version: "24"
           cache: npm
           cache-dependency-path: web/package-lock.json
+      - uses: astral-sh/setup-uv@v10.3.3
+      - name: Transcribe bundle tests
+        run: make bundle-check
       - name: Server vet
         working-directory: server
         run: go vet ./...
@@ -78,7 +79,8 @@ jobs:
           npx playwright install --with-deps chromium
           npx playwright test anonymous.spec.ts device-error-messages.spec.ts \
             device-errors.spec.ts ics.spec.ts machines.spec.ts meeting-chrome.spec.ts \
-            new-room.spec.ts recording-off.spec.ts room-page.spec.ts transcripts-off.spec.ts
+            new-room.spec.ts prejoin-prefs.spec.ts recording-off.spec.ts room-page.spec.ts \
+            moil-off.spec.ts
       - name: Generate API types
         run: make gen
       - name: Check generated type drift

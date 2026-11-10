@@ -1,4 +1,5 @@
 import {
+  ParticipantKind,
   Track,
   TrackPublication,
   type Participant,
@@ -37,6 +38,8 @@ export interface ParticipantView {
   name: string;
   isLocal: boolean;
   role?: 'host';
+  /** A program in the meeting (docs/internals/auth.md). Hidden ones never reach a client. */
+  bot: boolean;
   publications: Record<string, MediaTrackView>;
   cameras: Record<string, MediaTrackView>;
   screenShares: Record<string, MediaTrackView>;
@@ -103,6 +106,7 @@ export function projectParticipant(
     name: participant.name || participant.identity,
     isLocal,
     role: participantRole(participant),
+    bot: participant.kind === ParticipantKind.AGENT,
     publications,
     cameras,
     screenShares,

@@ -49,6 +49,8 @@ func (f *fakeObjectStore) Remove(_ context.Context, key string) error {
 }
 
 // PresignedGet makes the fake the recording handler's object store too.
+func (*fakeObjectStore) Put(context.Context, string, []byte, string) error { return nil }
+
 func (f *fakeObjectStore) PresignedGet(context.Context, string, time.Duration) (string, error) {
 	return "", errors.New("no downloads in these tests")
 }
@@ -369,8 +371,9 @@ func TestDeleteRemovesFilesAndCascadesRows(t *testing.T) {
 	if response.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", response.Code)
 	}
-	// The recording goes with its transcript sidecars (ARCHITECTURE.md §8.1).
-	want := []string{key, "recordings/calm-otter-412/100.txt", "recordings/calm-otter-412/100.vtt"}
+	// The recording goes with its transcript sidecars and speaker timeline
+	// (docs/internals/transcripts.md).
+	want := []string{key, "recordings/calm-otter-412/100.txt", "recordings/calm-otter-412/100.vtt", "recordings/calm-otter-412/speakers.json"}
 	if removed := objects.removedKeys(); !slices.Equal(removed, want) {
 		t.Fatalf("removed objects = %#v, want %#v", removed, want)
 	}
@@ -409,7 +412,7 @@ func TestDeleteSucceedsWhileStorageIsDown(t *testing.T) {
 	if _, err := db.RecordingByID(context.Background(), "rec-1"); !errors.Is(err, sql.ErrNoRows) {
 		t.Fatalf("recording row should be gone, err = %v", err)
 	}
-	files := []string{key, "recordings/calm-otter-412/100.txt", "recordings/calm-otter-412/100.vtt"}
+	files := []string{key, "recordings/calm-otter-412/100.txt", "recordings/calm-otter-412/100.vtt", "recordings/calm-otter-412/speakers.json"}
 	if queued, err := db.DueRemovals(context.Background(), time.Now().Unix(), 10); err != nil || !slices.Equal(queued, files) {
 		t.Fatalf("queued for removal = %q, %v; want %q", queued, err, files)
 	}

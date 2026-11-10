@@ -19,16 +19,16 @@ import (
 	"tide/internal/store"
 )
 
-// The deployment modes (ARCHITECTURE.md §2.1), through tide's real handler
-// over HTTP: anonymous (§4.1), signed in without recording (§8), and the
-// embedded media server's signaling (§2.1).
+// The deployment modes (docs/internals/architecture.md), through tide's real handler
+// over HTTP: anonymous, signed in without recording, and the
+// embedded media server's signaling.
 
 // anonymousMode configures startTide as a deployment without sign-in, with
 // every per-client limit set to limit, behind a reverse proxy that says
 // which client each request comes from.
 func anonymousMode(limit int) func(*config.Config, *http.Server) {
 	return func(cfg *config.Config, _ *http.Server) {
-		cfg.Anonymous, cfg.Recording, cfg.Transcripts = true, false, false
+		cfg.Anonymous, cfg.Recording, cfg.Moil = true, false, false
 		cfg.JoinRateLimit, cfg.LoginRateLimit = limit, limit
 		behindProxy(cfg)
 	}
@@ -130,7 +130,7 @@ func TestAnonymousTideHoldsMeetingsWithoutSignIn(t *testing.T) {
 	// /api/me gives a browser without a session an anonymous one.
 	owner := k.browser("192.0.2.10")
 	me := owner.me()
-	if !me.Anonymous || me.Recording || me.Transcripts || !strings.HasPrefix(me.Sub, "anon:") || me.Email != "" || me.Name != "" {
+	if !me.Anonymous || me.Recording || me.Moil || !strings.HasPrefix(me.Sub, "anon:") || me.Email != "" || me.Name != "" {
 		t.Fatalf("/api/me = %+v, want an anonymous session", me)
 	}
 	if owner.cookie == nil || owner.cookie.MaxAge != int(auth.AnonymousSessionLifetime/time.Second) {
@@ -238,7 +238,7 @@ func TestAnonymousLoginIssuesASessionAndRedirects(t *testing.T) {
 }
 
 // Anyone can mint an anonymous session, so the limits count client
-// addresses, never sessions (ARCHITECTURE.md §15): issuing sessions shares
+// addresses, never sessions (docs/internals/auth.md): issuing sessions shares
 // the login limit, and creating rooms has a bucket of its own.
 func TestAnonymousLimitsCountAddressesNotSessions(t *testing.T) {
 	const limit = 3
@@ -291,10 +291,10 @@ func TestAnonymousLimitsCountAddressesNotSessions(t *testing.T) {
 // Signed in without storage: everything but recording.
 func TestSignedInWithoutRecording(t *testing.T) {
 	k := startTide(t, func(cfg *config.Config, _ *http.Server) {
-		cfg.Recording, cfg.Transcripts = false, false
+		cfg.Recording, cfg.Moil = false, false
 	})
 	alice := k.signIn(auth.Session{Sub: "alice", Name: "Alice", Email: "alice@example.com"})
-	if me := alice.me(); me.Recording || me.Anonymous || me.Transcripts || me.Sub != "alice" {
+	if me := alice.me(); me.Recording || me.Anonymous || me.Moil || me.Sub != "alice" {
 		t.Fatalf("/api/me = %+v, want alice without recording", me)
 	}
 	room := alice.createRoom("Standup")
@@ -326,7 +326,7 @@ func TestSignedInWithoutRecording(t *testing.T) {
 }
 
 func TestSignedInWithRecordingServesItsRoutes(t *testing.T) {
-	k := startTide(t, func(cfg *config.Config, _ *http.Server) { cfg.Transcripts = false })
+	k := startTide(t, func(cfg *config.Config, _ *http.Server) { cfg.Moil = false })
 	alice := k.signIn(auth.Session{Sub: "alice", Name: "Alice"})
 	if me := alice.me(); !me.Recording || me.Anonymous {
 		t.Fatalf("/api/me = %+v, want recording", me)
@@ -405,8 +405,8 @@ func TestSignalingIsForwardedUnderRTCOnly(t *testing.T) {
 // New refuses the combinations config.Load refuses.
 func TestNewRefusesWhatTheModesForbid(t *testing.T) {
 	for name, cfg := range map[string]config.Config{
-		"transcripts without recording": {Transcripts: true},
-		"recording without sign-in":     {Anonymous: true, Recording: true},
+		"moil without recording":    {Moil: true},
+		"recording without sign-in": {Anonymous: true, Recording: true},
 	} {
 		cfg.BaseURL, cfg.SessionSecret = "http://localhost:8080", "test-session-secret"
 		if _, _, err := New(cfg, nil, nil, transcribeBundle(t), nil); err == nil {
@@ -415,7 +415,7 @@ func TestNewRefusesWhatTheModesForbid(t *testing.T) {
 	}
 }
 
-// A session belongs to the mode that issued it (ARCHITECTURE.md §4.1), even
+// A session belongs to the mode that issued it (docs/internals/auth.md), even
 // when an operator switches modes keeping the session secret: an anonymous
 // cookie is no host in a deployment with sign-in, and a host's (or an
 // administrator's) cookie is nobody in an anonymous one.
@@ -443,7 +443,7 @@ func TestSessionsDontCrossModes(t *testing.T) {
 	// The anonymous owner's cookie, in a deployment with sign-in and the same
 	// secret, is no session at all.
 	signedIn := startTide(t, func(cfg *config.Config, _ *http.Server) {
-		cfg.Recording, cfg.Transcripts = false, false
+		cfg.Recording, cfg.Moil = false, false
 		cfg.SessionSecret = anonymous.cfg.SessionSecret
 	})
 	stranger := &browser{k: signedIn, cookie: owner.cookie}
@@ -456,7 +456,7 @@ func TestSessionsDontCrossModes(t *testing.T) {
 	}
 }
 
-// An anonymous deployment stops creating rooms at its ceiling (§4.1); a
+// An anonymous deployment stops creating rooms at its ceiling; a
 // deployment with sign-in has none.
 func TestOnlyAnonymousRoomsHaveACeiling(t *testing.T) {
 	saved := anonymousRoomCap
@@ -476,7 +476,7 @@ func TestOnlyAnonymousRoomsHaveACeiling(t *testing.T) {
 		t.Fatalf("503 says %q", refused.Error)
 	}
 
-	signedIn := startTide(t, func(cfg *config.Config, _ *http.Server) { cfg.Recording, cfg.Transcripts = false, false })
+	signedIn := startTide(t, func(cfg *config.Config, _ *http.Server) { cfg.Recording, cfg.Moil = false, false })
 	alice := signedIn.signIn(auth.Session{Sub: "alice", Name: "Alice"})
 	for _, name := range []string{"One", "Two", "Three"} {
 		alice.createRoom(name)
@@ -484,7 +484,7 @@ func TestOnlyAnonymousRoomsHaveACeiling(t *testing.T) {
 }
 
 // Every token tide mints for a room marks the room active before it leaves
-// (§5), so the anonymous sweep, which deletes only rooms still idle, never
+//, so the anonymous sweep, which deletes only rooms still idle, never
 // deletes one a meeting is starting in, though the media server's webhook
 // hasn't arrived (here it never does).
 func TestTokensMarkTheirRoomActive(t *testing.T) {
@@ -549,7 +549,7 @@ func TestOnlyAnAnonymousDeploymentSweeps(t *testing.T) {
 
 // A join tide began before the room was deleted gets no token: the room's
 // slug is free for someone else's room now, and a token names its room by
-// slug (ARCHITECTURE.md §5). The guest's body arrives after the delete, as a
+// slug (docs/internals/auth.md). The guest's body arrives after the delete, as a
 // slow client's would.
 func TestNoTokenForARoomDeletedMidJoin(t *testing.T) {
 	k := startTide(t, anonymousMode(100))

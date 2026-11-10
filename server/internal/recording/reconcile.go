@@ -22,7 +22,7 @@ const reconcileGrace = 2 * time.Minute
 // still-running egresses stuck in "finalizing" get their stop re-issued, and
 // egresses LiveKit no longer knows are failed after a grace period. Each pass
 // then removes the files queued for removal that are due, and retries those
-// storage kept (ARCHITECTURE.md §8.1), for up to removeDueTimeout: storage
+// storage kept (docs/internals/transcripts.md), for up to removeDueTimeout: storage
 // out of reach delays neither the healing nor the next pass. Runs once
 // immediately, then every interval; blocks until ctx is done.
 func (h *Handler) RunReconciler(ctx context.Context, interval time.Duration) {
@@ -76,6 +76,7 @@ func (h *Handler) reconcileRecording(ctx context.Context, recording store.Record
 		if h.now().Sub(time.Unix(recording.StartedAt, 0)) < reconcileGrace {
 			return nil
 		}
+		h.stopObserver(recording.ID)
 		if err := h.store.UpdateRecordingByEgress(ctx, recording.EgressID, store.RecordingUpdate{Status: "failed"}); err != nil {
 			return err
 		}

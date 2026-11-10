@@ -9,6 +9,7 @@
   import ParticipantTile from './ParticipantTile.svelte';
   import RemoteAudioRenderer from './RemoteAudioRenderer.svelte';
   import { ConnectionState } from 'livekit-client';
+  import { setBotChrome } from './connection.svelte';
   import { attachMediaTrack } from './mediaElement';
   import type { RoomState } from './room.svelte';
 
@@ -18,6 +19,7 @@
     roomName,
     onleave,
     canManage = false,
+    isOwner = false,
     canRecord = false,
     pending = [],
     peopleOpen = $bindable(false),
@@ -31,7 +33,9 @@
     roomName: string;
     onleave: () => void;
     canManage?: boolean;
-    /** A host on a deployment that records (ARCHITECTURE.md §8). */
+    /** The room's owner, not only a manager: offers a bot session (docs/internals/auth.md). */
+    isOwner?: boolean;
+    /** A host on a deployment that records (docs/internals/recording.md). */
     canRecord?: boolean;
     pending?: LobbyRequestInfo[];
     peopleOpen?: boolean;
@@ -113,6 +117,12 @@
         participant.identity !== promoted?.identity && participant.identity !== pipIdentity
     )
   );
+  // The hairline lives outside the stage, and leaves with it.
+  $effect(() => {
+    setBotChrome(rtc.botPresent);
+    return () => setBotChrome(false);
+  });
+
   let previousPendingCount = 0;
   let chatOpen = $state(false);
   let unreadChat = $state(0);
@@ -176,8 +186,17 @@
       <WallClock />
       <span class="divider" aria-hidden="true"></span>
       <h1 class="room-name" title={roomName}>{roomName}</h1>
-      <MeetingDetails url={meetingURL} />
+      <MeetingDetails url={meetingURL} slug={roomSlug} {isOwner} />
       {#if rtc.isRecording}<span class="rec-chip mono" data-testid="recording-chip">REC</span>{/if}
+      {#if rtc.botPresent}
+        <span
+          class="bot-chip mono"
+          data-testid="bot-chip"
+          title="A program is in this meeting and hears what is said"
+        >
+          BOT
+        </span>
+      {/if}
     </div>
     <!-- Autoplay policy blocks playback until a gesture. Without this the
          participant gets silence and no explanation, and recovery depends on
@@ -314,7 +333,7 @@
     flex-wrap: wrap;
   }
 
-  /* Clock | name (i) REC: the name is the only part that gives way. */
+  /* Clock | name (i) REC BOT: the name is the only part that gives way. */
   .room-status {
     display: flex;
     height: 28px;
@@ -343,7 +362,8 @@
     text-overflow: ellipsis;
   }
 
-  .rec-chip {
+  .rec-chip,
+  .bot-chip {
     flex: none;
     padding: 1px 5px;
     color: white;
@@ -352,6 +372,11 @@
     letter-spacing: 0.06em;
     background: var(--rec);
     border-radius: 999px;
+  }
+
+  .bot-chip {
+    color: var(--stage);
+    background: var(--ok);
   }
 
   .playback-unlock {
