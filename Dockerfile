@@ -4,7 +4,7 @@
 # image is per-platform: the SPA and the CA and zone files are the same on
 # every architecture, and Go cross-compiles the static binary. A multi-arch
 # build (.github/workflows/release.yml) needs no emulation.
-FROM --platform=$BUILDPLATFORM node:24.22.2-alpine3.23 AS web-builder
+FROM --platform=$BUILDPLATFORM node:24.22.3-alpine3.23 AS web-builder
 WORKDIR /src/web
 ARG VITE_TIDE_TEST=false
 ENV VITE_TIDE_TEST=${VITE_TIDE_TEST}
@@ -18,7 +18,7 @@ RUN npm ci
 COPY web/ ./
 RUN npx vite build
 
-FROM --platform=$BUILDPLATFORM golang:1.26.10-alpine3.23 AS go-builder
+FROM --platform=$BUILDPLATFORM golang:1.26.11-alpine3.23 AS go-builder
 WORKDIR /src/server
 
 COPY server/go.mod server/go.sum ./
@@ -41,7 +41,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH go build \
     -o /out/tide \
     ./cmd/tide
 
-FROM --platform=$BUILDPLATFORM alpine:3.24.3 AS runtime-files
+FROM --platform=$BUILDPLATFORM alpine:3.24.4 AS runtime-files
 RUN apk add --no-cache ca-certificates tzdata \
     && mkdir -p /runtime/data \
     && chown 65532:65532 /runtime/data
